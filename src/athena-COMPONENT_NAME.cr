@@ -1,6 +1,6 @@
-# Convenience alias to make referencing `Athena::NAMESPACE_NAME` types easier.
-alias ALIAS_NAME = Athena::NAMESPACE_NAME
+# Convenience alias to make referencing `Athena::ORM` types easier.
+alias AORM = Athena::ORM
 
-module Athena::NAMESPACE_NAME
+module Athena::ORM
   VERSION = "0.1.0"
 end

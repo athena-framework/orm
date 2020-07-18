@@ -1,4 +1,4 @@
-name: athena-COMPONENT_NAME
+name: athena-orm
 
 version: 0.1.0
 
@@ -6,15 +6,15 @@ crystal: 0.32.0
 
 license: MIT
 
-repository: https://github.com/athena-framework/COMPONENT_NAME
+repository: https://github.com/athena-framework/orm
 
-documentation: https://athena-framework.github.io/COMPONENT_NAME/Athena/NAMESPACE_NAME.html
+documentation: https://athena-framework.github.io/orm/Athena/ORM.html
 
-description: |
-  DESCRIPTION.
+WIP ORM lib: |
+  WIP ORM lib.
 
 authors:
-  - CREATOR_NAME <CREATOR_EMAIL>
+  - George Dietrich <george@dietrich.app>
 
 development_dependencies:
   ameba:
