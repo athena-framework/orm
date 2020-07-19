@@ -16,7 +16,12 @@ WIP ORM lib: |
 authors:
   - George Dietrich <george@dietrich.app>
 
+dependencies:
+  db:
+    github: crystal-lang/crystal-db
+    version: ~> 0.9.0
+
 development_dependencies:
   ameba:
     github: crystal-ameba/ameba
-    version: ~> 0.11.0
+    version: ~> 0.13.0
