@@ -4,6 +4,7 @@ require "./metadata/*"
 require "./platforms/*"
 require "./types/*"
 
+require "./entity_manager"
 require "./model"
 
 # Convenience alias to make referencing `Athena::ORM` types easier.
@@ -105,19 +106,17 @@ class FieldEmitter < DB::ResultSet
   end
 end
 
-enum Test
-  One
-  Two
-end
+# enum Test
+#   One
+#   Two
+# end
 
-struct TestEnumType < Athena::ORM::Types::Enum(Test); end
+# struct TestEnumType < Athena::ORM::Types::Enum(Test); end
 
-AORM::Types::Type.add_type TestEnumType, TestEnumType
+# AORM::Types::Type.add_type TestEnumType, TestEnumType
 
-class User
-  include Athena::ORM::Model
-
-  def initialize(@name : String, @test : Test); end
+class User < Athena::ORM::Entity
+  def initialize(@name : String); end
 
   @[AORM::Column]
   @[AORM::ID]
@@ -126,19 +125,43 @@ class User
   @[AORM::Column]
   property name : String
 
-  @[AORM::Column]
-  property? admin : Bool = false
+  # @[AORM::Column]
+  # property? admin : Bool = false
 
-  @[AORM::Column(type: TestEnumType)]
-  property test : Test
+  # @[AORM::Column(type: TestEnumType)]
+  # property test : Test
 end
 
-rs = FieldEmitter.new.tap do |e|
-  e._set_values([1_i64, "Jim", true, "one"])
-end
+# rs = FieldEmitter.new.tap do |e|
+#   e._set_values([1_i64, "Jim"])
+# end
 
-u = User.from_rs rs
+# u = User.from_rs rs
+
+u = User.new "Jim"
 
 pp u
+
+em = AORM::EntityManager.new FakeConnection.new
+
+em.persist u
+
+pp em
+
+puts
+puts
+
+em.remove u
+
+pp em
+
+puts
+puts
+
+pp em.unit_of_work.entity_state u
+
+em.clear
+
+pp em
 
 # u.name = 1

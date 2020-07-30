@@ -1,5 +1,5 @@
-module Athena::ORM::Model
-  macro included
+abstract class Athena::ORM::Entity
+  macro inherited
     {% verbatim do %}
       def self.from_rs(rs : DB::ResultSet) : self
         {% begin %}
