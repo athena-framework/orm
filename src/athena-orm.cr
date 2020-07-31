@@ -1,5 +1,11 @@
 require "db"
 
+require "./sequence_generator"
+require "./value_generation_plan_interface"
+require "./value_generation_executor_interface"
+require "./column_value_generator_executor"
+require "./single_value_generation_plan"
+
 require "./metadata/*"
 require "./platforms/*"
 require "./types/*"
@@ -17,6 +23,7 @@ module Athena::ORM
 
   annotation Column; end
   annotation ID; end
+  annotation GeneratedValue; end
 end
 
 class FakeStatement < DB::Statement
@@ -43,6 +50,12 @@ class FakeContext
   def discard(connection); end
 
   def release(connection); end
+end
+
+class DB::Connection
+  def database_platform
+    AORM::Platforms::Postgres.new
+  end
 end
 
 class FakeConnection < DB::Connection
@@ -126,6 +139,7 @@ class User < Athena::ORM::Entity
 
   @[AORM::Column]
   @[AORM::ID]
+  @[AORM::GeneratedValue]
   getter! id : Int64
 
   @[AORM::Column]
@@ -146,17 +160,24 @@ end
 
 # u = User.from_rs rs
 
-u = User.new "Jim"
+require "pg"
 
-pp u
+DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=blog" do |db|
+  # ... use db to perform queries
+  db.using_connection do |conn|
+    u = User.new "Jim"
 
-em = AORM::EntityManager.new FakeConnection.new
+    pp u
 
-em.persist u
+    em = AORM::EntityManager.new conn
 
-em.flush
+    em.persist u
 
-pp u
+    em.flush
+
+    pp u
+  end
+end
 
 # puts
 # puts

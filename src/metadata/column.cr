@@ -6,12 +6,25 @@ module Athena::ORM::Metadata
     type : AORM::Types::Type,
     nullable : Bool = false,
     is_primary_key : Bool = false,
-    default : T? = nil do
+    default : T? = nil,
+    value_generator : ValueGeneratorMetadata? = nil do
     # property! declaring_class : Class
 
     def column_name : String
       # TODO: support reading column name off annotation
       @name
+    end
+
+    def has_value_generator? : Bool
+      !@value_generator.nil?
+    end
+
+    def value_generation_executor : AORM::ValueGenerationExecutorInterface?
+      # TODO: Pass in the platform to this method
+
+      if generator = @value_generator
+        AORM::ColumnValueGeneratorExecutor.new self, generator.generator
+      end
     end
   end
 
@@ -38,13 +51,31 @@ module Athena::ORM::Metadata
   struct Class
     getter inheritence_type = InheritenceType::None
     @field_names = Hash(String, String).new
-    @identifier = Set(String).new
     @properties = Hash(String, ColumnBase).new
 
     getter entity_class : AORM::Entity.class
     getter table : Table
+    getter identifier = Set(String).new
+    getter value_generation_plan : AORM::ValueGenerationPlanInterface do
+      executor_list = Hash(String, AORM::ValueGenerationExecutorInterface).new
 
-    def initialize(@entity_class : AORM::Entity.class, @table : Table); end
+      self.each_property do |name, property|
+        executor = property.value_generation_executor
+
+        if executor.is_a? ValueGenerationExecutorInterface
+          executor_list[name] = executor
+        end
+      end
+
+      case executor_list.size
+      when 1 then AORM::SingleValueGenerationPlan.new self, executor_list.values.first
+      else
+        raise "ERR"
+      end
+    end
+
+    def initialize(@entity_class : AORM::Entity.class, @table : Table)
+    end
 
     def add_property(property : ColumnBase) : Nil
       @identifier << property.name if property.is_primary_key
@@ -65,5 +96,22 @@ module Athena::ORM::Metadata
       # This method allows adding parent types in the future
       @entity_class
     end
+
+    def table_name : String
+      @table.name
+    end
   end
+
+  enum GeneratorType
+    None
+    Auto
+    Sequence
+    Table
+    Identity
+    Custom
+  end
+
+  record ValueGeneratorMetadata,
+    type : GeneratorType,
+    generator : AORM::GeneratorInterface
 end

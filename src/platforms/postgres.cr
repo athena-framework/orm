@@ -23,6 +23,10 @@ struct Athena::ORM::Platforms::Postgres < Athena::ORM::Platforms::Platform
     "SMALLINT"
   end
 
+  def sequence_next_val_sql(sequence_name : String) : String
+    "SELECT NEXTVAL('#{sequence_name}')"
+  end
+
   def supports_schemas? : Bool
     true
   end

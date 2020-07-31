@@ -94,6 +94,15 @@ class Athena::ORM::UnitOfWork
     obj_id = entity.object_id
 
     # TODO: Handle the entity's IDGenerator
+    generation_plan = class_metadata.value_generation_plan
+    persister = self.entity_persister class_metadata.entity_class
+    generation_plan.execute_immediate @em, entity
+
+    unless generation_plan.contains_deferred?
+      id = persister.identifier entity
+
+      p! id
+    end
 
     @entity_states[obj_id] = :managed
     self.schedule_for_insert entity

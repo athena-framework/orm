@@ -6,6 +6,8 @@ abstract struct Athena::ORM::Platforms::Platform
   abstract def big_int_type_declaration_sql : String
   abstract def small_int_type_declaration_sql : String
 
+  abstract def sequence_next_val_sql(sequence_name : String) : String
+
   def varchar_type_declaration_sql : String
     ""
   end

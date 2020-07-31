@@ -12,14 +12,24 @@ struct Athena::ORM::BasicEntityPersister
     @platform = @connection.database_platform
   end
 
+  def identifier(entity : AORM::Entity) : Array(AORM::Metadata::Identifier)
+    @class_metadata.identifier.map do |field_name|
+      AORM::Metadata::ColumnIdentifier.new(field_name, 1).as AORM::Metadata::Identifier
+    end
+  end
+
   def insert(entity : AORM::Entity) : Nil
-    pp @connection
-    pp @platform
+    insert_sql = self.insert_sql
 
-    # stmt = @connection.prepare self.insert_sql
-    stmt = self.insert_sql
+    stmt = @connection.fetch_or_build_prepared_statement insert_sql
+    table_name = @class_metadata.table_name
+    insert_data = self.prepare_insert_data entity
 
-    puts stmt
+    puts insert_sql
+    puts table_name
+    puts insert_data
+
+    # stmt.exec args: insert_data
   end
 
   def insert_sql : String
@@ -34,16 +44,27 @@ struct Athena::ORM::BasicEntityPersister
 
     quoted_columns = [] of String
     values = [] of DB::Any
+    idx = 1
 
     columns.each do |name, metadata|
       quoted_columns << @platform.quote_identifier metadata.column_name
-      values << metadata.type.to_database_value_sql "?", @platform
+      values << metadata.type.to_database_value_sql "$#{idx}", @platform
+      idx += 1
     end
 
     quoted_columns = quoted_columns.join(", ")
     values = values.join(", ")
 
-    @insert_sql = "INSERT INTO #{table_name} (#{quoted_columns}) (#{values})"
+    @insert_sql = "INSERT INTO #{table_name} (#{quoted_columns}) VALUES (#{values})"
+  end
+
+  protected def prepare_insert_data(entity : AORM::Entity) : Array
+    column_prefix = ""
+    table_name = @class_metadata.table_name
+
+    # TODO: Get the changeset from UnitOfWork to do this
+
+    ["Jim"]
   end
 
   protected def insert_column_list : Hash(String, AORM::Metadata::ColumnBase)
@@ -58,7 +79,9 @@ struct Athena::ORM::BasicEntityPersister
     columns = Hash(String, AORM::Metadata::ColumnBase).new
 
     class_metadata.each_property do |name, property|
-      columns["#{column_prefix}#{name}"] = property
+      if !property.has_value_generator? || !property.value_generator.try &.type.identity?
+        columns["#{column_prefix}#{name}"] = property
+      end
     end
 
     columns

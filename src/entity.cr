@@ -20,7 +20,7 @@ abstract class Athena::ORM::Entity
         {% begin %}
           class_metadata = Athena::ORM::Metadata::Class.new(
             entity_class: {{@type}},
-            table: AORM::Metadata::Table.new({{@type.name.stringify + 's'}})
+            table: AORM::Metadata::Table.new({{@type.name.stringify.downcase + 's'}})
           )
 
           {% properties = [] of Nil %}
@@ -29,13 +29,22 @@ abstract class Athena::ORM::Entity
             {% ann = column.annotation AORM::Column %}
             {% type = ann[:type] == nil ? (column.type.union? ? column.type.union_types.first : column.type) : ann[:type] %}
 
+            %value_generator = nil
+
+            {% if column.annotation AORM::ID %}
+              # TODO: Handle reading data off the annotation
+
+              %value_generator = AORM::Metadata::ValueGeneratorMetadata.new :sequence, AORM::SequenceGenerator.new "users_id_seq", 1
+            {% end %}
+
             class_metadata.add_property(
               AORM::Metadata::Column({{column.type}}).new(
                 {{column.name.id.stringify}},
                 Athena::ORM::Types::Type.get_type({{type}}),
                 {{column.type.nilable?}},
                 {{!!column.annotation AORM::ID}},
-                {{column.default_value}}
+                {{column.default_value}},
+                %value_generator
               )
             )
             
