@@ -22,4 +22,8 @@ struct Athena::ORM::Platforms::Postgres < Athena::ORM::Platforms::Platform
   def small_int_type_declaration_sql : String
     "SMALLINT"
   end
+
+  def supports_schemas? : Bool
+    true
+  end
 end

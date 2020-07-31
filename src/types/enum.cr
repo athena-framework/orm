@@ -9,7 +9,7 @@ abstract struct Athena::ORM::Types::Enum(T) < Athena::ORM::Types::Type
     value.to_s
   end
 
-  def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform? = nil) : T?
+  def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform) : T?
     return unless value = rs.read ::String?
     T.parse value
   end

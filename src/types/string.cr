@@ -9,7 +9,7 @@ struct Athena::ORM::Types::String < Athena::ORM::Types::Type
     value.to_s
   end
 
-  def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform? = nil) : ::String?
+  def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform) : ::String?
     rs.read ::String?
   end
 end

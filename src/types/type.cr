@@ -26,9 +26,13 @@ abstract struct Athena::ORM::Types::Type
   # def self.get_type(type_class : AORM::Types::Type.class) : AORM::Types::Type
   # end
 
+  def to_database_value_sql(sql_expression : ::String, platform : AORM::Platforms::Platform) : ::String
+    sql_expression
+  end
+
   abstract def sql_declaration(platform : AORM::Platforms::Platform) : ::String
 
-  abstract def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform? = nil)
+  abstract def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform)
 
   # abstract def name : String
 

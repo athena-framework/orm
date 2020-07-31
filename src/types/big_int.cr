@@ -9,7 +9,7 @@ struct Athena::ORM::Types::BigInt < Athena::ORM::Types::Type
     1_i64
   end
 
-  def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform? = nil) : Int64?
+  def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform) : Int64?
     rs.read Int64?
   end
 end

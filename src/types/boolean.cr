@@ -9,7 +9,7 @@ struct Athena::ORM::Types::Boolean < Athena::ORM::Types::Type
     false
   end
 
-  def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform? = nil) : Bool?
+  def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform) : Bool?
     rs.read Bool?
   end
 end

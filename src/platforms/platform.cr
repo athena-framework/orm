@@ -34,6 +34,18 @@ abstract struct Athena::ORM::Platforms::Platform
     '\''
   end
 
+  def quote_identifier(identifier : String) : String
+    # TODO: Handle . separated identifier chains
+
+    self.quote_single_identifier identifier
+  end
+
+  def quote_single_identifier(identifier : String) : String
+    quote_char = self.identifier_quote_character
+
+    %(#{quote_char}#{identifier.gsub(quote_char, "#{quote_char}#{quote_char}")}#{quote_char})
+  end
+
   def char_max_length : Int32
     self.varchar_max_length
   end
@@ -48,5 +60,13 @@ abstract struct Athena::ORM::Platforms::Platform
 
   def max_identifier_length : Int32
     63
+  end
+
+  def supports_schemas? : Bool
+    false
+  end
+
+  def can_emulate_schemas? : Bool
+    false
   end
 end

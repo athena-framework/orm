@@ -4,8 +4,10 @@ require "./metadata/*"
 require "./platforms/*"
 require "./types/*"
 
+require "./entity_persister_interface"
+require "./basic_entity_persister"
 require "./entity_manager"
-require "./model"
+require "./entity"
 
 # Convenience alias to make referencing `Athena::ORM` types easier.
 alias AORM = Athena::ORM
@@ -55,6 +57,10 @@ class FakeConnection < DB::Connection
 
   def build_prepared_statement(query : String) : FakeStatement
     FakeStatement.new self
+  end
+
+  def database_platform
+    AORM::Platforms::Postgres.new
   end
 end
 
@@ -132,6 +138,8 @@ class User < Athena::ORM::Entity
   # property test : Test
 end
 
+# pp User.entity_class_metadata
+
 # rs = FieldEmitter.new.tap do |e|
 #   e._set_values([1_i64, "Jim"])
 # end
@@ -146,22 +154,24 @@ em = AORM::EntityManager.new FakeConnection.new
 
 em.persist u
 
-pp em
+em.flush
 
-puts
-puts
+pp u
 
-em.remove u
+# puts
+# puts
 
-pp em
+# em.remove u
 
-puts
-puts
+# pp em
 
-pp em.unit_of_work.entity_state u
+# puts
+# puts
 
-em.clear
+# pp em.unit_of_work.entity_state u
 
-pp em
+# em.clear
 
-# u.name = 1
+# pp em
+
+# # u.name = 1
