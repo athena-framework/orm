@@ -101,7 +101,9 @@ class Athena::ORM::UnitOfWork
     unless generation_plan.contains_deferred?
       id = persister.identifier entity
 
-      p! id
+      unless self.has_missing_ids_which_are_foreign_keys? class_metadata, id
+        @entity_identifiers[obj_id] = id
+      end
     end
 
     @entity_states[obj_id] = :managed
@@ -200,5 +202,10 @@ class Athena::ORM::UnitOfWork
     # TODO: Handle cacheing
 
     @entity_persisters[entity_class] = persister
+  end
+
+  private def has_missing_ids_which_are_foreign_keys?(class_metadata : AORM::Metadata::Class, id : Array(AORM::Metadata::Identifier)) : Bool
+    # TODO: Handle FKs when associations are implemented
+    false
   end
 end

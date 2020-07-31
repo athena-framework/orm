@@ -21,6 +21,7 @@ class Athena::ORM::SingleValueGenerationPlan
 
   private def dispatch_executor(em : AORM::EntityManagerInterface, entity : AORM::Entity) : Nil
     name, value = @executor.execute em, entity
-    p! name, value
+    column = @class_metadata.column(name).not_nil!
+    column.set_value entity, value
   end
 end

@@ -13,8 +13,13 @@ struct Athena::ORM::BasicEntityPersister
   end
 
   def identifier(entity : AORM::Entity) : Array(AORM::Metadata::Identifier)
-    @class_metadata.identifier.map do |field_name|
-      AORM::Metadata::ColumnIdentifier.new(field_name, 1).as AORM::Metadata::Identifier
+    @class_metadata.identifier.compact_map do |field_name|
+      property = @class_metadata.property(field_name).not_nil!
+      value = property.get_value entity
+
+      unless value.nil?
+        AORM::Metadata::ColumnIdentifier.new(field_name, value).as AORM::Metadata::Identifier
+      end
     end
   end
 
@@ -29,7 +34,7 @@ struct Athena::ORM::BasicEntityPersister
     puts table_name
     puts insert_data
 
-    # stmt.exec args: insert_data
+    stmt.exec args: insert_data
   end
 
   def insert_sql : String
@@ -62,9 +67,9 @@ struct Athena::ORM::BasicEntityPersister
     column_prefix = ""
     table_name = @class_metadata.table_name
 
-    # TODO: Get the changeset from UnitOfWork to do this
-
-    ["Jim"]
+    @class_metadata.map do |property|
+      property.get_value entity
+    end
   end
 
   protected def insert_column_list : Hash(String, AORM::Metadata::ColumnBase)
@@ -78,9 +83,9 @@ struct Athena::ORM::BasicEntityPersister
   protected def column_list(class_metadata : AORM::Metadata::Class, column_prefix : String = "") : Hash(String, AORM::Metadata::ColumnBase)
     columns = Hash(String, AORM::Metadata::ColumnBase).new
 
-    class_metadata.each_property do |name, property|
+    class_metadata.each do |property|
       if !property.has_value_generator? || !property.value_generator.try &.type.identity?
-        columns["#{column_prefix}#{name}"] = property
+        columns["#{column_prefix}#{property.name}"] = property
       end
     end
 

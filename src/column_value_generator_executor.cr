@@ -7,9 +7,9 @@ struct Athena::ORM::ColumnValueGeneratorExecutor
     value = @generator.generate em, entity
 
     platform = em.connection.database_platform
-    # converted_value = @column_metadata.type.from_db value, platform
+    converted_value = @column_metadata.type.from_db value, platform
 
-    p!({@column_metadata.column_name, value})
+    {@column_metadata.column_name, converted_value}
   end
 
   def deferred? : Bool

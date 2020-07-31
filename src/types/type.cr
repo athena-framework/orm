@@ -34,6 +34,10 @@ abstract struct Athena::ORM::Types::Type
 
   abstract def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform)
 
+  def from_db(value : _, platform : AORM::Platforms::Platform)
+    value
+  end
+
   # abstract def name : String
 
   def to_db(value : _, platform : AORM::Platforms::Platform)

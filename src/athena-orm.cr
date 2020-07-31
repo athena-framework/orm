@@ -144,12 +144,6 @@ class User < Athena::ORM::Entity
 
   @[AORM::Column]
   property name : String
-
-  # @[AORM::Column]
-  # property? admin : Bool = false
-
-  # @[AORM::Column(type: TestEnumType)]
-  # property test : Test
 end
 
 # pp User.entity_class_metadata
@@ -167,7 +161,7 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
   db.using_connection do |conn|
     u = User.new "Jim"
 
-    pp u
+    pp u # => #<User:0x7f7e3fe37e10 @id=nil, @name="Jim">
 
     em = AORM::EntityManager.new conn
 
@@ -175,7 +169,7 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
 
     em.flush
 
-    pp u
+    pp u # => #<User:0x7f7e3fe37e10 @id=1, @name="Jim">
   end
 end
 

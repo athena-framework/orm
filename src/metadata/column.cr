@@ -1,15 +1,14 @@
 module Athena::ORM::Metadata
   abstract struct ColumnBase; end
 
-  record Column(T) < ColumnBase,
+  record Column(DefaultType, EntityType) < ColumnBase,
     name : String,
     type : AORM::Types::Type,
     nullable : Bool = false,
     is_primary_key : Bool = false,
-    default : T? = nil,
-    value_generator : ValueGeneratorMetadata? = nil do
-    # property! declaring_class : Class
-
+    default : DefaultType? = nil,
+    value_generator : ValueGeneratorMetadata? = nil,
+    entity_class : EntityType.class = EntityType do
     def column_name : String
       # TODO: support reading column name off annotation
       @name
@@ -25,6 +24,32 @@ module Athena::ORM::Metadata
       if generator = @value_generator
         AORM::ColumnValueGeneratorExecutor.new self, generator.generator
       end
+    end
+
+    def set_value(entity : AORM::Entity, value : _) : Nil
+      {% begin %}
+        case self.column_name
+          {% for column in EntityType.instance_vars.select &.annotation AORM::Column %}
+            when {{column.name.stringify}}
+              if value.is_a? {{column.type}}
+                pointerof(entity.@{{column.id}}).value = value
+              end
+          {% end %}
+        end
+      {% end %}
+    end
+
+    def get_value(entity : AORM::Entity)
+      {% begin %}
+        {% for column in EntityType.instance_vars.select &.annotation AORM::Column %}
+          # TODO: Revist if its ok that entities are required to expose getters
+          case @name
+            {% for column in EntityType.instance_vars.select &.annotation AORM::Column %}
+              when {{column.name.stringify}} then entity.{{column.id}}
+            {% end %}
+          end
+        {% end %}
+      {% end %}
     end
   end
 
@@ -49,6 +74,8 @@ module Athena::ORM::Metadata
   end
 
   struct Class
+    include Enumerable(ColumnBase)
+
     getter inheritence_type = InheritenceType::None
     @field_names = Hash(String, String).new
     @properties = Hash(String, ColumnBase).new
@@ -59,11 +86,11 @@ module Athena::ORM::Metadata
     getter value_generation_plan : AORM::ValueGenerationPlanInterface do
       executor_list = Hash(String, AORM::ValueGenerationExecutorInterface).new
 
-      self.each_property do |name, property|
+      self.each do |property|
         executor = property.value_generation_executor
 
         if executor.is_a? ValueGenerationExecutorInterface
-          executor_list[name] = executor
+          executor_list[property.name] = executor
         end
       end
 
@@ -86,9 +113,19 @@ module Athena::ORM::Metadata
       @properties[property.name] = property
     end
 
-    def each_property(&) : Nil
-      @properties.each do |name, property|
-        yield name, property
+    def column(name : String) : ColumnBase?
+      @properties.each_value do |property|
+        return property if property.column_name == name
+      end
+    end
+
+    def property(name : String) : ColumnBase?
+      @properties[name]?
+    end
+
+    def each
+      @properties.each_value do |property|
+        yield property
       end
     end
 

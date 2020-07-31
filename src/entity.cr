@@ -38,7 +38,7 @@ abstract class Athena::ORM::Entity
             {% end %}
 
             class_metadata.add_property(
-              AORM::Metadata::Column({{column.type}}).new(
+              AORM::Metadata::Column({{column.type}}, {{@type}}).new(
                 {{column.name.id.stringify}},
                 Athena::ORM::Types::Type.get_type({{type}}),
                 {{column.type.nilable?}},
