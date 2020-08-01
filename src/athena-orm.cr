@@ -26,6 +26,12 @@ module Athena::ORM
   annotation GeneratedValue; end
 end
 
+class DB::Connection
+  def database_platform
+    AORM::Platforms::Postgres.new
+  end
+end
+
 # enum Test
 #   One
 #   Two

@@ -6,7 +6,7 @@ class Athena::ORM::UnitOfWork
     Removed
   end
 
-  @identity_map : Hash(AORM::Entity.class, Hash(UInt64, AORM::Entity)) = {} of AORM::Entity.class => Hash(UInt64, AORM::Entity)
+  @identity_map : Hash(AORM::Entity.class, Hash(String, AORM::Entity)) = {} of AORM::Entity.class => Hash(String, AORM::Entity)
 
   @entity_identifiers = Hash(UInt64, Hash(String, AORM::Metadata::Value)).new
 
@@ -46,6 +46,7 @@ class Athena::ORM::UnitOfWork
   private def execute_inserts(class_metadata : AORM::Metadata::Class) : Nil
     entity_class = class_metadata.entity_class
     persister = self.entity_persister class_metadata.entity_class
+    generation_plan = class_metadata.value_generation_plan
 
     @entity_inserstions.each do |obj_id, entity|
       next if entity_class != entity.class.entity_class_metadata.entity_class
@@ -210,21 +211,21 @@ class Athena::ORM::UnitOfWork
     persister = self.entity_persister class_metadata.entity_class
     id = persister.identifier entity
 
-    return :new if id.empty?
+    return EntityState::New if id.empty?
 
-    flat_id = self.flatten_id class_metadata, id
+    flat_id = self.flatten_id id
 
     # TODO: Handle AssociationMetadata
     if class_metadata.is_identifier_composite? || !class_metadata.property(class_metadata.single_identifier_field_name).not_nil!.has_value_generator?
       # TODO: Handle versioned fields
 
       self.try_get flat_id, class_metadata.root_class do
-        return :detached
+        return EntityState::Detached
       end
 
       # TODO: Handle DB lookups
 
-      return :new
+      return EntityState::New
     end
 
     # TODO: Handle deferred value generation plans
