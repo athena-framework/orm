@@ -26,105 +26,6 @@ module Athena::ORM
   annotation GeneratedValue; end
 end
 
-class FakeStatement < DB::Statement
-  protected def perform_query(args : Enumerable) : DB::ResultSet
-    FieldEmitter.new
-  end
-
-  protected def perform_exec(args : Enumerable) : DB::ExecResult
-    DB::ExecResult.new 0_i64, 0_i64
-  end
-end
-
-class FakeContext
-  include DB::ConnectionContext
-
-  def uri : URI
-    URI.new ""
-  end
-
-  def prepared_statements? : Bool
-    false
-  end
-
-  def discard(connection); end
-
-  def release(connection); end
-end
-
-class DB::Connection
-  def database_platform
-    AORM::Platforms::Postgres.new
-  end
-end
-
-class FakeConnection < DB::Connection
-  def initialize
-    @context = FakeContext.new
-    @prepared_statements = false
-  end
-
-  def build_unprepared_statement(query : String) : FakeStatement
-    FakeStatement.new self
-  end
-
-  def build_prepared_statement(query : String) : FakeStatement
-    FakeStatement.new self
-  end
-
-  def database_platform
-    AORM::Platforms::Postgres.new
-  end
-end
-
-class FieldEmitter < DB::ResultSet
-  private alias EmitterType = DB::Any
-
-  # 1. Override `#move_next` to move to the next row.
-  # 2. Override `#read` returning the next value in the row.
-  # 3. (Optional) Override `#read(t)` for some types `t` for which custom logic other than a simple cast is needed.
-  # 4. Override `#column_count`, `#column_name`.
-
-  @position = 0
-  @field_position = 0
-  @values = [] of EmitterType
-
-  def initialize
-    @statement = FakeStatement.new FakeConnection.new
-  end
-
-  def _set_values(values : Array(EmitterType))
-    @values = [] of EmitterType
-    values.each do |v|
-      @values << v
-    end
-  end
-
-  def move_next : Bool
-    @position += 1
-    @field_position = 0
-    @position < @values.size
-  end
-
-  def read
-    if @position >= @values.size
-      raise "Overread"
-    end
-
-    @values[@position].tap do
-      @position += 1
-    end
-  end
-
-  def column_count : Int32
-    @values.size
-  end
-
-  def column_name(index : Int32) : String
-    "Column #{index}"
-  end
-end
-
 # enum Test
 #   One
 #   Two
@@ -146,24 +47,32 @@ class User < Athena::ORM::Entity
   property name : String
 end
 
+class Post < AORM::Entity
+end
+
 require "pg"
 
 DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=blog" do |db|
   # ... use db to perform queries
   db.using_connection do |conn|
-    u = User.new "Jim"
-
-    pp u # => #<User:0x7f7e3fe37e10 @id=nil, @name="Jim">
+    u1 = User.new "Jim"
+    u2 = User.new "Bob"
+    u3 = User.new "Sally"
 
     em = AORM::EntityManager.new conn
 
-    em.persist u
+    em.persist u1
+    em.persist u2
+    em.persist u3
+
+    pp u2
+
+    # em.remove u2
+
+    # pp em
 
     em.flush
-
-    pp em
-
-    pp u # => #<User:0x7f7e3fe37e10 @id=1, @name="Jim">
+    pp u2
   end
 end
 

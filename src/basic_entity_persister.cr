@@ -21,16 +21,56 @@ struct Athena::ORM::BasicEntityPersister
     end
   end
 
-  def insert(entity : AORM::Entity) : Nil
-    insert_sql = self.insert_sql
+  def delete(entity : AORM::Entity) : Bool
+    uow = @em.unit_of_work
+    identifier = uow.entity_identifier entity
+    table_name = @class_metadata.table.quoted_qualified_name @platform
 
-    stmt = @connection.fetch_or_build_prepared_statement insert_sql
+    id = Hash(String, AORM::Metadata::Value).new
+
+    @class_metadata.identifier.each do |name|
+      property = @class_metadata.property(name).not_nil!
+      quoted_column_name = @platform.quote_identifier property.column_name
+
+      id[quoted_column_name] = identifier[name]
+
+      # TODO: Handle join column FK deletion
+    end
+
+    # TODO: Use proper exception type
+    raise "NO PK" if id.empty?
+
+    columns = [] of String
+    values = [] of DB::Any
+    conditions = [] of String
+
+    idx = 1
+    id.each do |name, value|
+      v = value.value
+
+      if v.nil?
+        conditions << @platform.is_null_expression name
+        next
+      end
+
+      columns << name
+      values << v
+      conditions << "#{name} = $#{idx}"
+
+      idx += 1
+    end
+
+    delete_sql = %(DELETE FROM #{table_name} WHERE #{conditions.join(" AND ")})
+
+    stmt = @connection.fetch_or_build_prepared_statement delete_sql
+
+    !stmt.exec(args: values).rows_affected.zero?
+  end
+
+  def insert(entity : AORM::Entity) : Nil
+    stmt = @connection.fetch_or_build_prepared_statement self.insert_sql
     table_name = @class_metadata.table_name
     insert_data = self.prepare_insert_data entity
-
-    puts insert_sql
-    puts table_name
-    puts insert_data
 
     stmt.exec args: insert_data
   end

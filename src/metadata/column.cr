@@ -1,5 +1,11 @@
 module Athena::ORM::Metadata
-  abstract struct ColumnBase; end
+  abstract struct ColumnBase
+    def set_value(entity : AORM::Entity, value : _) : Nil
+    end
+
+    def get_value(entity : AORM::Entity, &)
+    end
+  end
 
   record Column(DefaultType, EntityType) < ColumnBase,
     name : String,
@@ -26,7 +32,7 @@ module Athena::ORM::Metadata
       end
     end
 
-    def set_value(entity : AORM::Entity, value : _) : Nil
+    def set_value(entity : EntityType, value : _) : Nil
       {% begin %}
         case self.column_name
           {% for column in EntityType.instance_vars.select &.annotation AORM::Column %}
@@ -39,7 +45,7 @@ module Athena::ORM::Metadata
       {% end %}
     end
 
-    def get_value(entity : AORM::Entity, &)
+    def get_value(entity : EntityType, &)
       {% begin %}
         {% for column in EntityType.instance_vars.select &.annotation AORM::Column %}
           # TODO: Revist if its ok that entities are required to expose getters
@@ -136,6 +142,18 @@ module Athena::ORM::Metadata
 
     def table_name : String
       @table.name
+    end
+
+    def single_identifier_field_name : String
+      # TODO: Use proper exception types
+      raise "PK is composite" if self.is_identifier_composite?
+      raise "No PK is defined" if @identifier.empty?
+
+      @identifier.first
+    end
+
+    def is_identifier_composite? : Bool
+      @identifier.size > 1
     end
   end
 

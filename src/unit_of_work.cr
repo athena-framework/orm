@@ -6,9 +6,9 @@ class Athena::ORM::UnitOfWork
     Removed
   end
 
-  @entity_map : Hash(AORM::Entity.class, Hash(UInt64, AORM::Entity)) = {} of AORM::Entity.class => Hash(UInt64, AORM::Entity)
+  @identity_map : Hash(AORM::Entity.class, Hash(UInt64, AORM::Entity)) = {} of AORM::Entity.class => Hash(UInt64, AORM::Entity)
 
-  @entity_identifiers = Hash(UInt64, Array(AORM::Metadata::Value)).new
+  @entity_identifiers = Hash(UInt64, Hash(String, AORM::Metadata::Value)).new
 
   @entity_states = Hash(UInt64, EntityState).new
 
@@ -38,6 +38,7 @@ class Athena::ORM::UnitOfWork
       end
 
       @entity_deletions.each do |obj_id, entity|
+        self.execute_deleteions entity.class.entity_class_metadata
       end
     end
   end
@@ -51,9 +52,44 @@ class Athena::ORM::UnitOfWork
 
       persister.insert entity
 
-      # TODO: Handle post insert IDs
+      if generation_plan.contains_deferred?
+        obj_id = entity.object_id
+        id = persister.identifier entity
+
+        @entity_identifiers[obj_id] = self.flatten_id id
+        @entity_states[obj_id] = :managed
+        # TODO: Update original changeset data
+
+        self.add_to_identity_map entity
+      end
 
       @entity_inserstions.delete obj_id
+    end
+  end
+
+  private def execute_deleteions(class_metadata : AORM::Metadata::Class) : Nil
+    entity_class = class_metadata.entity_class
+    persister = self.entity_persister class_metadata.entity_class
+
+    @entity_deletions.each do |obj_id, entity|
+      next if entity_class != entity.class.entity_class_metadata.entity_class
+
+      persister.delete entity
+
+      @entity_deletions.delete obj_id
+      @entity_identifiers.delete obj_id
+      @entity_states.delete obj_id
+      # TODO: Delete original data from changeset
+
+      unless class_metadata.is_identifier_composite?
+        property = class_metadata.property(class_metadata.single_identifier_field_name).not_nil!
+
+        if property.has_value_generator?
+          property.set_value entity, nil
+        end
+      end
+
+      # TODO: Handle eventing
     end
   end
 
@@ -75,7 +111,7 @@ class Athena::ORM::UnitOfWork
     in .new?     then self.persist_new class_metadata, entity
     in .removed? # Remanage the entity
       @entity_deletions.delete obj_id
-      self.add_to_entity_map entity
+      self.add_to_identity_map entity
 
       @entity_states[obj_id] = :managed
     in .detached? then return # noop
@@ -93,7 +129,6 @@ class Athena::ORM::UnitOfWork
   private def persist_new(class_metadata : AORM::Metadata::Class, entity : AORM::Entity) : Nil
     obj_id = entity.object_id
 
-    # TODO: Handle the entity's IDGenerator
     generation_plan = class_metadata.value_generation_plan
     persister = self.entity_persister class_metadata.entity_class
     generation_plan.execute_immediate @em, entity
@@ -102,7 +137,7 @@ class Athena::ORM::UnitOfWork
       id = persister.identifier entity
 
       unless self.has_missing_ids_which_are_foreign_keys? class_metadata, id
-        @entity_identifiers[obj_id] = id
+        @entity_identifiers[obj_id] = self.flatten_id id
       end
     end
 
@@ -136,6 +171,19 @@ class Athena::ORM::UnitOfWork
   end
 
   private def schedule_for_delete(entity : AORM::Entity) : Nil
+    obj_id = entity.object_id
+
+    unless @entity_inserstions.delete obj_id
+      @entity_identifiers.delete obj_id
+      @entity_states.delete obj_id
+
+      return
+    end
+
+    unless @entity_deletions.has_key? obj_id
+      @entity_deletions[obj_id] = entity
+      @entity_states[obj_id] = :removed
+    end
   end
 
   def clear(entity : AORM::Entity? = nil) : Nil
@@ -158,15 +206,33 @@ class Athena::ORM::UnitOfWork
 
     return assume if assume
 
-    # TODO: Handle primary key here
-    # can skip composite keys for now
+    class_metadata = entity.class.entity_class_metadata
+    persister = self.entity_persister class_metadata.entity_class
+    id = persister.identifier entity
 
-    # TODO: Also handle the case where
-    # the state is not assumed
+    return :new if id.empty?
+
+    flat_id = self.flatten_id class_metadata, id
+
+    # TODO: Handle AssociationMetadata
+    if class_metadata.is_identifier_composite? || !class_metadata.property(class_metadata.single_identifier_field_name).not_nil!.has_value_generator?
+      # TODO: Handle versioned fields
+
+      self.try_get flat_id, class_metadata.root_class do
+        return :detached
+      end
+
+      # TODO: Handle DB lookups
+
+      return :new
+    end
+
+    # TODO: Handle deferred value generation plans
+
     raise NotImplementedError.new "Unhandleable state"
   end
 
-  def add_to_entity_map(entity : AORM::Entity) : Bool
+  def add_to_identity_map(entity : AORM::Entity) : Bool
     obj_id = entity.object_id
 
     class_metadata = entity.class.entity_class_metadata
@@ -178,14 +244,19 @@ class Athena::ORM::UnitOfWork
     end
 
     class_name = class_metadata.root_class
+    id_hash = identifier.values.join " "
 
     # TODO: Handle primary key here
     # can skip composite keys for now
-    return false if @entity_map[class_name].has_key? obj_id
+    return false if @identity_map[class_name].has_key? obj_id
 
-    @entity_map[class_name][obj_id] = entity
+    @identity_map[class_name][id_hash] = entity
 
     true
+  end
+
+  def entity_identifier(entity : AORM::Entity) : Hash(String, AORM::Metadata::Value)
+    @entity_identifiers[entity.object_id]
   end
 
   private def entity_persister(entity_class : AORM::Entity.class) : AORM::EntityPersisterInterface
@@ -204,8 +275,23 @@ class Athena::ORM::UnitOfWork
     @entity_persisters[entity_class] = persister
   end
 
-  private def has_missing_ids_which_are_foreign_keys?(class_metadata : AORM::Metadata::Class, id : Array(AORM::Metadata::Value)) : Bool
+  private def try_get(id : Hash(String, AORM::Metadata::Value), entity_class : AORM::Entity.class, & : AORM::Entity ->) : Nil
+    id_hash = id.values.join " "
+
+    if (klass = @identity_map[entity_class]?) && (entity = klass[id_hash]?)
+      yield entity
+    end
+  end
+
+  private def has_missing_ids_which_are_foreign_keys?(class_metadata : AORM::Metadata::Class, id_arr : Array(AORM::Metadata::Value)) : Bool
     # TODO: Handle FKs when associations are implemented
     false
+  end
+
+  # TODO: Abstract the id flattening I guess
+  private def flatten_id(id_arr : Array(AORM::Metadata::Value)) : Hash(String, AORM::Metadata::Value)
+    id_arr.each_with_object(Hash(String, AORM::Metadata::Value).new) do |id, id_hash|
+      id_hash[id.name] = id
+    end
   end
 end
