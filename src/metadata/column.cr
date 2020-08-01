@@ -3,7 +3,8 @@ module Athena::ORM::Metadata
     def set_value(entity : AORM::Entity, value : _) : Nil
     end
 
-    def get_value(entity : AORM::Entity, &)
+    def get_value(entity : AORM::Entity)
+      raise "BUG: Invoked default get_value"
     end
   end
 
@@ -18,6 +19,10 @@ module Athena::ORM::Metadata
     def column_name : String
       # TODO: support reading column name off annotation
       @name
+    end
+
+    def table_name : String?
+      nil
     end
 
     def has_value_generator? : Bool
@@ -45,14 +50,16 @@ module Athena::ORM::Metadata
       {% end %}
     end
 
-    def get_value(entity : EntityType, &)
+    def get_value(entity : EntityType) : AORM::Metadata::Value
       {% begin %}
         {% for column in EntityType.instance_vars.select &.annotation AORM::Column %}
           # TODO: Revist if its ok that entities are required to expose getters
           case @name
             {% for column in EntityType.instance_vars.select &.annotation AORM::Column %}
-              when {{column.name.stringify}} then yield AORM::Metadata::ColumnValue.new {{column.name.stringify}}, entity.{{column.id}}
+              when {{column.name.stringify}} then AORM::Metadata::ColumnValue.new {{column.name.stringify}}, entity.{{column.id}}
             {% end %}
+          else
+            raise "BUG: Unknown column"
           end
         {% end %}
       {% end %}
@@ -127,6 +134,16 @@ module Athena::ORM::Metadata
 
     def property(name : String) : ColumnBase?
       @properties[name]?
+    end
+
+    def is_identifier?(name : String)
+      return false if @identifier.empty?
+
+      unless self.is_identifier_composite?
+        return name == self.single_identifier_field_name
+      end
+
+      @identifier.includes? name
     end
 
     def each

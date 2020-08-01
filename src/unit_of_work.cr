@@ -1,4 +1,6 @@
 class Athena::ORM::UnitOfWork
+  record Change, old : AORM::Metadata::Value?, new : AORM::Metadata::Value
+
   enum EntityState
     Managed
     New
@@ -6,7 +8,7 @@ class Athena::ORM::UnitOfWork
     Removed
   end
 
-  @identity_map : Hash(AORM::Entity.class, Hash(String, AORM::Entity)) = {} of AORM::Entity.class => Hash(String, AORM::Entity)
+  @identity_map = Hash(AORM::Entity.class, Hash(String, AORM::Entity)).new
 
   @entity_identifiers = Hash(UInt64, Hash(String, AORM::Metadata::Value)).new
 
@@ -18,16 +20,27 @@ class Athena::ORM::UnitOfWork
   # Pending entity insertions
   @entity_inserstions = Hash(UInt64, AORM::Entity).new
 
+  # Pending entity updates
+  @entity_updates = Hash(UInt64, AORM::Entity).new
+
   @entity_persisters = Hash(AORM::Entity.class, AORM::EntityPersisterInterface).new
+
+  @original_entity_data = Hash(UInt64, Hash(String, AORM::Metadata::Value)).new
+  @entity_change_sets = Hash(UInt64, Hash(String, Change)).new
 
   def initialize(@em : AORM::EntityManagerInterface); end
 
   def commit(entity : AORM::Entity? = nil) : Nil
-    # TODO: compute changeset(s) to skip executing queries
-    # for entities that haven't changed
+    # TODO: Handle eventing (preFlush)
+
+    self.compute_changesets
 
     # Nothing to do
-    return if @entity_deletions.empty? && @entity_inserstions.empty?
+    return if @entity_deletions.empty? && @entity_inserstions.empty? && @entity_updates.empty?
+
+    # p! @entity_inserstions
+    # p! @entity_updates
+    # p! @entity_deletions
 
     # TODO: determine the order of the inserts
     # so that referential integrity is maintained.
@@ -37,10 +50,28 @@ class Athena::ORM::UnitOfWork
         self.execute_inserts entity.class.entity_class_metadata
       end
 
+      @entity_updates.each do |obj_id, entity|
+        self.execute_updates entity.class.entity_class_metadata
+      end
+
       @entity_deletions.each do |obj_id, entity|
         self.execute_deleteions entity.class.entity_class_metadata
       end
     end
+
+    # TODO: Handle cache persisters
+    # TOOD: Take snapshots of collections
+
+    # TODO: Handle eventing (postFlush)
+
+    self.post_commit_cleanup
+  end
+
+  private def post_commit_cleanup
+    @entity_inserstions.clear
+    @entity_updates.clear
+    @entity_deletions.clear
+    @entity_change_sets.clear
   end
 
   private def execute_inserts(class_metadata : AORM::Metadata::Class) : Nil
@@ -59,12 +90,36 @@ class Athena::ORM::UnitOfWork
 
         @entity_identifiers[obj_id] = self.flatten_id id
         @entity_states[obj_id] = :managed
-        # TODO: Update original changeset data
+
+        id.each do |i|
+          @original_entity_data[obj_id][i.name] = i
+        end
 
         self.add_to_identity_map entity
       end
 
       @entity_inserstions.delete obj_id
+
+      # TODO: Handle eventing (postPersist)
+    end
+  end
+
+  private def execute_updates(class_metadata : AORM::Metadata::Class) : Nil
+    entity_class = class_metadata.entity_class
+    persister = self.entity_persister class_metadata.entity_class
+
+    @entity_updates.each do |obj_id, entity|
+      next if entity_class != entity.class.entity_class_metadata.entity_class
+
+      # TODO: Handle eventing (preUpdate)
+
+      unless @entity_change_sets[obj_id].empty?
+        persister.update entity
+      end
+
+      @entity_updates.delete obj_id
+
+      # TODO: Handle eventing (postUpdate)
     end
   end
 
@@ -80,7 +135,7 @@ class Athena::ORM::UnitOfWork
       @entity_deletions.delete obj_id
       @entity_identifiers.delete obj_id
       @entity_states.delete obj_id
-      # TODO: Delete original data from changeset
+      @original_entity_data.delete obj_id
 
       unless class_metadata.is_identifier_composite?
         property = class_metadata.property(class_metadata.single_identifier_field_name).not_nil!
@@ -90,7 +145,7 @@ class Athena::ORM::UnitOfWork
         end
       end
 
-      # TODO: Handle eventing
+      # TODO: Handle eventing (postRemove)
     end
   end
 
@@ -127,6 +182,21 @@ class Athena::ORM::UnitOfWork
     self.remove entity, visited
   end
 
+  private def remove(entity : AORM::Entity, visited : Set(UInt64)) : Nil
+    obj_id = entity.object_id
+
+    return unless visited.add? obj_id
+
+    # TODO: Handle cascade for nested models
+
+    case self.entity_state entity
+    in .new?     then return                                  # noop
+    in .removed? then return                                  # noop
+    in .managed? then self.schedule_for_delete entity         # TODO: Handle eventing (preRemove)
+    in .detached? then raise "Cannot removed detached entity" # TODO: Make this an actual exception
+    end
+  end
+
   private def persist_new(class_metadata : AORM::Metadata::Class, entity : AORM::Entity) : Nil
     obj_id = entity.object_id
 
@@ -154,32 +224,28 @@ class Athena::ORM::UnitOfWork
     raise "Entity already scheduled for insertion" if @entity_inserstions.has_key? obj_id
 
     @entity_inserstions[obj_id] = entity
-  end
 
-  private def remove(entity : AORM::Entity, visited : Set(UInt64)) : Nil
-    obj_id = entity.object_id
-
-    return unless visited.add? obj_id
-
-    # TODO: Handle cascade for nested models
-
-    case self.entity_state entity, :new
-    in .new?     then return # noop
-    in .removed? then return # noop
-    in .managed? then self.schedule_for_delete entity
-    in .detached? then raise "Cannot removed detached entity" # TODO: Make this an actual exception
+    if @entity_identifiers.has_key? obj_id
+      self.add_to_identity_map entity
     end
   end
 
   private def schedule_for_delete(entity : AORM::Entity) : Nil
     obj_id = entity.object_id
 
-    unless @entity_inserstions.delete obj_id
+    if @entity_inserstions.has_key? obj_id
+      @entity_inserstions.delete obj_id
       @entity_identifiers.delete obj_id
       @entity_states.delete obj_id
 
       return
     end
+
+    return unless self.is_in_identity_map entity
+
+    self.remove_from_identity_map entity
+
+    @entity_updates.delete obj_id
 
     unless @entity_deletions.has_key? obj_id
       @entity_deletions[obj_id] = entity
@@ -187,15 +253,13 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  def clear(entity : AORM::Entity? = nil) : Nil
-    if entity.nil?
-      @entity_map.clear
-      @entity_states.clear
-      @entity_deletions.clear
-      @entity_inserstions.clear
-    else
-      # TODO: Clear for given entity
-    end
+  def clear : Nil
+    @identity_map.clear
+    @entity_identifiers.clear
+    @entity_states.clear
+    @entity_deletions.clear
+    @entity_inserstions.clear
+    @entity_persisters.clear
   end
 
   def entity_state(entity : AORM::Entity, assume : EntityState? = nil) : EntityState
@@ -233,6 +297,20 @@ class Athena::ORM::UnitOfWork
     raise NotImplementedError.new "Unhandleable state"
   end
 
+  def change_set(entity : AORM::Entity) : Hash(String, Change)
+    obj_id = entity.object_id
+
+    unless @entity_change_sets.has_key? obj_id
+      return Hash(String, Change).new
+    end
+
+    @entity_change_sets[obj_id]
+  end
+
+  def entity_identifier(entity : AORM::Entity) : Hash(String, AORM::Metadata::Value)
+    @entity_identifiers[entity.object_id]
+  end
+
   def add_to_identity_map(entity : AORM::Entity) : Bool
     obj_id = entity.object_id
 
@@ -244,20 +322,144 @@ class Athena::ORM::UnitOfWork
       raise "Entity without an identifier"
     end
 
-    class_name = class_metadata.root_class
     id_hash = identifier.values.join " "
+    class_name = class_metadata.root_class
 
-    # TODO: Handle primary key here
-    # can skip composite keys for now
-    return false if @identity_map[class_name].has_key? obj_id
+    if @identity_map.has_key?(class_name) && @identity_map[class_name].has_key?(id_hash)
+      return false
+    end
+
+    unless @identity_map.has_key? class_name
+      @identity_map[class_name] = Hash(String, AORM::Entity).new
+    end
 
     @identity_map[class_name][id_hash] = entity
 
     true
   end
 
-  def entity_identifier(entity : AORM::Entity) : Hash(String, AORM::Metadata::Value)
-    @entity_identifiers[entity.object_id]
+  def is_in_identity_map(entity : AORM::Entity) : Bool
+    obj_id = entity.object_id
+
+    return false if !@entity_identifiers.has_key?(obj_id) || @entity_identifiers[obj_id].empty?
+
+    class_metadata = entity.class.entity_class_metadata
+    id_hash = @entity_identifiers[obj_id].values.join " "
+
+    @identity_map.has_key?(class_metadata.root_class) && @identity_map[class_metadata.root_class].has_key?(id_hash)
+  end
+
+  def remove_from_identity_map(entity : AORM::Entity) : Bool
+    obj_id = entity.object_id
+    class_metadata = entity.class.entity_class_metadata
+    id_hash = @entity_identifiers[obj_id].values.join " "
+
+    # TODO: Use proper exception type
+    raise "Entity has no identity" if id_hash.blank?
+
+    class_name = class_metadata.root_class
+
+    return true if @identity_map.has_key?(class_metadata.root_class) && @identity_map.has_key?(id_hash)
+
+    false
+  end
+
+  private def compute_changesets : Nil
+    self.compute_scheduled_inserts_change_sets
+
+    @identity_map.each do |entity_class, entity_hash|
+      class_metadata = entity_class.entity_class_metadata
+
+      # TODO: Skip readonly classes
+      # TODO: Handle change tracking policies
+
+      entity_hash.each_value do |entity|
+        # TODO: Skip ghosts/proxies
+        obj_id = entity.object_id
+
+        if !@entity_inserstions.has_key?(obj_id) && !@entity_deletions.has_key?(obj_id) && @entity_states.has_key?(obj_id)
+          self.compute_change_set class_metadata, entity
+        end
+      end
+    end
+  end
+
+  private def compute_scheduled_inserts_change_sets : Nil
+    @entity_inserstions.each do |_, entity|
+      class_metadata = entity.class.entity_class_metadata
+
+      self.compute_change_set class_metadata, entity
+    end
+  end
+
+  private def compute_change_set(class_metadata : AORM::Metadata::Class, entity : AORM::Entity) : Nil
+    obj_id = entity.object_id
+
+    # TODO: Handle read only objects
+    # TODO: Handle inheritence types
+    # TODO: Handle eventing (preFlush) & ~ListenersInvoker::INVOKE_MANAGER???
+
+    actual_data = Hash(String, AORM::Metadata::Value).new
+
+    class_metadata.each do |property|
+      column_value = property.get_value entity
+      name = property.name
+
+      if (
+           !class_metadata.is_identifier?(name) ||
+           # TODO: Handle non fieldMetadatas
+           !class_metadata.property(name).not_nil!.has_value_generator? ||
+           !class_metadata.property(name).not_nil!.value_generator.not_nil!.type.identity?
+         ) # TODO: Handle versioned columns
+        actual_data[name] = column_value
+      end
+    end
+
+    if !@original_entity_data.has_key? obj_id
+      # entity is new or managed but not fully persisted yet
+
+      @original_entity_data[obj_id] = actual_data
+      changeset = Hash(String, Change).new
+
+      actual_data.each do |name, v|
+        changeset[name] = Change.new nil, v
+      end
+
+      @entity_change_sets[obj_id] = changeset
+    else
+      # entity is fully managed
+      original_data = @original_entity_data[obj_id]
+      # TODO: Handle different change tracking policies
+      changeset = Hash(String, Change).new
+
+      actual_data.each do |name, actual_value|
+        next if !original_data.has_key? name
+
+        original_value = original_data[name]
+
+        # Skip if value hasn't changed
+        next if original_value.value == actual_value.value
+
+        property = class_metadata.property(name).not_nil!
+
+        # TODO: Handle collections
+
+        case property
+        when AORM::Metadata::Column
+          # TODO: Handle notify change tracking policy
+          changeset[name] = Change.new original_value, actual_value
+          # TODO: Handle associations
+        end
+
+        unless changeset.empty?
+          @entity_change_sets[obj_id] = changeset
+          @original_entity_data[obj_id] = actual_data
+          @entity_updates[obj_id] = entity
+        end
+      end
+
+      # TODO: Look for changes in associations
+    end
   end
 
   private def entity_persister(entity_class : AORM::Entity.class) : AORM::EntityPersisterInterface

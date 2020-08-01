@@ -1,6 +1,10 @@
 struct Athena::ORM::BasicEntityPersister
   include Athena::ORM::EntityPersisterInterface
 
+  private abstract struct ParameterBase; end
+
+  private record Parameter(T) < ParameterBase, name : String, value : T, type : AORM::Types::Type
+
   @connection : DB::Connection
   @platform : AORM::Platforms::Platform
 
@@ -15,10 +19,82 @@ struct Athena::ORM::BasicEntityPersister
   def identifier(entity : AORM::Entity) : Array(AORM::Metadata::Value)
     @class_metadata.identifier.compact_map do |field_name|
       property = @class_metadata.property(field_name).not_nil!
-      property.get_value(entity) do |column_value|
-        column_value.as AORM::Metadata::Value
-      end
+      property.get_value(entity).as AORM::Metadata::Value
     end
+  end
+
+  def update(entity : AORM::Entity) : Nil
+    table_name = @class_metadata.table_name
+    update_data = self.prepare_update_data entity
+
+    return unless update_data.has_key? table_name
+
+    data = update_data[table_name]
+
+    return if data.empty?
+
+    quoted_table_name = @class_metadata.table.quoted_qualified_name @platform
+
+    self.update_table entity, quoted_table_name, data, false
+
+    # TODO: Handled versions
+  end
+
+  private def update_table(entity : AORM::Entity, quoted_table_name : String, update_data : Array(ParameterBase), versioned : Bool) : Nil
+    set = [] of String
+    params = [] of DB::Any
+
+    update_data.each_with_index do |param, idx|
+      set << "#{@platform.quote_identifier param.name} = $#{idx + 1}"
+      params << param.value.value
+    end
+
+    identifier = @em.unit_of_work.entity_identifier entity
+    where = [] of String
+
+    @class_metadata.identifier.each do |id_name|
+      property = @class_metadata.property(id_name).not_nil!
+
+      where << @platform.quote_identifier property.column_name
+      params << identifier[id_name].value
+
+      # TODO: Handle associations
+    end
+
+    sql = %(UPDATE #{quoted_table_name} SET #{set.join ", "} WHERE #{where.join " = $1 AND "} = $#{update_data.size + 1})
+
+    stmt = @connection.fetch_or_build_prepared_statement sql
+
+    puts sql
+    pp params
+
+    stmt.exec args: params
+
+    # TODO: handle version lock failures
+  end
+
+  protected def prepare_update_data(entity : AORM::Entity) : Hash(String, Array(ParameterBase))
+    uow = @em.unit_of_work
+    changeset = uow.change_set entity
+    result = Hash(String, Array(ParameterBase)).new
+
+    table_name = @class_metadata.table_name
+    column_prefix = ""
+
+    # TODO: Handle versioned properties
+
+    changeset.each do |name, change|
+      property = @class_metadata.property(name).not_nil!
+      new_value = change.new
+
+      # TODO: Handle associations and versioned properties
+      column_table_name = property.table_name || table_name
+      column_name = "#{column_prefix}#{property.column_name}"
+
+      (result[column_table_name] ||= Array(ParameterBase).new) << Parameter.new column_name, new_value, property.type
+    end
+
+    result
   end
 
   def delete(entity : AORM::Entity) : Bool
@@ -62,6 +138,9 @@ struct Athena::ORM::BasicEntityPersister
 
     delete_sql = %(DELETE FROM #{table_name} WHERE #{conditions.join(" AND ")})
 
+    puts delete_sql
+    pp values
+
     stmt = @connection.fetch_or_build_prepared_statement delete_sql
 
     !stmt.exec(args: values).rows_affected.zero?
@@ -71,6 +150,9 @@ struct Athena::ORM::BasicEntityPersister
     stmt = @connection.fetch_or_build_prepared_statement self.insert_sql
     table_name = @class_metadata.table_name
     insert_data = self.prepare_insert_data entity
+
+    puts @insert_sql
+    pp insert_data
 
     stmt.exec args: insert_data
   end
@@ -106,9 +188,7 @@ struct Athena::ORM::BasicEntityPersister
     table_name = @class_metadata.table_name
 
     @class_metadata.map do |property|
-      property.get_value(entity) do |column_value|
-        column_value.value
-      end
+      property.get_value(entity).value
     end
   end
 

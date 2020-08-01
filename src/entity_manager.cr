@@ -45,7 +45,9 @@ class Athena::ORM::EntityManager
   end
 
   def clear(entity : AORM::Entity? = nil) : Nil
-    self.unit_of_work.clear entity.try &.class
+    self.unit_of_work.clear
+
+    # TODO: Handle eventing (onClear)
   end
 
   def repository(entity_class : AORM::Entity.class) : AORM::RepositoryInterface

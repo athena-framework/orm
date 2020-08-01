@@ -51,6 +51,9 @@ class User < Athena::ORM::Entity
 
   @[AORM::Column]
   property name : String
+
+  @[AORM::Column]
+  property alive : Bool = true
 end
 
 class Post < AORM::Entity
@@ -62,23 +65,28 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
   # ... use db to perform queries
   db.using_connection do |conn|
     u1 = User.new "Jim"
-    u2 = User.new "Bob"
-    u3 = User.new "Sally"
+    u2 = User.new "Sally"
 
     em = AORM::EntityManager.new conn
 
     em.persist u1
     em.persist u2
-    em.persist u3
-
-    pp u2
-
-    # em.remove u2
-
-    # pp em
 
     em.flush
-    pp u2
+    puts
+
+    em.remove u2
+    u1.name = "Bob"
+    u1.alive = false
+
+    em.flush
+    puts
+
+    u1.name = "Fred"
+
+    em.flush
+
+    # pp em
   end
 end
 
