@@ -351,7 +351,7 @@ class Athena::ORM::UnitOfWork
       raise "Entity without an identifier"
     end
 
-    id_hash = identifier.values.join " "
+    id_hash = identifier.values.join " " { |v| v.value }
     class_name = class_metadata.root_class
 
     if @identity_map.has_key?(class_name) && @identity_map[class_name].has_key?(id_hash)
@@ -489,6 +489,20 @@ class Athena::ORM::UnitOfWork
 
       # TODO: Look for changes in associations
     end
+  end
+
+  protected def manage_entity(entity : AORM::Entity) : AORM::Entity
+    class_metadata = entity.class.entity_class_metadata
+    persister = self.entity_persister class_metadata.entity_class
+    obj_id = entity.object_id
+
+    @entity_identifiers[obj_id] = flatten_id persister.identifier entity
+    @entity_states[obj_id] = :managed
+    self.compute_change_set class_metadata, entity
+
+    self.add_to_identity_map entity
+
+    entity
   end
 
   private def try_get(id : Hash(String, AORM::Metadata::Value), entity_class : AORM::Entity.class, & : AORM::Entity ->) : Nil

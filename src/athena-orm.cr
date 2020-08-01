@@ -72,6 +72,9 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
     em = AORM::EntityManager.new conn
 
     pp em.find User, 1 # => #<User:0x7fc5f30aacc0 @alive=true, @id=1, @name="Jim">
+    puts
+    puts
+    pp em.find User, 1 # => #<User:0x7fc5f30aacc0 @alive=true, @id=1, @name="Jim">
 
     # em.persist u1
     # em.persist u2

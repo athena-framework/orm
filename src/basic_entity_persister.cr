@@ -45,13 +45,20 @@ struct Athena::ORM::BasicEntityPersister
     sql = self.select_sql criteria, lock_mode, limit, nil, order_by
     params = self.expand_parameters criteria
 
+    puts sql
+    pp params
+
     entities = [] of AORM::Entity
+
+    # TODO: Handle hints?
 
     @connection.query_each sql, args: params do |rs|
       entities << @class_metadata.entity_class.from_rs rs, @platform
     end
 
-    entities.first?
+    return unless (entity = entities.first?)
+
+    @em.unit_of_work.manage_entity entity
   end
 
   def expand_parameters(criteria : Hash(String, _))
