@@ -12,13 +12,11 @@ struct Athena::ORM::BasicEntityPersister
     @platform = @connection.database_platform
   end
 
-  def identifier(entity : AORM::Entity) : Array(AORM::Metadata::Identifier)
+  def identifier(entity : AORM::Entity) : Array(AORM::Metadata::Value)
     @class_metadata.identifier.compact_map do |field_name|
       property = @class_metadata.property(field_name).not_nil!
-      value = property.get_value entity
-
-      unless value.nil?
-        AORM::Metadata::ColumnIdentifier.new(field_name, value).as AORM::Metadata::Identifier
+      property.get_value(entity) do |column_value|
+        column_value.as AORM::Metadata::Value
       end
     end
   end
@@ -68,7 +66,9 @@ struct Athena::ORM::BasicEntityPersister
     table_name = @class_metadata.table_name
 
     @class_metadata.map do |property|
-      property.get_value entity
+      property.get_value(entity) do |column_value|
+        column_value.value
+      end
     end
   end
 

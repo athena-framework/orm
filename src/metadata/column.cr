@@ -39,13 +39,13 @@ module Athena::ORM::Metadata
       {% end %}
     end
 
-    def get_value(entity : AORM::Entity)
+    def get_value(entity : AORM::Entity, &)
       {% begin %}
         {% for column in EntityType.instance_vars.select &.annotation AORM::Column %}
           # TODO: Revist if its ok that entities are required to expose getters
           case @name
             {% for column in EntityType.instance_vars.select &.annotation AORM::Column %}
-              when {{column.name.stringify}} then entity.{{column.id}}
+              when {{column.name.stringify}} then yield AORM::Metadata::ColumnValue.new {{column.name.stringify}}, entity.{{column.id}}
             {% end %}
           end
         {% end %}

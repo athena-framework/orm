@@ -146,14 +146,6 @@ class User < Athena::ORM::Entity
   property name : String
 end
 
-# pp User.entity_class_metadata
-
-# rs = FieldEmitter.new.tap do |e|
-#   e._set_values([1_i64, "Jim"])
-# end
-
-# u = User.from_rs rs
-
 require "pg"
 
 DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=blog" do |db|
@@ -168,6 +160,8 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
     em.persist u
 
     em.flush
+
+    pp em
 
     pp u # => #<User:0x7f7e3fe37e10 @id=1, @name="Jim">
   end

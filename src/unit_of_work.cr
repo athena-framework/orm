@@ -8,7 +8,7 @@ class Athena::ORM::UnitOfWork
 
   @entity_map : Hash(AORM::Entity.class, Hash(UInt64, AORM::Entity)) = {} of AORM::Entity.class => Hash(UInt64, AORM::Entity)
 
-  @entity_identifiers = Hash(UInt64, Array(AORM::Metadata::Identifier)).new
+  @entity_identifiers = Hash(UInt64, Array(AORM::Metadata::Value)).new
 
   @entity_states = Hash(UInt64, EntityState).new
 
@@ -204,7 +204,7 @@ class Athena::ORM::UnitOfWork
     @entity_persisters[entity_class] = persister
   end
 
-  private def has_missing_ids_which_are_foreign_keys?(class_metadata : AORM::Metadata::Class, id : Array(AORM::Metadata::Identifier)) : Bool
+  private def has_missing_ids_which_are_foreign_keys?(class_metadata : AORM::Metadata::Class, id : Array(AORM::Metadata::Value)) : Bool
     # TODO: Handle FKs when associations are implemented
     false
   end
