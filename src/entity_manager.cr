@@ -9,9 +9,40 @@ class Athena::ORM::EntityManager
   getter? closed : Bool = false
   getter unit_of_work : AORM::UnitOfWork { AORM::UnitOfWork.new self }
 
+  enum LockMode
+    None
+  end
+
   def initialize(@connection : DB::Connection); end
 
-  def find(entity_class : AORM::Entity.class, id : _) : AORM::Entity?
+  # TODO: Support composite PKs via #find.
+  def find(entity_class : AORM::Entity.class, id : Hash(String, Int | String) | Int | String, lock_mode : LockMode? = nil, lock_version : Int32? = nil) : AORM::Entity?
+    class_metadata = entity_class.entity_class_metadata
+    entity_class = class_metadata.entity_class
+
+    # TODO: Handle locking
+
+    unless id.is_a? Hash
+      id = {class_metadata.single_identifier_field_name => id}
+    end
+
+    uow = self.unit_of_work
+
+    uow.try_get_by_id(id, entity_class) do |entity|
+      pp entity
+
+      return nil unless entity == entity_class
+
+      # TODO: Handle locking
+
+      return entity
+    end
+
+    persister = uow.entity_persister entity_class
+
+    # TODO: Handle locking
+
+    persister.load_by_id id
   end
 
   def persist(entity : AORM::Entity) : Nil

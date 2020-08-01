@@ -45,7 +45,7 @@ class Athena::ORM::UnitOfWork
     # TODO: determine the order of the inserts
     # so that referential integrity is maintained.
 
-    @em.transaction do |tx|
+    @em.transaction do
       @entity_inserstions.each_value do |entity|
         self.execute_inserts entity.class.entity_class_metadata
       end
@@ -57,6 +57,11 @@ class Athena::ORM::UnitOfWork
       @entity_deletions.each do |obj_id, entity|
         self.execute_deleteions entity.class.entity_class_metadata
       end
+    rescue ex : ::Exception
+      @em.close
+      # TODO: Handle cache persisters
+
+      raise ex
     end
 
     # TODO: Handle cache persisters
@@ -311,6 +316,30 @@ class Athena::ORM::UnitOfWork
     @entity_identifiers[entity.object_id]
   end
 
+  protected def entity_persister(entity_class : AORM::Entity.class) : AORM::EntityPersisterInterface
+    if persister = @entity_persisters[entity_class]?
+      return persister
+    end
+
+    class_metadata = entity_class.entity_class_metadata
+
+    persister = case class_metadata.inheritence_type
+                in .none? then AORM::BasicEntityPersister.new @em, class_metadata
+                end
+
+    # TODO: Handle cacheing
+
+    @entity_persisters[entity_class] = persister
+  end
+
+  protected def try_get_by_id(id : Hash(String, Int | String), entity_class : AORM::Entity.class) : AORM::Entity?
+    id_hash = id.values.join " "
+
+    if (klass = @identity_map[entity_class]?) && (entity = klass[id_hash]?)
+      yield entity
+    end
+  end
+
   def add_to_identity_map(entity : AORM::Entity) : Bool
     obj_id = entity.object_id
 
@@ -460,22 +489,6 @@ class Athena::ORM::UnitOfWork
 
       # TODO: Look for changes in associations
     end
-  end
-
-  private def entity_persister(entity_class : AORM::Entity.class) : AORM::EntityPersisterInterface
-    if persister = @entity_persisters[entity_class]?
-      return persister
-    end
-
-    class_metadata = entity_class.entity_class_metadata
-
-    persister = case class_metadata.inheritence_type
-                in .none? then AORM::BasicEntityPersister.new @em, class_metadata
-                end
-
-    # TODO: Handle cacheing
-
-    @entity_persisters[entity_class] = persister
   end
 
   private def try_get(id : Hash(String, AORM::Metadata::Value), entity_class : AORM::Entity.class, & : AORM::Entity ->) : Nil

@@ -1,13 +1,13 @@
 abstract class Athena::ORM::Entity
   macro inherited
     {% verbatim do %}
-      def self.from_rs(rs : DB::ResultSet) : self
+      def self.from_rs(rs : DB::ResultSet, platform : AORM::Platforms::Platform) : self
         {% begin %}
           instance = allocate
-          self.column_metadata.each do |column|
+          self.entity_class_metadata.each do |column|
             case column.name
             {% for column in @type.instance_vars.select &.annotation AORM::Column %}
-              when {{column.name.stringify}} then pointerof(instance.@{{column.id}}).value = column.type.from_db(rs).as({{column.type}})
+              when {{column.name.stringify}} then pointerof(instance.@{{column.id}}).value = column.type.from_db(rs, platform).as({{column.type}})
             {% end %}
             end
           end

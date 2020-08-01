@@ -6,6 +6,8 @@ require "./value_generation_executor_interface"
 require "./column_value_generator_executor"
 require "./single_value_generation_plan"
 
+require "./cached_persister_context"
+
 require "./metadata/*"
 require "./platforms/*"
 require "./types/*"
@@ -69,24 +71,24 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
 
     em = AORM::EntityManager.new conn
 
-    em.persist u1
-    em.persist u2
+    pp em.find User, 1 # => #<User:0x7fc5f30aacc0 @alive=true, @id=1, @name="Jim">
 
-    em.flush
-    puts
+    # em.persist u1
+    # em.persist u2
 
-    em.remove u2
-    u1.name = "Bob"
-    u1.alive = false
+    # em.flush
+    # puts
 
-    em.flush
-    puts
+    # em.remove u2
+    # u1.name = "Bob"
+    # u1.alive = false
 
-    u1.name = "Fred"
+    # em.flush
+    # puts
 
-    em.flush
+    # u1.name = "Fred"
 
-    # pp em
+    # em.flush
   end
 end
 

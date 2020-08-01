@@ -27,6 +27,10 @@ struct Athena::ORM::Platforms::Postgres < Athena::ORM::Platforms::Platform
     "SELECT NEXTVAL('#{sequence_name}')"
   end
 
+  def sql_result_casing(column : String) : String
+    column.downcase
+  end
+
   def supports_schemas? : Bool
     true
   end

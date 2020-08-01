@@ -22,7 +22,8 @@ module Athena::ORM::Metadata
     end
 
     def table_name : String?
-      nil
+      # TODO: Set this when building the property
+      "users"
     end
 
     def has_value_generator? : Bool
@@ -53,10 +54,9 @@ module Athena::ORM::Metadata
     def get_value(entity : EntityType) : AORM::Metadata::Value
       {% begin %}
         {% for column in EntityType.instance_vars.select &.annotation AORM::Column %}
-          # TODO: Revist if its ok that entities are required to expose getters
           case @name
             {% for column in EntityType.instance_vars.select &.annotation AORM::Column %}
-              when {{column.name.stringify}} then AORM::Metadata::ColumnValue.new {{column.name.stringify}}, entity.{{column.id}}
+              when {{column.name.stringify}} then AORM::Metadata::ColumnValue.new {{column.name.stringify}}, entity.@{{column.id}}
             {% end %}
           else
             raise "BUG: Unknown column"
@@ -88,6 +88,7 @@ module Athena::ORM::Metadata
 
   struct Class
     include Enumerable(ColumnBase)
+    include Iterable(ColumnBase)
 
     getter inheritence_type = InheritenceType::None
     @field_names = Hash(String, String).new
@@ -146,10 +147,14 @@ module Athena::ORM::Metadata
       @identifier.includes? name
     end
 
-    def each
+    def each(&)
       @properties.each_value do |property|
         yield property
       end
+    end
+
+    def each
+      @properties.each
     end
 
     def root_class : AORM::Entity.class

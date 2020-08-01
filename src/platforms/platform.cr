@@ -1,6 +1,8 @@
 abstract struct Athena::ORM::Platforms::Platform
   abstract def name : String
 
+  # TYPES
+
   abstract def boolean_type_declaration_sql : String
   abstract def integer_type_declaration_sql : String
   abstract def big_int_type_declaration_sql : String
@@ -20,6 +22,8 @@ abstract struct Athena::ORM::Platforms::Platform
     "DOUBLE PRECISION"
   end
 
+  # EXPRESSIONS
+
   def is_null_expression(expression : String) : String
     "#{expression} IS NULL"
   end
@@ -27,6 +31,8 @@ abstract struct Athena::ORM::Platforms::Platform
   def is_not_null_expression(expression : String) : String
     "#{expression} IS NOT NULL"
   end
+
+  # IDENTIFIERS
 
   def identifier_quote_character : Char
     '"'
@@ -48,6 +54,31 @@ abstract struct Athena::ORM::Platforms::Platform
     %(#{quote_char}#{identifier.gsub(quote_char, "#{quote_char}#{quote_char}")}#{quote_char})
   end
 
+  def sql_result_casing(column : String) : String
+    column
+  end
+
+  def modify_limit_query(sql : String, limit : Int?, offset : Int?) : String
+    if offset && offset < 0
+      raise ArgumentError.new "Offset cannot be negative"
+    end
+
+    if offset && offset > 0 && !self.supports_limit_offset?
+      raise "Platform does not support offset values in limit queries"
+    end
+
+    self.do_modify_limit_query sql, limit, offset
+  end
+
+  protected def modify_limit_query(sql : String, limit : Int?, offset : Int?) : String
+    sql += " LIMIT #{limit}" if limit
+    sql += " OFFSET #{offset}" if offset && offset > 0
+
+    sql
+  end
+
+  # LENGTHS
+
   def char_max_length : Int32
     self.varchar_max_length
   end
@@ -62,6 +93,12 @@ abstract struct Athena::ORM::Platforms::Platform
 
   def max_identifier_length : Int32
     63
+  end
+
+  # FEATURE SUPPORT
+
+  def supports_limit_offset? : Bool
+    true
   end
 
   def supports_schemas? : Bool

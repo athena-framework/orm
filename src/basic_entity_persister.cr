@@ -11,9 +11,16 @@ struct Athena::ORM::BasicEntityPersister
   @insert_sql : String? = nil
   @insert_columns : Hash(String, AORM::Metadata::ColumnBase)? = nil
 
+  @current_persister_context : AORM::CachedPersisterContext
+  @limits_handling_context : AORM::CachedPersisterContext
+  @no_limits_context : AORM::CachedPersisterContext
+
   def initialize(@em : AORM::EntityManagerInterface, @class_metadata : AORM::Metadata::Class)
     @connection = @em.connection
     @platform = @connection.database_platform
+
+    @no_limits_context = @current_persister_context = AORM::CachedPersisterContext.new @class_metadata, false
+    @limits_handling_context = AORM::CachedPersisterContext.new @class_metadata, true
   end
 
   def identifier(entity : AORM::Entity) : Array(AORM::Metadata::Value)
@@ -21,6 +28,151 @@ struct Athena::ORM::BasicEntityPersister
       property = @class_metadata.property(field_name).not_nil!
       property.get_value(entity).as AORM::Metadata::Value
     end
+  end
+
+  def load_by_id(id : Hash(String, Int | String)) : AORM::Entity?
+    self.load id
+  end
+
+  def load(
+    criteria : Hash(String, _),
+    lock_mode = nil,
+    limit : Int? = nil,
+    order_by : Array(String)? = nil
+  ) : AORM::Entity?
+    self.switch_persister_context nil, limit
+
+    sql = self.select_sql criteria, lock_mode, limit, nil, order_by
+    params = self.expand_parameters criteria
+
+    entities = [] of AORM::Entity
+
+    @connection.query_each sql, args: params do |rs|
+      entities << @class_metadata.entity_class.from_rs rs, @platform
+    end
+
+    entities.first?
+  end
+
+  def expand_parameters(criteria : Hash(String, _))
+    criteria.map do |key, value|
+      next if value.nil?
+
+      self.get_values value
+    end
+  end
+
+  def get_values(value : _)
+    if value.is_a? Array
+      new_value = [] of DB::Any
+
+      value.each do |v|
+        new_value = new_value.concat self.get_values v
+      end
+
+      new_value
+    end
+
+    # TODO: Handle static metadata?
+
+    value
+  end
+
+  protected def select_sql(
+    criteria : Hash(String, _),
+    lock_mode = nil,
+    limit : Int? = nil,
+    offset : Int? = nil,
+    order_by : Array(String)? = nil
+  ) : String
+    # TODO: Handle locking/joins/ordering
+    conditional_sql = self.select_conditional_sql criteria
+    column_list = self.select_columns_sql
+    table_alias = self.sql_table_alias @class_metadata.table_name
+    table_name = @class_metadata.table.quoted_qualified_name @platform
+
+    # TODO: Handle filtering
+
+    sql = String.build do |str|
+      str << "SELECT " << column_list
+      str << " FROM " << table_name << ' ' << table_alias
+
+      unless conditional_sql.empty?
+        str << " WHERE " << conditional_sql
+      end
+
+      # TODO: Add lock
+    end
+
+    @platform.modify_limit_query sql, limit, offset || 0
+  end
+
+  protected def select_conditional_sql(criteria : Hash(String, _)) : String
+    criteria.join " AND " do |key, value|
+      self.select_conditional_statement_sql key, value
+    end
+  end
+
+  def select_conditional_statement_sql(field : String, value : _) : String
+    columns = self.select_conditional_statement_column_sql field
+
+    # TODO: Support comparison type
+
+    idx = 1
+    columns.join " AND " do |column_name|
+      property = @class_metadata.property(field).not_nil!
+      placeholder = "$#{idx}"
+
+      if value.is_a? Array
+        in_sql = "#{column_name} IN (#{placeholder})"
+
+        if value.includes? nil
+          idx += 1
+          next "(#{in_sql} OR #{column_name} IS NULL)"
+        end
+
+        idx += 1
+        next in_sql
+      end
+
+      if value.nil?
+        idx += 1
+        next "#{column_name} IS NULL"
+      end
+
+      idx += 1
+      "#{column_name} = #{placeholder}"
+    end
+  end
+
+  def select_conditional_statement_column_sql(field : String) : Array(String)
+    property = @class_metadata.property(field).not_nil!
+
+    table_alias = sql_table_alias property.table_name
+    column_name = @platform.quote_identifier property.column_name
+
+    ["#{table_alias}.#{column_name}"]
+
+    # TODO: Handle associations
+  end
+
+  protected def select_columns_sql : String
+    if col_list = @current_persister_context.select_column_list
+      return col_list
+    end
+
+    @current_persister_context.select_column_list = @class_metadata.each.join ", " do |_, property|
+      self.select_column_sql property
+    end
+  end
+
+  protected def select_column_sql(property : AORM::Metadata::ColumnBase, calias : String = "r") : String
+    column_alias = self.sql_column_alias
+
+    sql = %(#{self.sql_table_alias property.table_name, (calias == "r" ? "" : calias)}.#{@platform.quote_identifier property.column_name})
+
+    # TODO: Support the type altering the sql
+    "#{sql} AS #{column_alias}"
   end
 
   def update(entity : AORM::Entity) : Nil
@@ -210,5 +362,37 @@ struct Athena::ORM::BasicEntityPersister
     end
 
     columns
+  end
+
+  protected def sql_column_alias : String
+    @platform.sql_result_casing "c#{@current_persister_context.sql_alias_counter}"
+  end
+
+  protected def sql_table_alias(table_name : String?, assoc_name : String = "") : String
+    # TODO: Allow for joins
+
+    table_name = "#{table_name}##{assoc_name}" if table_name
+
+    if talias = @current_persister_context.sql_table_aliases[table_name]?
+      return talias
+    end
+
+    table_alias = "t#{@current_persister_context.sql_alias_counter}"
+
+    if table_name
+      @current_persister_context.sql_table_aliases[table_name] = table_alias
+    end
+
+    table_alias
+  end
+
+  private def switch_persister_context(offset : Int?, limit : Int?) : Nil
+    if offset.nil? && limit.nil?
+      @current_persister_context = @no_limits_context
+
+      return
+    end
+
+    @current_persister_context = @limits_handling_context
   end
 end
