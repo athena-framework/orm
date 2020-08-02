@@ -29,8 +29,6 @@ class Athena::ORM::EntityManager
     uow = self.unit_of_work
 
     uow.try_get_by_id(id, entity_class) do |entity|
-      pp entity
-
       return nil unless entity == entity_class
 
       # TODO: Handle locking

@@ -45,9 +45,6 @@ struct Athena::ORM::BasicEntityPersister
     sql = self.select_sql criteria, lock_mode, limit, nil, order_by
     params = self.expand_parameters criteria
 
-    puts sql
-    pp params
-
     entities = [] of AORM::Entity
 
     # TODO: Handle hints?
@@ -95,9 +92,6 @@ struct Athena::ORM::BasicEntityPersister
 
     sql = self.select_sql criteria, limit: limit, offset: offset, order_by: order_by
     params = self.expand_parameters criteria
-
-    puts sql
-    pp params
 
     entities = [] of AORM::Entity
 
@@ -211,9 +205,6 @@ struct Athena::ORM::BasicEntityPersister
     sql = self.count_sql criteria
     params = self.expand_parameters criteria
 
-    puts sql
-    pp params
-
     stmt = @connection.fetch_or_build_prepared_statement sql
 
     stmt.scalar(args: params).as Int
@@ -276,9 +267,6 @@ struct Athena::ORM::BasicEntityPersister
     sql = %(UPDATE #{quoted_table_name} SET #{set.join ", "} WHERE #{where.join " = $1 AND "} = $#{update_data.size + 1})
 
     stmt = @connection.fetch_or_build_prepared_statement sql
-
-    puts sql
-    pp params
 
     stmt.exec args: params
 
@@ -350,9 +338,6 @@ struct Athena::ORM::BasicEntityPersister
 
     delete_sql = %(DELETE FROM #{table_name} WHERE #{conditions.join(" AND ")})
 
-    puts delete_sql
-    pp values
-
     stmt = @connection.fetch_or_build_prepared_statement delete_sql
 
     !stmt.exec(args: values).rows_affected.zero?
@@ -362,9 +347,6 @@ struct Athena::ORM::BasicEntityPersister
     stmt = @connection.fetch_or_build_prepared_statement self.insert_sql
     table_name = @class_metadata.table_name
     insert_data = self.prepare_insert_data entity
-
-    puts @insert_sql
-    pp insert_data
 
     stmt.exec args: insert_data
   end

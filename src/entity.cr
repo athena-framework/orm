@@ -15,8 +15,7 @@ abstract class Athena::ORM::Entity
         {% end %}
       end
 
-      # :nodoc:
-      def self.entity_class_metadata : Athena::ORM::Metadata::Class
+      class_getter entity_class_metadata : Athena::ORM::Metadata::Class do
         {% begin %}
           class_metadata = Athena::ORM::Metadata::Class.new(
             entity_class: {{@type}},
