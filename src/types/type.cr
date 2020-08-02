@@ -26,6 +26,10 @@ abstract struct Athena::ORM::Types::Type
   # def self.get_type(type_class : AORM::Types::Type.class) : AORM::Types::Type
   # end
 
+  def can_require_sql_conversion? : Bool
+    false
+  end
+
   def to_database_value_sql(sql_expression : ::String, platform : AORM::Platforms::Platform) : ::String
     sql_expression
   end

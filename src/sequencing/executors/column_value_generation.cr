@@ -1,6 +1,6 @@
 require "./interface"
 
-module Athena::ORM::Sequencing::Executors::ValueGeneration
+struct Athena::ORM::Sequencing::Executors::ColumnValueGeneration
   include Athena::ORM::Sequencing::Executors::Interface
 
   def initialize(@column_metadata : AORM::Mapping::ColumnBase, @generator : AORM::Sequencing::Generators::Interface); end

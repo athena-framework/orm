@@ -15,41 +15,9 @@ abstract class Athena::ORM::Entity
         {% end %}
       end
 
-      class_getter entity_class_metadata : AORM::Mapping::Class do
+      class_getter entity_class_metadata : AORM::Mapping::ClassBase do
         {% begin %}
-          class_metadata = AORM::Mapping::Class.new(
-            entity_class: {{@type}},
-            table: AORM::Mapping::Table.new({{@type.name.stringify.downcase + 's'}})
-          )
-
-          {% properties = [] of Nil %}
-
-          {% for column in @type.instance_vars.select &.annotation AORMA::Column %}
-            {% ann = column.annotation AORMA::Column %}
-            {% type = ann[:type] == nil ? (column.type.union? ? column.type.union_types.first : column.type) : ann[:type] %}
-
-            %value_generator = nil
-
-            {% if column.annotation AORMA::ID %}
-              # TODO: Handle reading data off the annotation
-
-              %value_generator = AORM::Mapping::ValueGeneratorMetadata.new :sequence, AORM::Sequencing::Generators::Sequence.new "users_id_seq", 1
-            {% end %}
-
-            class_metadata.add_property(
-              AORM::Mapping::Column({{column.type}}, {{@type}}).new(
-                {{column.name.id.stringify}},
-                AORM::Types::Type.get_type({{type}}),
-                {{column.type.nilable?}},
-                {{!!column.annotation AORMA::ID}},
-                {{column.default_value}},
-                %value_generator
-              )
-            )
-            
-          {% end %}
-
-          class_metadata
+          AORM::Mapping::Class({{@type}}).new
         {% end %}
       end
     {% end %}

@@ -79,7 +79,7 @@ class Athena::ORM::UnitOfWork
     @entity_change_sets.clear
   end
 
-  private def execute_inserts(class_metadata : AORM::Mapping::Class) : Nil
+  private def execute_inserts(class_metadata : AORM::Mapping::ClassBase) : Nil
     entity_class = class_metadata.entity_class
     persister = self.entity_persister class_metadata.entity_class
     generation_plan = class_metadata.value_generation_plan
@@ -109,7 +109,7 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def execute_updates(class_metadata : AORM::Mapping::Class) : Nil
+  private def execute_updates(class_metadata : AORM::Mapping::ClassBase) : Nil
     entity_class = class_metadata.entity_class
     persister = self.entity_persister class_metadata.entity_class
 
@@ -128,7 +128,7 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def execute_deleteions(class_metadata : AORM::Mapping::Class) : Nil
+  private def execute_deleteions(class_metadata : AORM::Mapping::ClassBase) : Nil
     entity_class = class_metadata.entity_class
     persister = self.entity_persister class_metadata.entity_class
 
@@ -202,7 +202,7 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def persist_new(class_metadata : AORM::Mapping::Class, entity : AORM::Entity) : Nil
+  private def persist_new(class_metadata : AORM::Mapping::ClassBase, entity : AORM::Entity) : Nil
     obj_id = entity.object_id
 
     generation_plan = class_metadata.value_generation_plan
@@ -421,7 +421,7 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def compute_change_set(class_metadata : AORM::Mapping::Class, entity : AORM::Entity) : Nil
+  private def compute_change_set(class_metadata : AORM::Mapping::ClassBase, entity : AORM::Entity) : Nil
     obj_id = entity.object_id
 
     # TODO: Handle read only objects
@@ -513,7 +513,7 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def has_missing_ids_which_are_foreign_keys?(class_metadata : AORM::Mapping::Class, id_arr : Array(AORM::Mapping::Value)) : Bool
+  private def has_missing_ids_which_are_foreign_keys?(class_metadata : AORM::Mapping::ClassBase, id_arr : Array(AORM::Mapping::Value)) : Bool
     # TODO: Handle FKs when associations are implemented
     false
   end

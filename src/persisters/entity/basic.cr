@@ -17,7 +17,7 @@ struct Athena::ORM::Persisters::Entity::Basic
   @limits_handling_context : AORM::Persisters::Entity::CachedPersisterContext
   @no_limits_context : AORM::Persisters::Entity::CachedPersisterContext
 
-  def initialize(@em : AORM::EntityManagerInterface, @class_metadata : AORM::Mapping::Class)
+  def initialize(@em : AORM::EntityManagerInterface, @class_metadata : AORM::Mapping::ClassBase)
     @connection = @em.connection
     @platform = @connection.database_platform
 
@@ -396,7 +396,7 @@ struct Athena::ORM::Persisters::Entity::Basic
     @insert_columns = self.column_list(@class_metadata)
   end
 
-  protected def column_list(class_metadata : AORM::Mapping::Class, column_prefix : String = "") : Hash(String, AORM::Mapping::ColumnBase)
+  protected def column_list(class_metadata : AORM::Mapping::ClassBase, column_prefix : String = "") : Hash(String, AORM::Mapping::ColumnBase)
     columns = Hash(String, AORM::Mapping::ColumnBase).new
 
     class_metadata.each do |property|

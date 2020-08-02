@@ -1,6 +1,7 @@
 require "pg"
 
 require "./annotations/*"
+require "./mapping/annotations"
 require "./mapping/*"
 require "./persisters/entity/*"
 require "./platforms/*"
@@ -71,9 +72,11 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
   db.using_connection do |conn|
     em = AORM::EntityManager.new conn
 
-    repo = em.repository User
+    # repo = em.repository User
 
-    pp repo.find 123
+    # pp User.entity_class_metadata
+
+    # pp repo.find 123
 
     # pp repo.find_by alive: false
 
@@ -86,21 +89,26 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
 
     # pp repo2.find 2
 
-    # em.persist u1
-    # em.persist u2
+    u1 = User.new "Jim"
+    u2 = User.new "Sally"
 
-    # em.flush
-    # puts
+    em = AORM::EntityManager.new conn
 
-    # em.remove u2
-    # u1.name = "Bob"
-    # u1.alive = false
+    em.persist u1
+    em.persist u2
 
-    # em.flush
-    # puts
+    em.flush
+    puts
 
-    # u1.name = "Fred"
+    em.remove u2
+    u1.name = "Bob"
+    u1.alive = false
 
-    # em.flush
+    em.flush
+    puts
+
+    u1.name = "Fred"
+
+    em.flush
   end
 end

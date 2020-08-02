@@ -1,9 +1,9 @@
 require "./interface"
 
-module Athena::ORM::Sequencing::Planning::SingleValue
+class Athena::ORM::Sequencing::Planning::SingleValue
   include Athena::ORM::Sequencing::Planning::Interface
 
-  def initialize(@class_metadata : AORM::Mapping::Class, @executor : AORM::ValueGenerationExecutorInterface); end
+  def initialize(@class_metadata : AORM::Mapping::ClassBase, @executor : AORM::Sequencing::Executors::Interface); end
 
   def execute_immediate(em : AORM::EntityManagerInterface, entity : AORM::Entity) : Nil
     unless @executor.deferred?

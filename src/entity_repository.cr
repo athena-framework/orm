@@ -5,9 +5,9 @@ class Athena::ORM::EntityRepository
 
   getter entity_class : AORM::Entity.class
   getter em : AORM::EntityManagerInterface
-  getter class_metadata : AORM::Mapping::Class
+  getter class_metadata : AORM::Mapping::ClassBase
 
-  def initialize(@em : AORM::EntityManagerInterface, @class_metadata : AORM::Mapping::Class)
+  def initialize(@em : AORM::EntityManagerInterface, @class_metadata : AORM::Mapping::ClassBase)
     @entity_class = @class_metadata.entity_class
   end
 
