@@ -1,6 +1,4 @@
 require "./entity_manager_interface"
-require "./repository_interface"
-require "./unit_of_work"
 
 class Athena::ORM::EntityManager
   include Athena::ORM::EntityManagerInterface

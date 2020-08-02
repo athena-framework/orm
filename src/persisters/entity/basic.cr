@@ -1,5 +1,7 @@
-struct Athena::ORM::BasicEntityPersister
-  include Athena::ORM::EntityPersisterInterface
+require "./interface"
+
+struct Athena::ORM::Persisters::Entity::Basic
+  include Athena::ORM::Persisters::Entity::Interface
 
   private abstract struct ParameterBase; end
 
@@ -9,24 +11,24 @@ struct Athena::ORM::BasicEntityPersister
   @platform : AORM::Platforms::Platform
 
   @insert_sql : String? = nil
-  @insert_columns : Hash(String, AORM::Metadata::ColumnBase)? = nil
+  @insert_columns : Hash(String, AORM::Mapping::ColumnBase)? = nil
 
-  @current_persister_context : AORM::CachedPersisterContext
-  @limits_handling_context : AORM::CachedPersisterContext
-  @no_limits_context : AORM::CachedPersisterContext
+  @current_persister_context : AORM::Persisters::Entity::CachedPersisterContext
+  @limits_handling_context : AORM::Persisters::Entity::CachedPersisterContext
+  @no_limits_context : AORM::Persisters::Entity::CachedPersisterContext
 
-  def initialize(@em : AORM::EntityManagerInterface, @class_metadata : AORM::Metadata::Class)
+  def initialize(@em : AORM::EntityManagerInterface, @class_metadata : AORM::Mapping::Class)
     @connection = @em.connection
     @platform = @connection.database_platform
 
-    @no_limits_context = @current_persister_context = AORM::CachedPersisterContext.new @class_metadata, false
-    @limits_handling_context = AORM::CachedPersisterContext.new @class_metadata, true
+    @no_limits_context = @current_persister_context = AORM::Persisters::Entity::CachedPersisterContext.new @class_metadata, false
+    @limits_handling_context = AORM::Persisters::Entity::CachedPersisterContext.new @class_metadata, true
   end
 
-  def identifier(entity : AORM::Entity) : Array(AORM::Metadata::Value)
+  def identifier(entity : AORM::Entity) : Array(AORM::Mapping::Value)
     @class_metadata.identifier.compact_map do |field_name|
       property = @class_metadata.property(field_name).not_nil!
-      property.get_value(entity).as AORM::Metadata::Value
+      property.get_value(entity).as AORM::Mapping::Value
     end
   end
 
@@ -192,7 +194,7 @@ struct Athena::ORM::BasicEntityPersister
     end
   end
 
-  protected def select_column_sql(property : AORM::Metadata::ColumnBase, calias : String = "r") : String
+  protected def select_column_sql(property : AORM::Mapping::ColumnBase, calias : String = "r") : String
     column_alias = self.sql_column_alias
 
     sql = %(#{self.sql_table_alias property.table_name, (calias == "r" ? "" : calias)}.#{@platform.quote_identifier property.column_name})
@@ -302,7 +304,7 @@ struct Athena::ORM::BasicEntityPersister
     identifier = uow.entity_identifier entity
     table_name = @class_metadata.table.quoted_qualified_name @platform
 
-    id = Hash(String, AORM::Metadata::Value).new
+    id = Hash(String, AORM::Mapping::Value).new
 
     @class_metadata.identifier.each do |name|
       property = @class_metadata.property(name).not_nil!
@@ -386,7 +388,7 @@ struct Athena::ORM::BasicEntityPersister
     end
   end
 
-  protected def insert_column_list : Hash(String, AORM::Metadata::ColumnBase)
+  protected def insert_column_list : Hash(String, AORM::Mapping::ColumnBase)
     if columns = @insert_columns
       return columns
     end
@@ -394,8 +396,8 @@ struct Athena::ORM::BasicEntityPersister
     @insert_columns = self.column_list(@class_metadata)
   end
 
-  protected def column_list(class_metadata : AORM::Metadata::Class, column_prefix : String = "") : Hash(String, AORM::Metadata::ColumnBase)
-    columns = Hash(String, AORM::Metadata::ColumnBase).new
+  protected def column_list(class_metadata : AORM::Mapping::Class, column_prefix : String = "") : Hash(String, AORM::Mapping::ColumnBase)
+    columns = Hash(String, AORM::Mapping::ColumnBase).new
 
     class_metadata.each do |property|
       if !property.has_value_generator? || !property.value_generator.try &.type.identity?

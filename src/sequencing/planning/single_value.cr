@@ -1,7 +1,9 @@
-class Athena::ORM::SingleValueGenerationPlan
-  include Athena::ORM::ValueGenerationPlanInterface
+require "./interface"
 
-  def initialize(@class_metadata : AORM::Metadata::Class, @executor : AORM::ValueGenerationExecutorInterface); end
+module Athena::ORM::Sequencing::Planning::SingleValue
+  include Athena::ORM::Sequencing::Planning::Interface
+
+  def initialize(@class_metadata : AORM::Mapping::Class, @executor : AORM::ValueGenerationExecutorInterface); end
 
   def execute_immediate(em : AORM::EntityManagerInterface, entity : AORM::Entity) : Nil
     unless @executor.deferred?

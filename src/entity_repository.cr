@@ -1,11 +1,13 @@
+require "./repository_interface"
+
 class Athena::ORM::EntityRepository
   include Athena::ORM::RepositoryInterface
 
   getter entity_class : AORM::Entity.class
   getter em : AORM::EntityManagerInterface
-  getter class_metadata : AORM::Metadata::Class
+  getter class_metadata : AORM::Mapping::Class
 
-  def initialize(@em : AORM::EntityManagerInterface, @class_metadata : AORM::Metadata::Class)
+  def initialize(@em : AORM::EntityManagerInterface, @class_metadata : AORM::Mapping::Class)
     @entity_class = @class_metadata.entity_class
   end
 

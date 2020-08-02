@@ -1,5 +1,5 @@
 class Athena::ORM::UnitOfWork
-  record Change, old : AORM::Metadata::Value?, new : AORM::Metadata::Value
+  record Change, old : AORM::Mapping::Value?, new : AORM::Mapping::Value
 
   enum EntityState
     Managed
@@ -10,7 +10,7 @@ class Athena::ORM::UnitOfWork
 
   @identity_map = Hash(AORM::Entity.class, Hash(String, AORM::Entity)).new
 
-  @entity_identifiers = Hash(UInt64, Hash(String, AORM::Metadata::Value)).new
+  @entity_identifiers = Hash(UInt64, Hash(String, AORM::Mapping::Value)).new
 
   @entity_states = Hash(UInt64, EntityState).new
 
@@ -23,9 +23,9 @@ class Athena::ORM::UnitOfWork
   # Pending entity updates
   @entity_updates = Hash(UInt64, AORM::Entity).new
 
-  @entity_persisters = Hash(AORM::Entity.class, AORM::EntityPersisterInterface).new
+  @entity_persisters = Hash(AORM::Entity.class, AORM::Persisters::Entity::Interface).new
 
-  @original_entity_data = Hash(UInt64, Hash(String, AORM::Metadata::Value)).new
+  @original_entity_data = Hash(UInt64, Hash(String, AORM::Mapping::Value)).new
   @entity_change_sets = Hash(UInt64, Hash(String, Change)).new
 
   def initialize(@em : AORM::EntityManagerInterface); end
@@ -79,7 +79,7 @@ class Athena::ORM::UnitOfWork
     @entity_change_sets.clear
   end
 
-  private def execute_inserts(class_metadata : AORM::Metadata::Class) : Nil
+  private def execute_inserts(class_metadata : AORM::Mapping::Class) : Nil
     entity_class = class_metadata.entity_class
     persister = self.entity_persister class_metadata.entity_class
     generation_plan = class_metadata.value_generation_plan
@@ -109,7 +109,7 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def execute_updates(class_metadata : AORM::Metadata::Class) : Nil
+  private def execute_updates(class_metadata : AORM::Mapping::Class) : Nil
     entity_class = class_metadata.entity_class
     persister = self.entity_persister class_metadata.entity_class
 
@@ -128,7 +128,7 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def execute_deleteions(class_metadata : AORM::Metadata::Class) : Nil
+  private def execute_deleteions(class_metadata : AORM::Mapping::Class) : Nil
     entity_class = class_metadata.entity_class
     persister = self.entity_persister class_metadata.entity_class
 
@@ -202,7 +202,7 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def persist_new(class_metadata : AORM::Metadata::Class, entity : AORM::Entity) : Nil
+  private def persist_new(class_metadata : AORM::Mapping::Class, entity : AORM::Entity) : Nil
     obj_id = entity.object_id
 
     generation_plan = class_metadata.value_generation_plan
@@ -312,11 +312,11 @@ class Athena::ORM::UnitOfWork
     @entity_change_sets[obj_id]
   end
 
-  def entity_identifier(entity : AORM::Entity) : Hash(String, AORM::Metadata::Value)
+  def entity_identifier(entity : AORM::Entity) : Hash(String, AORM::Mapping::Value)
     @entity_identifiers[entity.object_id]
   end
 
-  protected def entity_persister(entity_class : AORM::Entity.class) : AORM::EntityPersisterInterface
+  protected def entity_persister(entity_class : AORM::Entity.class) : AORM::Persisters::Entity::Interface
     if persister = @entity_persisters[entity_class]?
       return persister
     end
@@ -324,7 +324,7 @@ class Athena::ORM::UnitOfWork
     class_metadata = entity_class.entity_class_metadata
 
     persister = case class_metadata.inheritence_type
-                in .none? then AORM::BasicEntityPersister.new @em, class_metadata
+                in .none? then AORM::Persisters::Entity::Basic.new @em, class_metadata
                 end
 
     # TODO: Handle cacheing
@@ -421,14 +421,14 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def compute_change_set(class_metadata : AORM::Metadata::Class, entity : AORM::Entity) : Nil
+  private def compute_change_set(class_metadata : AORM::Mapping::Class, entity : AORM::Entity) : Nil
     obj_id = entity.object_id
 
     # TODO: Handle read only objects
     # TODO: Handle inheritence types
     # TODO: Handle eventing (preFlush) & ~ListenersInvoker::INVOKE_MANAGER???
 
-    actual_data = Hash(String, AORM::Metadata::Value).new
+    actual_data = Hash(String, AORM::Mapping::Value).new
 
     class_metadata.each do |property|
       column_value = property.get_value entity
@@ -474,7 +474,7 @@ class Athena::ORM::UnitOfWork
         # TODO: Handle collections
 
         case property
-        when AORM::Metadata::Column
+        when AORM::Mapping::Column
           # TODO: Handle notify change tracking policy
           changeset[name] = Change.new original_value, actual_value
           # TODO: Handle associations
@@ -505,7 +505,7 @@ class Athena::ORM::UnitOfWork
     entity
   end
 
-  private def try_get(id : Hash(String, AORM::Metadata::Value), entity_class : AORM::Entity.class, & : AORM::Entity ->) : Nil
+  private def try_get(id : Hash(String, AORM::Mapping::Value), entity_class : AORM::Entity.class, & : AORM::Entity ->) : Nil
     id_hash = id.values.join " "
 
     if (klass = @identity_map[entity_class]?) && (entity = klass[id_hash]?)
@@ -513,14 +513,14 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def has_missing_ids_which_are_foreign_keys?(class_metadata : AORM::Metadata::Class, id_arr : Array(AORM::Metadata::Value)) : Bool
+  private def has_missing_ids_which_are_foreign_keys?(class_metadata : AORM::Mapping::Class, id_arr : Array(AORM::Mapping::Value)) : Bool
     # TODO: Handle FKs when associations are implemented
     false
   end
 
   # TODO: Abstract the id flattening I guess
-  private def flatten_id(id_arr : Array(AORM::Metadata::Value)) : Hash(String, AORM::Metadata::Value)
-    id_arr.each_with_object(Hash(String, AORM::Metadata::Value).new) do |id, id_hash|
+  private def flatten_id(id_arr : Array(AORM::Mapping::Value)) : Hash(String, AORM::Mapping::Value)
+    id_arr.each_with_object(Hash(String, AORM::Mapping::Value).new) do |id, id_hash|
       id_hash[id.name] = id
     end
   end

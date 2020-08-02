@@ -1,3 +1,5 @@
+require "./repository_factory_interface"
+
 struct Athena::ORM::DefaultRepositoryFactory
   include Athena::ORM::RepositoryFactoryInterface
 

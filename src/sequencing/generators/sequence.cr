@@ -1,7 +1,7 @@
-require "./generator_interface"
+require "./interface"
 
-struct Athena::ORM::SequenceGenerator
-  include Athena::ORM::GeneratorInterface
+struct Athena::ORM::Sequencing::Generators::Sequence
+  include Athena::ORM::Sequencing::Generators::Interface
 
   # TODO: Make these UInt64 to support UNSIGNED BIGINT
   getter next_value : Int64 = 0

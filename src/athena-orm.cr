@@ -1,36 +1,27 @@
-require "db"
+require "pg"
 
-require "./sequence_generator"
-require "./value_generation_plan_interface"
-require "./value_generation_executor_interface"
-require "./column_value_generator_executor"
-require "./single_value_generation_plan"
-
-require "./cached_persister_context"
-
-require "./repository_interface"
-require "./repository_factory_interface"
-require "./default_repository_factory"
-require "./entity_repository"
-
-require "./metadata/*"
+require "./annotations/*"
+require "./mapping/*"
+require "./persisters/entity/*"
 require "./platforms/*"
+require "./sequencing/executors/*"
+require "./sequencing/generators/*"
+require "./sequencing/planning/*"
 require "./types/*"
 
-require "./entity_persister_interface"
-require "./basic_entity_persister"
-require "./entity_manager"
+require "./default_repository_factory"
 require "./entity"
+require "./entity_manager"
+require "./entity_repository"
+require "./unit_of_work"
 
 # Convenience alias to make referencing `Athena::ORM` types easier.
 alias AORM = Athena::ORM
 
+alias AORMA = Athena::ORM::Annotations
+
 module Athena::ORM
   VERSION = "0.1.0"
-
-  annotation Column; end
-  annotation ID; end
-  annotation GeneratedValue; end
 
   enum LockMode
     None
@@ -55,39 +46,34 @@ end
 class User < Athena::ORM::Entity
   def initialize(@name : String); end
 
-  @[AORM::Column]
-  @[AORM::ID]
-  @[AORM::GeneratedValue]
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
   getter! id : Int64
 
-  @[AORM::Column]
+  @[AORMA::Column]
   property name : String
 
-  @[AORM::Column]
+  @[AORMA::Column]
   property alive : Bool = true
 end
 
 class Post < AORM::Entity
-  @[AORM::Column]
-  @[AORM::ID]
-  @[AORM::GeneratedValue]
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
   getter! id : Int64
 end
 
 require "pg"
 
 DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=blog" do |db|
-  # ... use db to perform queries
   db.using_connection do |conn|
-    u1 = User.new "Jim"
-    u2 = User.new "Sally"
-
     em = AORM::EntityManager.new conn
 
     repo = em.repository User
 
-    repo.find_all
-    repo.find_all
+    pp repo.find 123
 
     # pp repo.find_by alive: false
 
@@ -118,21 +104,3 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
     # em.flush
   end
 end
-
-# puts
-# puts
-
-# em.remove u
-
-# pp em
-
-# puts
-# puts
-
-# pp em.unit_of_work.entity_state u
-
-# em.clear
-
-# pp em
-
-# # u.name = 1

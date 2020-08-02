@@ -6,7 +6,7 @@ abstract class Athena::ORM::Entity
           instance = allocate
           self.entity_class_metadata.each do |column|
             case column.name
-            {% for column in @type.instance_vars.select &.annotation AORM::Column %}
+            {% for column in @type.instance_vars.select &.annotation AORMA::Column %}
               when {{column.name.stringify}} then pointerof(instance.@{{column.id}}).value = column.type.from_db(rs, platform).as({{column.type}})
             {% end %}
             end
@@ -15,33 +15,33 @@ abstract class Athena::ORM::Entity
         {% end %}
       end
 
-      class_getter entity_class_metadata : Athena::ORM::Metadata::Class do
+      class_getter entity_class_metadata : AORM::Mapping::Class do
         {% begin %}
-          class_metadata = Athena::ORM::Metadata::Class.new(
+          class_metadata = AORM::Mapping::Class.new(
             entity_class: {{@type}},
-            table: AORM::Metadata::Table.new({{@type.name.stringify.downcase + 's'}})
+            table: AORM::Mapping::Table.new({{@type.name.stringify.downcase + 's'}})
           )
 
           {% properties = [] of Nil %}
 
-          {% for column in @type.instance_vars.select &.annotation AORM::Column %}
-            {% ann = column.annotation AORM::Column %}
+          {% for column in @type.instance_vars.select &.annotation AORMA::Column %}
+            {% ann = column.annotation AORMA::Column %}
             {% type = ann[:type] == nil ? (column.type.union? ? column.type.union_types.first : column.type) : ann[:type] %}
 
             %value_generator = nil
 
-            {% if column.annotation AORM::ID %}
+            {% if column.annotation AORMA::ID %}
               # TODO: Handle reading data off the annotation
 
-              %value_generator = AORM::Metadata::ValueGeneratorMetadata.new :sequence, AORM::SequenceGenerator.new "users_id_seq", 1
+              %value_generator = AORM::Mapping::ValueGeneratorMetadata.new :sequence, AORM::Sequencing::Generators::Sequence.new "users_id_seq", 1
             {% end %}
 
             class_metadata.add_property(
-              AORM::Metadata::Column({{column.type}}, {{@type}}).new(
+              AORM::Mapping::Column({{column.type}}, {{@type}}).new(
                 {{column.name.id.stringify}},
-                Athena::ORM::Types::Type.get_type({{type}}),
+                AORM::Types::Type.get_type({{type}}),
                 {{column.type.nilable?}},
-                {{!!column.annotation AORM::ID}},
+                {{!!column.annotation AORMA::ID}},
                 {{column.default_value}},
                 %value_generator
               )
@@ -66,7 +66,7 @@ end
 #       {% type = ann[:type] == nil ? (column.type.union? ? column.type.union_types.first : column.type) : ann[:type] %}
 
 #       {%
-#         column_metadata << %(AORM::Metadata::Column(#{column.type}).new(
+#         column_metadata << %(AORM::Mapping::Column(#{column.type}).new(
 #           #{column.name.id.stringify},
 #           Athena::ORM::Types::Type.get_type(#{type}),
 #           #{column.type.nilable?},
@@ -76,6 +76,6 @@ end
 #       %}
 #     {% end %}
 
-#     {{column_metadata}} of AORM::Metadata::ColumnBase
+#     {{column_metadata}} of AORM::Mapping::ColumnBase
 #   {% end %}
 # end

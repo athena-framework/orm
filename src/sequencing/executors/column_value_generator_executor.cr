@@ -1,7 +1,9 @@
-struct Athena::ORM::ColumnValueGeneratorExecutor
-  include Athena::ORM::ValueGenerationExecutorInterface
+require "./interface"
 
-  def initialize(@column_metadata : AORM::Metadata::ColumnBase, @generator : AORM::GeneratorInterface); end
+module Athena::ORM::Sequencing::Executors::ValueGeneration
+  include Athena::ORM::Sequencing::Executors::Interface
+
+  def initialize(@column_metadata : AORM::Mapping::ColumnBase, @generator : AORM::Sequencing::Generators::Interface); end
 
   def execute(em : AORM::EntityManagerInterface, entity : AORM::Entity) : Tuple
     value = @generator.generate em, entity
