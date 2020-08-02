@@ -9,14 +9,14 @@ class Athena::ORM::EntityManager
   getter? closed : Bool = false
   getter unit_of_work : AORM::UnitOfWork { AORM::UnitOfWork.new self }
 
-  enum LockMode
-    None
+  @repository_factory : AORM::RepositoryFactoryInterface
+
+  def initialize(@connection : DB::Connection)
+    @repository_factory = AORM::DefaultRepositoryFactory.new
   end
 
-  def initialize(@connection : DB::Connection); end
-
   # TODO: Support composite PKs via #find.
-  def find(entity_class : AORM::Entity.class, id : Hash(String, Int | String) | Int | String, lock_mode : LockMode? = nil, lock_version : Int32? = nil) : AORM::Entity?
+  def find(entity_class : AORM::Entity.class, id : Hash(String, Int | String) | Int | String, lock_mode : AORM::LockMode? = nil, lock_version : Int32? = nil) : AORM::Entity?
     class_metadata = entity_class.entity_class_metadata
     entity_class = class_metadata.entity_class
 
@@ -84,6 +84,7 @@ class Athena::ORM::EntityManager
   def repository(entity_class : AORM::Entity.class) : AORM::RepositoryInterface
     # TODO: Figure out how to handle this, probably should use overloads for this
     # to give type saftey & prevent need for .as()
+    @repository_factory.repository self, entity_class
   end
 
   def contains(entity : AORM::Entity) : Bool

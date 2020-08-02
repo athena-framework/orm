@@ -177,6 +177,14 @@ module Athena::ORM::Metadata
     def is_identifier_composite? : Bool
       @identifier.size > 1
     end
+
+    def custom_repository_class : AORM::EntityRepository.class | Nil
+      nil
+    end
+
+    def default_repository_class : AORM::EntityRepository.class
+      AORM::EntityRepository
+    end
   end
 
   enum GeneratorType

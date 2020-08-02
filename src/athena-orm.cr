@@ -8,6 +8,11 @@ require "./single_value_generation_plan"
 
 require "./cached_persister_context"
 
+require "./repository_interface"
+require "./repository_factory_interface"
+require "./default_repository_factory"
+require "./entity_repository"
+
 require "./metadata/*"
 require "./platforms/*"
 require "./types/*"
@@ -26,6 +31,10 @@ module Athena::ORM
   annotation Column; end
   annotation ID; end
   annotation GeneratedValue; end
+
+  enum LockMode
+    None
+  end
 end
 
 class DB::Connection
@@ -59,6 +68,10 @@ class User < Athena::ORM::Entity
 end
 
 class Post < AORM::Entity
+  @[AORM::Column]
+  @[AORM::ID]
+  @[AORM::GeneratedValue]
+  getter! id : Int64
 end
 
 require "pg"
@@ -71,10 +84,21 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
 
     em = AORM::EntityManager.new conn
 
-    pp em.find User, 1 # => #<User:0x7fc5f30aacc0 @alive=true, @id=1, @name="Jim">
-    puts
-    puts
-    pp em.find User, 1 # => #<User:0x7fc5f30aacc0 @alive=true, @id=1, @name="Jim">
+    repo = em.repository User
+
+    repo.find_all
+    repo.find_all
+
+    # pp repo.find_by alive: false
+
+    # pp repo.find_one_by id: 3
+    # pp repo.find_one_by id: 4
+
+    # pp repo.count alive: false
+
+    # repo2 = em.repository Post
+
+    # pp repo2.find 2
 
     # em.persist u1
     # em.persist u2

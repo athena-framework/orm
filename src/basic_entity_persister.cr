@@ -85,6 +85,31 @@ struct Athena::ORM::BasicEntityPersister
     value
   end
 
+  def load_all(
+    criteria : Hash(String, _),
+    order_by : Array(String)? = nil,
+    limit : Int? = nil,
+    offset : Int? = nil
+  ) : Array(AORM::Entity)
+    self.switch_persister_context offset, limit
+
+    sql = self.select_sql criteria, limit: limit, offset: offset, order_by: order_by
+    params = self.expand_parameters criteria
+
+    puts sql
+    pp params
+
+    entities = [] of AORM::Entity
+
+    # TODO: Handle hints?
+
+    @connection.query_each sql, args: params do |rs|
+      entities << @class_metadata.entity_class.from_rs rs, @platform
+    end
+
+    entities.map { |e| @em.unit_of_work.manage_entity e }
+  end
+
   protected def select_sql(
     criteria : Hash(String, _),
     lock_mode = nil,
@@ -180,6 +205,34 @@ struct Athena::ORM::BasicEntityPersister
 
     # TODO: Support the type altering the sql
     "#{sql} AS #{column_alias}"
+  end
+
+  def count(criteria : Hash(String, _)) : Int
+    sql = self.count_sql criteria
+    params = self.expand_parameters criteria
+
+    puts sql
+    pp params
+
+    stmt = @connection.fetch_or_build_prepared_statement sql
+
+    stmt.scalar(args: params).as Int
+  end
+
+  def count_sql(criteria : Hash(String, _)) : String
+    table_name = @class_metadata.table.quoted_qualified_name @platform
+    table_alias = self.sql_table_alias @class_metadata.table_name
+
+    conditional_sql = self.select_conditional_sql criteria
+
+    String.build do |str|
+      str << "SELECT COUNT(*)"
+      str << " FROM #{table_name} #{table_alias}"
+
+      unless conditional_sql.empty?
+        str << " WHERE " << conditional_sql
+      end
+    end
   end
 
   def update(entity : AORM::Entity) : Nil
