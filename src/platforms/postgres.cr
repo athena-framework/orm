@@ -3,6 +3,8 @@ struct Athena::ORM::Platforms::Postgres < Athena::ORM::Platforms::Platform
     "postgresql"
   end
 
+  # TYPES
+
   def big_int_type_declaration_sql : String
     "BIGINT"
   end
@@ -27,6 +29,8 @@ struct Athena::ORM::Platforms::Postgres < Athena::ORM::Platforms::Platform
     "SELECT NEXTVAL('#{sequence_name}')"
   end
 
+  # IDENTIFIERS
+
   def sql_result_casing(column : String) : String
     column.downcase
   end
@@ -41,7 +45,17 @@ struct Athena::ORM::Platforms::Postgres < Athena::ORM::Platforms::Platform
     sql.gsub(/\?/) { "$#{idx}".tap { idx += 1 } }
   end
 
+  # FEATURE SUPPORT
+
+  def prefers_sequences? : Bool
+    true
+  end
+
   def supports_schemas? : Bool
+    true
+  end
+
+  def uses_sequence_emulated_identity_columns? : Bool
     true
   end
 end

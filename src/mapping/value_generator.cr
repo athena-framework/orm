@@ -12,30 +12,37 @@ module Athena::ORM::Mapping
     getter type : AORM::Mapping::GeneratorType
     getter generator : AORM::Sequencing::Generators::Interface
 
-    def self.from_annotations(
+    protected def self.build_metadata(
+      context : ClassFactory::Context,
+      class_metadata : ClassBase,
       column_name : String,
-      generated_value : AORM::Mapping::Annotations::GeneratedValue?,
-      sequence_generator : AORM::Mapping::Annotations::SequenceGenerator?
-    )
+      column_type : AORM::Types::Type,
+      generated_value : Annotations::GeneratedValue?,
+      sequence_generator : Annotations::SequenceGenerator?
+    ) : self?
       return nil unless generated_value
 
-      generator_type : AORM::Mapping::GeneratorType = generated_value.strategy
+      platform = context.target_platform
+      generator_type : GeneratorType = generated_value.strategy
 
-      # TODO: Figure out how to get the target platform in here
-      generator_type = generator_type.auto? ? AORM::Mapping::GeneratorType::Sequence : raise "TODO: Use the platform to determine this"
+      if generator_type.auto? || generator_type.identity?
+        generator_type = (platform.prefers_sequences? || platform.uses_sequence_emulated_identity_columns?) ? GeneratorType::Sequence : (platform.prefers_identity_columns? ? GeneratorType::Identity : GeneratorType::Table)
+      end
 
       generator_type, generator = case generator_type
-                                  when .sequence?
+                                  in .sequence?
                                     sequence_name = sequence_generator.try &.name
                                     allocation_size = sequence_generator.try(&.allocation_size) || 1_i64
 
                                     if sequence_name.nil?
-                                      sequence_name = "users_#{column_name}_seq"
+                                      sequence_name = platform.fix_schema_element_name(
+                                        "#{platform.sequence_prefix class_metadata.table_name, class_metadata.schema_name}_#{column_name}_seq"
+                                      )
                                     end
 
                                     {generator_type, AORM::Sequencing::Generators::Sequence.new(sequence_name, allocation_size)}
-                                  else
-                                    return nil
+                                  in .identity?, .table?, .custom? then return nil # TODO: Suppor other types of generators
+                                  in .none?, .auto? then return nil                # Auto is a pseudo type and will be resolved to something else
                                   end
 
       new generator_type, generator

@@ -1,4 +1,10 @@
 abstract class Athena::ORM::Entity
+  protected def self.entity_metadata_class : AORM::Mapping::ClassBase.class
+    {% begin %}
+      AORM::Mapping::Class({{@type}})
+    {% end %}
+  end
+
   macro inherited
     {% verbatim do %}
       def self.from_rs(rs : DB::ResultSet, platform : AORM::Platforms::Platform) : self
@@ -12,12 +18,6 @@ abstract class Athena::ORM::Entity
             end
           end
           instance
-        {% end %}
-      end
-
-      class_getter entity_class_metadata : AORM::Mapping::ClassBase do
-        {% begin %}
-          AORM::Mapping::Class({{@type}}).new
         {% end %}
       end
     {% end %}

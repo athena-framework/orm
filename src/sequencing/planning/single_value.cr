@@ -1,6 +1,6 @@
 require "./interface"
 
-class Athena::ORM::Sequencing::Planning::SingleValue
+struct Athena::ORM::Sequencing::Planning::SingleValue
   include Athena::ORM::Sequencing::Planning::Interface
 
   def initialize(@class_metadata : AORM::Mapping::ClassBase, @executor : AORM::Sequencing::Executors::Interface); end

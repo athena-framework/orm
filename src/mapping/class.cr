@@ -1,5 +1,4 @@
 require "./column"
-require "./table"
 
 module Athena::ORM::Mapping
   enum InheritenceType
@@ -16,6 +15,35 @@ module Athena::ORM::Mapping
     include Enumerable(Athena::ORM::Mapping::ColumnBase)
     include Iterable(Athena::ORM::Mapping::ColumnBase)
 
+    protected def self.build_metadata(context : ClassFactory::Context) : self
+      table_annotation = {% if ann = EntityType.annotation(AORMA::Table) %}AORM::Mapping::Annotations::Table.new({{ann.named_args.double_splat}}){% else %}nil{% end %}
+
+      metadata = new(
+        Table.build_metadata context, EntityType, table_annotation
+      )
+
+      {% for column, idx in EntityType.instance_vars.select &.annotation AORMA::Column %}
+        {% ann = column.annotation AORMA::Column %}
+        {% type = ann[:type] == nil ? (column.type.union? ? column.type.union_types.first : column.type) : ann[:type] %}
+
+        %property{idx} = AORM::Mapping::Column({{type}}, {{EntityType}}).build_metadata(
+          context,
+          {{column.name.stringify}},
+          metadata,
+          {% if ann = column.annotation(AORMA::Column) %}column: AORM::Mapping::Annotations::Column.new({{ann.named_args.double_splat}}),{% end %}
+          {% if column.annotation(AORMA::ID) %}id: AORM::Mapping::Annotations::ID.new,{% end %}
+          {% if ann = column.annotation(AORMA::GeneratedValue) %}generated_value: AORM::Mapping::Annotations::GeneratedValue.new({{ann.named_args.double_splat}}){% end %}
+          {% if ann = column.annotation(AORMA::SequenceGenerator) %}sequence_generator: AORM::Mapping::Annotations::SequenceGenerator.new({{ann.named_args.double_splat}}){% end %}
+        )
+
+        metadata.add_property %property{idx}
+      {% end %}
+
+      metadata.determine_value_generation_plan context.target_platform
+
+      metadata
+    end
+
     getter inheritence_type = AORM::Mapping::InheritenceType::None
     @field_names = Hash(String, String).new
     @properties = Hash(String, AORM::Mapping::ColumnBase).new
@@ -23,54 +51,12 @@ module Athena::ORM::Mapping
     getter entity_class : AORM::Entity.class
     getter table : AORM::Mapping::Table
     getter identifier = Set(String).new
-    getter value_generation_plan : AORM::Sequencing::Planning::Interface do
-      executor_list = Hash(String, AORM::Sequencing::Executors::Interface).new
+    getter value_generation_plan : AORM::Sequencing::Planning::Interface = AORM::Sequencing::Planning::Noop.new
 
-      self.each do |property|
-        executor = property.value_generation_executor
-
-        if executor.is_a? AORM::Sequencing::Executors::Interface
-          executor_list[property.name] = executor
-        end
-      end
-
-      case executor_list.size
-      when 1 then AORM::Sequencing::Planning::SingleValue.new self, executor_list.values.first
-      else
-        raise "ERR"
-      end
-    end
-
-    def initialize(@entity_class : AORM::Entity.class = EntityType)
-      {{@type}}
-      {% begin %}
-        @table = AORM::Mapping::Table.new {{EntityType.name.stringify.downcase + 's'}}
-
-        {% for column, idx in EntityType.instance_vars.select &.annotation AORMA::Column %}
-          {% ann = column.annotation AORMA::Column %}
-          {% type = ann[:type] == nil ? (column.type.union? ? column.type.union_types.first : column.type) : ann[:type] %}
-
-          %value_generator{idx} = nil
-
-          {% if column.annotation AORMA::ID %}
-            # TODO: Handle reading data off the annotation
-
-            %value_generator{idx} = AORM::Mapping::ValueGeneratorMetadata.new :sequence, AORM::Sequencing::Generators::Sequence.new "users_id_seq", 1
-          {% end %}
-
-          %property{idx} = AORM::Mapping::Column({{type}}, {{EntityType}}).new(
-            {{column.name.stringify}},
-            self,
-            {% if ann = column.annotation(AORMA::Column) %}column: AORM::Mapping::Annotations::Column.new({{ann.named_args.double_splat}}),{% end %}
-            {% if column.annotation(AORMA::ID) %}id: AORM::Mapping::Annotations::ID.new,{% end %}
-            {% if ann = column.annotation(AORMA::GeneratedValue) %}generated_value: AORM::Mapping::Annotations::GeneratedValue.new({{ann.named_args.double_splat}}){% end %}
-            {% if ann = column.annotation(AORMA::SequenceGenerator) %}sequence_generator: AORM::Mapping::Annotations::SequenceGenerator.new({{ann.named_args.double_splat}}){% end %}
-          )
-
-          self.add_property %property{idx}
-        {% end %}
-      {% end %}
-    end
+    def initialize(
+      @table : AORM::Mapping::Table,
+      @entity_class : AORM::Entity.class = EntityType
+    ); end
 
     def add_property(property : AORM::Mapping::ColumnBase) : Nil
       @identifier << property.name if property.is_primary_key
@@ -120,6 +106,10 @@ module Athena::ORM::Mapping
       @table.name
     end
 
+    def schema_name : String?
+      @table.schema
+    end
+
     def single_identifier_field_name : String
       # TODO: Use proper exception types
       raise "PK is composite" if self.is_identifier_composite?
@@ -138,6 +128,25 @@ module Athena::ORM::Mapping
 
     def default_repository_class : AORM::EntityRepository.class
       AORM::EntityRepository
+    end
+
+    protected def determine_value_generation_plan(target_platform : AORM::Platforms::Platform) : Nil
+      executor_list = Hash(String, AORM::Sequencing::Executors::Interface).new
+
+      generated_value_count = self.each.count do |name, property|
+        executor = property.value_generation_executor(target_platform)
+
+        if executor.is_a? AORM::Sequencing::Executors::Interface
+          executor_list[name] = executor
+        end
+      end
+
+      return if executor_list.empty?
+
+      @value_generation_plan = case executor_list.size
+                               when 1 then AORM::Sequencing::Planning::SingleValue.new self, executor_list.values.first
+                               else        raise "TODO: Support generating composite values"
+                               end
     end
   end
 end

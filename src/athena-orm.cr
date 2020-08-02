@@ -72,11 +72,13 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
   db.using_connection do |conn|
     em = AORM::EntityManager.new conn
 
-    entities = [] of AORM::Entity
+    pp em.class_metadata User
+
+    # entities = [] of AORM::Entity
 
     # TODO: Handle hints?
 
-    ids = [1, 3, 5]
+    # ids = [1, 3, 5]
 
     # sql = "select * from users where id IN ($1, $2, $3);"
 
@@ -86,7 +88,7 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
 
     # pp entities
 
-    repo = em.repository User
+    # repo = em.repository User
 
     # pp User.entity_class_metadata
 
@@ -94,7 +96,7 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
     # pp repo.find 123
 
     # pp repo.find_by id: 1, alive: true
-    pp repo.find_by id: [1, 3, 5, nil], alive: false
+    # pp repo.find_by id: [1, 3, 5, nil], alive: false
 
     # pp repo.find_one_by id: 3
     # pp repo.find_one_by id: 4

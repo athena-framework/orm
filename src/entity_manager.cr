@@ -6,6 +6,7 @@ class Athena::ORM::EntityManager
   getter connection : DB::Connection
   getter? closed : Bool = false
   getter unit_of_work : AORM::UnitOfWork { AORM::UnitOfWork.new self }
+  getter metadata_factory : AORM::Mapping::ClassFactory { AORM::Mapping::ClassFactory.new self }
 
   @repository_factory : AORM::RepositoryFactoryInterface
 
@@ -67,6 +68,10 @@ class Athena::ORM::EntityManager
     self.unit_of_work.clear
 
     # TODO: Handle eventing (onClear)
+  end
+
+  def class_metadata(for entity_class : AORM::Entity.class) : AORM::Mapping::ClassBase
+    self.metadata_factory.metadata entity_class
   end
 
   def repository(entity_class : AORM::Entity.class) : AORM::RepositoryInterface

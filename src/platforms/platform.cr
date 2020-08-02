@@ -76,6 +76,16 @@ abstract struct Athena::ORM::Platforms::Platform
     self.do_modify_limit_query sql, limit, offset
   end
 
+  def sequence_prefix(table_name : String, schema_name : String? = nil) : String
+    return table_name if schema_name.nil?
+
+    !self.supports_schemas? && self.can_emulate_schemas? ? "#{schema_name}__#{table_name}" : "#{schema_name}.#{table_name}"
+  end
+
+  def fix_schema_element_name(name : String) : String
+    name
+  end
+
   protected def modify_limit_query(sql : String, limit : Int?, offset : Int?) : String
     sql += " LIMIT #{limit}" if limit
     sql += " OFFSET #{offset}" if offset && offset > 0
@@ -103,6 +113,18 @@ abstract struct Athena::ORM::Platforms::Platform
 
   # FEATURE SUPPORT
 
+  def can_emulate_schemas? : Bool
+    false
+  end
+
+  def prefers_identity_columns? : Bool
+    false
+  end
+
+  def prefers_sequences? : Bool
+    false
+  end
+
   def supports_limit_offset? : Bool
     true
   end
@@ -111,7 +133,7 @@ abstract struct Athena::ORM::Platforms::Platform
     false
   end
 
-  def can_emulate_schemas? : Bool
+  def uses_sequence_emulated_identity_columns? : Bool
     false
   end
 end
