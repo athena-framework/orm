@@ -2,9 +2,7 @@ module Athena::ORM::EntityManagerInterface
   abstract def find(entity_class : AORM::Entity.class, id : _) : AORM::Entity?
   abstract def persist(entity : AORM::Entity) : Nil
   abstract def remove(entity : AORM::Entity) : Nil
-  abstract def merge(entity : AORM::Entity) : Nil
   abstract def clear(entity_class : AORM::Entity.class | Nil = nil) : Nil
-  abstract def detach(entity : AORM::Entity) : Nil
   abstract def refresh(entity : AORM::Entity) : Nil
   abstract def flush(entity : AORM::Entity? = nil) : Nil
   abstract def repository(entity_class : AORM::Entity.class) : AORM::RepositoryInterface

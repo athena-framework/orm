@@ -65,7 +65,7 @@ struct Athena::ORM::Persisters::Entity::Basic
       next if value.nil?
 
       self.get_values value
-    end
+    end.flatten
   end
 
   def get_values(value : _)
@@ -76,12 +76,12 @@ struct Athena::ORM::Persisters::Entity::Basic
         new_value = new_value.concat self.get_values v
       end
 
-      new_value
+      return new_value
     end
 
     # TODO: Handle static metadata?
 
-    value
+    [value]
   end
 
   def load_all(
@@ -92,7 +92,7 @@ struct Athena::ORM::Persisters::Entity::Basic
   ) : Array(AORM::Entity)
     self.switch_persister_context offset, limit
 
-    sql = self.select_sql criteria, limit: limit, offset: offset, order_by: order_by
+    sql = @platform.modify_sql_placeholders self.select_sql criteria, limit: limit, offset: offset, order_by: order_by
     params = self.expand_parameters criteria
 
     entities = [] of AORM::Entity
@@ -146,30 +146,24 @@ struct Athena::ORM::Persisters::Entity::Basic
 
     # TODO: Support comparison type
 
-    idx = 1
     columns.join " AND " do |column_name|
       property = @class_metadata.property(field).not_nil!
-      placeholder = "$#{idx}"
 
       if value.is_a? Array
-        in_sql = "#{column_name} IN (#{placeholder})"
+        in_sql = "#{column_name} IN (#{value.size.times.join ", " { '?' }})"
 
         if value.includes? nil
-          idx += 1
           next "(#{in_sql} OR #{column_name} IS NULL)"
         end
 
-        idx += 1
         next in_sql
       end
 
       if value.nil?
-        idx += 1
         next "#{column_name} IS NULL"
       end
 
-      idx += 1
-      "#{column_name} = #{placeholder}"
+      "#{column_name} = ?"
     end
   end
 
@@ -204,7 +198,7 @@ struct Athena::ORM::Persisters::Entity::Basic
   end
 
   def count(criteria : Hash(String, _)) : Int
-    sql = self.count_sql criteria
+    sql = @platform.modify_sql_placeholders self.count_sql criteria
     params = self.expand_parameters criteria
 
     stmt = @connection.fetch_or_build_prepared_statement sql
@@ -249,8 +243,8 @@ struct Athena::ORM::Persisters::Entity::Basic
     set = [] of String
     params = [] of DB::Any
 
-    update_data.each_with_index do |param, idx|
-      set << "#{@platform.quote_identifier param.name} = $#{idx + 1}"
+    update_data.each do |param|
+      set << "#{@platform.quote_identifier param.name} = ?"
       params << param.value.value
     end
 
@@ -266,7 +260,7 @@ struct Athena::ORM::Persisters::Entity::Basic
       # TODO: Handle associations
     end
 
-    sql = %(UPDATE #{quoted_table_name} SET #{set.join ", "} WHERE #{where.join " = $1 AND "} = $#{update_data.size + 1})
+    sql = @platform.modify_sql_placeholders %(UPDATE #{quoted_table_name} SET #{set.join ", "} WHERE #{where.join " = ? AND "} = ?)
 
     stmt = @connection.fetch_or_build_prepared_statement sql
 
@@ -322,7 +316,6 @@ struct Athena::ORM::Persisters::Entity::Basic
     values = [] of DB::Any
     conditions = [] of String
 
-    idx = 1
     id.each do |name, value|
       v = value.value
 
@@ -333,20 +326,16 @@ struct Athena::ORM::Persisters::Entity::Basic
 
       columns << name
       values << v
-      conditions << "#{name} = $#{idx}"
-
-      idx += 1
+      conditions << "#{name} = ?"
     end
 
-    delete_sql = %(DELETE FROM #{table_name} WHERE #{conditions.join(" AND ")})
-
-    stmt = @connection.fetch_or_build_prepared_statement delete_sql
+    stmt = @connection.fetch_or_build_prepared_statement @platform.modify_sql_placeholders %(DELETE FROM #{table_name} WHERE #{conditions.join(" AND ")})
 
     !stmt.exec(args: values).rows_affected.zero?
   end
 
   def insert(entity : AORM::Entity) : Nil
-    stmt = @connection.fetch_or_build_prepared_statement self.insert_sql
+    stmt = @connection.fetch_or_build_prepared_statement @platform.modify_sql_placeholders self.insert_sql
     table_name = @class_metadata.table_name
     insert_data = self.prepare_insert_data entity
 
@@ -365,18 +354,13 @@ struct Athena::ORM::Persisters::Entity::Basic
 
     quoted_columns = [] of String
     values = [] of DB::Any
-    idx = 1
 
     columns.each do |name, metadata|
       quoted_columns << @platform.quote_identifier metadata.column_name
-      values << metadata.type.to_database_value_sql "$#{idx}", @platform
-      idx += 1
+      values << metadata.type.to_database_value_sql "?", @platform
     end
 
-    quoted_columns = quoted_columns.join(", ")
-    values = values.join(", ")
-
-    @insert_sql = "INSERT INTO #{table_name} (#{quoted_columns}) VALUES (#{values})"
+    @insert_sql = %(INSERT INTO #{table_name} (#{quoted_columns.join ", "}) VALUES (#{values.join ", "}))
   end
 
   protected def prepare_insert_data(entity : AORM::Entity) : Array

@@ -58,6 +58,12 @@ abstract struct Athena::ORM::Platforms::Platform
     column
   end
 
+  # Platforms can override this to convert the default `?` placeholders
+  # to platoform specific placeholders.
+  def modify_sql_placeholders(sql : String) : String
+    sql
+  end
+
   def modify_limit_query(sql : String, limit : Int?, offset : Int?) : String
     if offset && offset < 0
       raise ArgumentError.new "Offset cannot be negative"

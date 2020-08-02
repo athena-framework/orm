@@ -57,14 +57,6 @@ class Athena::ORM::EntityManager
     NotImplementedError.new "TODO: Implement this"
   end
 
-  def detach(entity : AORM::Entity) : Nil
-    NotImplementedError.new "TODO: Implement this"
-  end
-
-  def merge(entity : AORM::Entity) : Nil
-    NotImplementedError.new "TODO: Implement this"
-  end
-
   def flush(entity : AORM::Entity? = nil) : Nil
     self.unless_closed do
       self.unit_of_work.commit entity

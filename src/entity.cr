@@ -23,27 +23,3 @@ abstract class Athena::ORM::Entity
     {% end %}
   end
 end
-
-# def self.entity_class_metadata : Array(Athena::ORM::Metadata::ColumnBase)
-#   {% begin %}
-#     {% column_metadata = [] of Nil %}
-
-#     {% for column in @type.instance_vars.select &.annotation AORM::Column %}
-#       {% ann = column.annotation AORM::Column %}
-
-#       {% type = ann[:type] == nil ? (column.type.union? ? column.type.union_types.first : column.type) : ann[:type] %}
-
-#       {%
-#         column_metadata << %(AORM::Mapping::Column(#{column.type}).new(
-#           #{column.name.id.stringify},
-#           Athena::ORM::Types::Type.get_type(#{type}),
-#           #{column.type.nilable?},
-#           #{!!column.annotation AORM::ID},
-#           #{column.default_value}
-#         )).id
-#       %}
-#     {% end %}
-
-#     {{column_metadata}} of AORM::Mapping::ColumnBase
-#   {% end %}
-# end

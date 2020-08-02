@@ -20,14 +20,14 @@ class Athena::ORM::EntityRepository
   end
 
   def find_all : Array(AORM::Entity)
-    self.find_by Hash(String, DB::Any).new
+    self.find_by Hash(String, DB::Any | Array(DB::Any)).new
   end
 
   def find_by(**criteria) : Array(ORM::Entity)
     self.find_by criteria.to_h.transform_keys &.to_s
   end
 
-  def find_by(criteria : Hash(String, DB::Any), order_by : Array(String) = [] of String, limit : Int? = nil, offset : Int? = nil) : Array(ORM::Entity)
+  def find_by(criteria : Hash(String, DB::Any | Array(DB::Any)), order_by : Array(String) = [] of String, limit : Int? = nil, offset : Int? = nil) : Array(ORM::Entity)
     persister = @em.unit_of_work.entity_persister @entity_class
 
     persister.load_all criteria, order_by, limit, offset
@@ -37,7 +37,7 @@ class Athena::ORM::EntityRepository
     self.find_one_by criteria.to_h.transform_keys &.to_s
   end
 
-  def find_one_by(criteria : Hash(String, DB::Any), order_by : Array(String) = [] of String) : AORM::Entity?
+  def find_one_by(criteria : Hash(String, DB::Any | Array(DB::Any)), order_by : Array(String) = [] of String) : AORM::Entity?
     persister = @em.unit_of_work.entity_persister @entity_class
 
     persister.load criteria, limit: 1, order_by: order_by
@@ -47,7 +47,7 @@ class Athena::ORM::EntityRepository
     self.count criteria.to_h.transform_keys &.to_s
   end
 
-  def count(criteria : Hash(String, DB::Any)) : Int
+  def count(criteria : Hash(String, DB::Any | Array(DB::Any))) : Int
     @em.unit_of_work.entity_persister(@entity_class).count criteria
   end
 end

@@ -72,13 +72,29 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
   db.using_connection do |conn|
     em = AORM::EntityManager.new conn
 
-    # repo = em.repository User
+    entities = [] of AORM::Entity
+
+    # TODO: Handle hints?
+
+    ids = [1, 3, 5]
+
+    # sql = "select * from users where id IN ($1, $2, $3);"
+
+    # conn.query_each sql, args: [] do |rs|
+    #   entities << User.from_rs rs, conn.database_platform
+    # end
+
+    # pp entities
+
+    repo = em.repository User
 
     # pp User.entity_class_metadata
 
+    # pp repo.find 1
     # pp repo.find 123
 
-    # pp repo.find_by alive: false
+    # pp repo.find_by id: 1, alive: true
+    pp repo.find_by id: [1, 3, 5, nil], alive: false
 
     # pp repo.find_one_by id: 3
     # pp repo.find_one_by id: 4
@@ -89,26 +105,26 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
 
     # pp repo2.find 2
 
-    u1 = User.new "Jim"
-    u2 = User.new "Sally"
+    # u1 = User.new "Jim"
+    # u2 = User.new "Sally"
 
-    em = AORM::EntityManager.new conn
+    # em = AORM::EntityManager.new conn
 
-    em.persist u1
-    em.persist u2
+    # em.persist u1
+    # em.persist u2
 
-    em.flush
-    puts
+    # em.flush
+    # puts
 
-    em.remove u2
-    u1.name = "Bob"
-    u1.alive = false
+    # em.remove u2
+    # u1.name = "Bob"
+    # u1.alive = false
 
-    em.flush
-    puts
+    # em.flush
+    # puts
 
-    u1.name = "Fred"
+    # u1.name = "Fred"
 
-    em.flush
+    # em.flush
   end
 end
