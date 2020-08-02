@@ -44,7 +44,7 @@ end
 
 # AORM::Types::Type.add_type TestEnumType, TestEnumType
 
-class User < Athena::ORM::Entity
+class User < AORM::Entity
   def initialize(@name : String); end
 
   @[AORMA::Column]
@@ -72,21 +72,9 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
   db.using_connection do |conn|
     em = AORM::EntityManager.new conn
 
-    pp em.class_metadata User
-
-    # entities = [] of AORM::Entity
-
-    # TODO: Handle hints?
-
-    # ids = [1, 3, 5]
-
-    # sql = "select * from users where id IN ($1, $2, $3);"
-
-    # conn.query_each sql, args: [] do |rs|
-    #   entities << User.from_rs rs, conn.database_platform
-    # end
-
-    # pp entities
+    # pp em.class_metadata User
+    pp em.find User, 2
+    pp em.find User, 1
 
     # repo = em.repository User
 

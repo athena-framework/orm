@@ -4,7 +4,7 @@ module Athena::ORM::EntityManagerInterface
   abstract def remove(entity : AORM::Entity) : Nil
   abstract def clear(entity_class : AORM::Entity.class | Nil = nil) : Nil
   abstract def refresh(entity : AORM::Entity) : Nil
-  abstract def flush(entity : AORM::Entity? = nil) : Nil
+  abstract def flush : Nil
   abstract def repository(entity_class : AORM::Entity.class) : AORM::RepositoryInterface
   abstract def contains(entity : AORM::Entity) : Bool
 

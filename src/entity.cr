@@ -1,5 +1,5 @@
 abstract class Athena::ORM::Entity
-  protected def self.entity_metadata_class : AORM::Mapping::ClassBase.class
+  def self.entity_metadata_class : AORM::Mapping::ClassBase.class
     {% begin %}
       AORM::Mapping::Class({{@type}})
     {% end %}
@@ -7,10 +7,11 @@ abstract class Athena::ORM::Entity
 
   macro inherited
     {% verbatim do %}
-      def self.from_rs(rs : DB::ResultSet, platform : AORM::Platforms::Platform) : self
+      # TODO: Extract this out of the entity itself.
+      def self.from_rs(class_metadata : AORM::Mapping::ClassBase, rs : DB::ResultSet, platform : AORM::Platforms::Platform) : self
         {% begin %}
           instance = allocate
-          self.entity_class_metadata.each do |column|
+          class_metadata.each do |column|
             case column.name
             {% for column in @type.instance_vars.select &.annotation AORMA::Column %}
               when {{column.name.stringify}} then pointerof(instance.@{{column.id}}).value = column.type.from_db(rs, platform).as({{column.type}})

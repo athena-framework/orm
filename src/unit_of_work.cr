@@ -30,7 +30,7 @@ class Athena::ORM::UnitOfWork
 
   def initialize(@em : AORM::EntityManagerInterface); end
 
-  def commit(entity : AORM::Entity? = nil) : Nil
+  def commit : Nil
     # TODO: Handle eventing (preFlush)
 
     self.compute_changesets
@@ -47,15 +47,15 @@ class Athena::ORM::UnitOfWork
 
     @em.transaction do
       @entity_inserstions.each_value do |entity|
-        self.execute_inserts entity.class.entity_class_metadata
+        self.execute_inserts @em.class_metadata entity.class
       end
 
       @entity_updates.each do |obj_id, entity|
-        self.execute_updates entity.class.entity_class_metadata
+        self.execute_updates @em.class_metadata entity.class
       end
 
       @entity_deletions.each do |obj_id, entity|
-        self.execute_deleteions entity.class.entity_class_metadata
+        self.execute_deleteions @em.class_metadata entity.class
       end
     rescue ex : ::Exception
       @em.close
@@ -85,7 +85,7 @@ class Athena::ORM::UnitOfWork
     generation_plan = class_metadata.value_generation_plan
 
     @entity_inserstions.each do |obj_id, entity|
-      next if entity_class != entity.class.entity_class_metadata.entity_class
+      next if entity_class != @em.class_metadata(entity.class).entity_class
 
       persister.insert entity
 
@@ -114,7 +114,7 @@ class Athena::ORM::UnitOfWork
     persister = self.entity_persister class_metadata.entity_class
 
     @entity_updates.each do |obj_id, entity|
-      next if entity_class != entity.class.entity_class_metadata.entity_class
+      next if entity_class != @em.class_metadata(entity.class).entity_class
 
       # TODO: Handle eventing (preUpdate)
 
@@ -133,7 +133,7 @@ class Athena::ORM::UnitOfWork
     persister = self.entity_persister class_metadata.entity_class
 
     @entity_deletions.each do |obj_id, entity|
-      next if entity_class != entity.class.entity_class_metadata.entity_class
+      next if entity_class != @em.class_metadata(entity.class).entity_class
 
       persister.delete entity
 
@@ -165,7 +165,7 @@ class Athena::ORM::UnitOfWork
 
     return unless visited.add? obj_id
 
-    class_metadata = entity.class.entity_class_metadata
+    class_metadata = @em.class_metadata entity.class
 
     case self.entity_state(entity, :new)
     in .managed? then return # TODO: Handle change tracking
@@ -276,7 +276,7 @@ class Athena::ORM::UnitOfWork
 
     return assume if assume
 
-    class_metadata = entity.class.entity_class_metadata
+    class_metadata = @em.class_metadata entity.class
     persister = self.entity_persister class_metadata.entity_class
     id = persister.identifier entity
 
@@ -321,7 +321,7 @@ class Athena::ORM::UnitOfWork
       return persister
     end
 
-    class_metadata = entity_class.entity_class_metadata
+    class_metadata = @em.class_metadata entity_class
 
     persister = case class_metadata.inheritence_type
                 in .none? then AORM::Persisters::Entity::Basic.new @em, class_metadata
@@ -343,7 +343,7 @@ class Athena::ORM::UnitOfWork
   def add_to_identity_map(entity : AORM::Entity) : Bool
     obj_id = entity.object_id
 
-    class_metadata = entity.class.entity_class_metadata
+    class_metadata = @em.class_metadata entity.class
     identifier = @entity_identifiers[obj_id]?
 
     if identifier.nil? || identifier.empty?
@@ -372,7 +372,7 @@ class Athena::ORM::UnitOfWork
 
     return false if !@entity_identifiers.has_key?(obj_id) || @entity_identifiers[obj_id].empty?
 
-    class_metadata = entity.class.entity_class_metadata
+    class_metadata = @em.class_metadata entity.class
     id_hash = @entity_identifiers[obj_id].values.join " "
 
     @identity_map.has_key?(class_metadata.root_class) && @identity_map[class_metadata.root_class].has_key?(id_hash)
@@ -380,7 +380,7 @@ class Athena::ORM::UnitOfWork
 
   def remove_from_identity_map(entity : AORM::Entity) : Bool
     obj_id = entity.object_id
-    class_metadata = entity.class.entity_class_metadata
+    class_metadata = @em.class_metadata entity.class
     id_hash = @entity_identifiers[obj_id].values.join " "
 
     # TODO: Use proper exception type
@@ -415,7 +415,7 @@ class Athena::ORM::UnitOfWork
 
   private def compute_scheduled_inserts_change_sets : Nil
     @entity_inserstions.each do |_, entity|
-      class_metadata = entity.class.entity_class_metadata
+      class_metadata = @em.class_metadata entity.class
 
       self.compute_change_set class_metadata, entity
     end
@@ -492,7 +492,7 @@ class Athena::ORM::UnitOfWork
   end
 
   protected def manage_entity(entity : AORM::Entity) : AORM::Entity
-    class_metadata = entity.class.entity_class_metadata
+    class_metadata = @em.class_metadata entity.class
     persister = self.entity_persister class_metadata.entity_class
     obj_id = entity.object_id
 

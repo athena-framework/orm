@@ -44,7 +44,7 @@ struct Athena::ORM::Persisters::Entity::Basic
   ) : AORM::Entity?
     self.switch_persister_context nil, limit
 
-    sql = self.select_sql criteria, lock_mode, limit, nil, order_by
+    sql = @platform.modify_sql_placeholders self.select_sql criteria, lock_mode, limit, nil, order_by
     params = self.expand_parameters criteria
 
     entities = [] of AORM::Entity
@@ -52,7 +52,7 @@ struct Athena::ORM::Persisters::Entity::Basic
     # TODO: Handle hints?
 
     @connection.query_each sql, args: params do |rs|
-      entities << @class_metadata.entity_class.from_rs rs, @platform
+      entities << @class_metadata.entity_class.from_rs @class_metadata, rs, @platform
     end
 
     return unless (entity = entities.first?)
@@ -100,7 +100,7 @@ struct Athena::ORM::Persisters::Entity::Basic
     # TODO: Handle hints?
 
     @connection.query_each sql, args: params do |rs|
-      entities << @class_metadata.entity_class.from_rs rs, @platform
+      entities << @class_metadata.entity_class.from_rs @class_metadata, rs, @platform
     end
 
     entities.map { |e| @em.unit_of_work.manage_entity e }

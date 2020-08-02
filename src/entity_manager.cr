@@ -16,7 +16,7 @@ class Athena::ORM::EntityManager
 
   # TODO: Support composite PKs via #find.
   def find(entity_class : AORM::Entity.class, id : Hash(String, Int | String) | Int | String, lock_mode : AORM::LockMode? = nil, lock_version : Int32? = nil) : AORM::Entity?
-    class_metadata = entity_class.entity_class_metadata
+    class_metadata = self.class_metadata entity_class
     entity_class = class_metadata.entity_class
 
     # TODO: Handle locking
