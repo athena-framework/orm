@@ -50,11 +50,11 @@ class Athena::ORM::UnitOfWork
         self.execute_inserts @em.class_metadata entity.class
       end
 
-      @entity_updates.each do |obj_id, entity|
+      @entity_updates.each do |_obj_id, entity|
         self.execute_updates @em.class_metadata entity.class
       end
 
-      @entity_deletions.each do |obj_id, entity|
+      @entity_deletions.each do |_obj_id, entity|
         self.execute_deleteions @em.class_metadata entity.class
       end
     rescue ex : ::Exception
@@ -388,7 +388,7 @@ class Athena::ORM::UnitOfWork
 
     class_name = class_metadata.root_class
 
-    return true if @identity_map.has_key?(class_metadata.root_class) && @identity_map.has_key?(id_hash)
+    return true if @identity_map.has_key?(class_name) && @identity_map.has_key?(id_hash)
 
     false
   end

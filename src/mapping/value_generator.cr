@@ -6,6 +6,10 @@ module Athena::ORM::Mapping
     Table
     Identity
     Custom
+
+    def auto_identity? : Bool
+      self.auto? || self.identity?
+    end
   end
 
   struct ValueGeneratorMetadata
@@ -17,15 +21,13 @@ module Athena::ORM::Mapping
       class_metadata : ClassBase,
       column_name : String,
       column_type : AORM::Types::Type,
-      generated_value : Annotations::GeneratedValue?,
+      generated_value : Annotations::GeneratedValue,
       sequence_generator : Annotations::SequenceGenerator?
     ) : self?
-      return nil unless generated_value
-
       platform = context.target_platform
       generator_type : GeneratorType = generated_value.strategy
 
-      if generator_type.auto? || generator_type.identity?
+      if generated_value.auto_identity?
         generator_type = (platform.prefers_sequences? || platform.uses_sequence_emulated_identity_columns?) ? GeneratorType::Sequence : (platform.prefers_identity_columns? ? GeneratorType::Identity : GeneratorType::Table)
       end
 

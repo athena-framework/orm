@@ -34,7 +34,7 @@ module Athena::ORM::Mapping
           raise "SQL Conversion not allowed for PK"
         end
 
-        value_generator = AORM::Mapping::ValueGeneratorMetadata.build_metadata(context, class_metadata, name, type, generated_value, sequence_generator)
+        value_generator = generated_value.nil? ? nil : AORM::Mapping::ValueGeneratorMetadata.build_metadata(context, class_metadata, name, type, generated_value, sequence_generator)
       end
 
       new(

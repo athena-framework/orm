@@ -133,7 +133,7 @@ module Athena::ORM::Mapping
     protected def determine_value_generation_plan(target_platform : AORM::Platforms::Platform) : Nil
       executor_list = Hash(String, AORM::Sequencing::Executors::Interface).new
 
-      generated_value_count = self.each.count do |name, property|
+      self.each do |name, property|
         executor = property.value_generation_executor(target_platform)
 
         if executor.is_a? AORM::Sequencing::Executors::Interface

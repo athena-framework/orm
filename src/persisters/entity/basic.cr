@@ -61,7 +61,7 @@ struct Athena::ORM::Persisters::Entity::Basic
   end
 
   def expand_parameters(criteria : Hash(String, _))
-    criteria.map do |key, value|
+    criteria.map do |_key, value|
       next if value.nil?
 
       self.get_values value
@@ -147,8 +147,6 @@ struct Athena::ORM::Persisters::Entity::Basic
     # TODO: Support comparison type
 
     columns.join " AND " do |column_name|
-      property = @class_metadata.property(field).not_nil!
-
       if value.is_a? Array
         in_sql = "#{column_name} IN (#{value.size.times.join ", " { '?' }})"
 
@@ -336,7 +334,6 @@ struct Athena::ORM::Persisters::Entity::Basic
 
   def insert(entity : AORM::Entity) : Nil
     stmt = @connection.fetch_or_build_prepared_statement @platform.modify_sql_placeholders self.insert_sql
-    table_name = @class_metadata.table_name
     insert_data = self.prepare_insert_data entity
 
     stmt.exec args: insert_data
@@ -355,7 +352,7 @@ struct Athena::ORM::Persisters::Entity::Basic
     quoted_columns = [] of String
     values = [] of DB::Any
 
-    columns.each do |name, metadata|
+    columns.each do |_name, metadata|
       quoted_columns << @platform.quote_identifier metadata.column_name
       values << metadata.type.to_database_value_sql "?", @platform
     end
@@ -364,9 +361,6 @@ struct Athena::ORM::Persisters::Entity::Basic
   end
 
   protected def prepare_insert_data(entity : AORM::Entity) : Array
-    column_prefix = ""
-    table_name = @class_metadata.table_name
-
     @class_metadata.map do |property|
       property.get_value(entity).value
     end
