@@ -43,12 +43,7 @@ module Athena::ORM::Mapping
         column.name || name,
         is_primary_key,
         class_metadata.table_name,
-        column.column_definition,
-        column.scale,
-        column.precision,
-        column.length,
         column.nilable,
-        column.unique,
         value_generator
       )
     end
@@ -64,14 +59,7 @@ module Athena::ORM::Mapping
     getter entity_class : EntityType.class
     getter table_name : String?
 
-    # TODO: Maybe break these out to share with a type for migrations/generation?
-    getter column_definition : String?
-    getter scale : Int32
-    getter precision : Int32
-    getter length : Int32
     getter? nilable : Bool
-    getter? unique : Bool
-    getter? versioned : Bool = false
 
     def initialize(
       @name : String,
@@ -79,12 +67,7 @@ module Athena::ORM::Mapping
       @column_name : String,
       @is_primary_key : Bool,
       @table_name : String?,
-      @column_definition : String?,
-      @scale : Int32,
-      @precision : Int32,
-      @length : Int32,
       @nilable : Bool,
-      @unique : Bool,
       @value_generator : ValueGeneratorMetadata?,
       @entity_class : EntityType.class = EntityType
     )

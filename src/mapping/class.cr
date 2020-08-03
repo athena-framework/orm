@@ -1,19 +1,10 @@
 require "./column"
 
 module Athena::ORM::Mapping
-  enum InheritenceType
-    None
-  end
-
-  enum ChangeTrackingPolicy
-    DeferredImplicit
-  end
-
   abstract class ClassBase; end
 
   class Class(EntityType) < ClassBase
     include Enumerable(Athena::ORM::Mapping::ColumnBase)
-    include Iterable(Athena::ORM::Mapping::ColumnBase)
 
     protected def self.build_metadata(context : ClassFactory::Context) : self
       table_annotation = {% if ann = EntityType.annotation(AORMA::Table) %}AORM::Mapping::Annotations::Table.new({{ann.named_args.double_splat}}){% else %}nil{% end %}
@@ -46,8 +37,6 @@ module Athena::ORM::Mapping
       metadata
     end
 
-    getter inheritence_type = AORM::Mapping::InheritenceType::None
-    @field_names = Hash(String, String).new
     @properties = Hash(String, AORM::Mapping::ColumnBase).new
 
     getter entity_class : AORM::Entity.class
@@ -95,10 +84,6 @@ module Athena::ORM::Mapping
       @properties.each_value do |property|
         yield property
       end
-    end
-
-    def each
-      @properties.each
     end
 
     def root_class : AORM::Entity.class

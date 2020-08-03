@@ -258,6 +258,27 @@ class Athena::ORM::UnitOfWork
     end
   end
 
+  def refresh(entity : AORM::Entity) : Nil
+    visited = Set(UInt64).new
+
+    self.remove entity, visited
+  end
+
+  private def refresh(entity : AORM::Entity, visited : Set(UInt64)) : Nil
+    obj_id = entity.object_id
+
+    return unless visited.add? obj_id
+
+    class_metadata = @em.class_metadata entity.class
+
+    # TODO: Use proper exception type for this
+    raise "Entity not managed" if !self.entity_state(entity).managed?
+
+    self.entity_persister.refresh
+
+    # TODO: Handle cascade refreshing
+  end
+
   def clear : Nil
     @identity_map.clear
     @entity_identifiers.clear
@@ -323,13 +344,10 @@ class Athena::ORM::UnitOfWork
 
     class_metadata = @em.class_metadata entity_class
 
-    persister = case class_metadata.inheritence_type
-                in .none? then AORM::Persisters::Entity::Basic.new @em, class_metadata
-                end
-
+    # TODO: Support other types of persisters
     # TODO: Handle cacheing
 
-    @entity_persisters[entity_class] = persister
+    @entity_persisters[entity_class] = AORM::Persisters::Entity::Basic.new @em, class_metadata
   end
 
   protected def try_get_by_id(id : Hash(String, Int | String), entity_class : AORM::Entity.class) : AORM::Entity?

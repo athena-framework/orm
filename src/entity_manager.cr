@@ -79,7 +79,7 @@ class Athena::ORM::EntityManager
     self.metadata_factory.metadata entity_class
   end
 
-  # Define overloads to get specific repositories
+  # TODO: Figure out if there is a better way to handle this
   macro finished
     {% for repo in Athena::ORM::EntityRepository.all_subclasses.reject &.abstract? %}
       {% name = repo.name.split("::").last %}
@@ -91,8 +91,6 @@ class Athena::ORM::EntityManager
   end
 
   def repository(entity_class : AORM::Entity.class) : AORM::RepositoryInterface
-    # TODO: Figure out how to handle this, probably should use overloads for this
-    # to give type saftey & prevent need for .as()
     @repository_factory.repository self, entity_class
   end
 

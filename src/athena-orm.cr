@@ -89,26 +89,37 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
 
     repo = em.repository User
 
-    pp typeof(repo)
+    user = repo.find 2
 
-    repo_find = repo.find 1
+    user.alive = false
+    user.name = "Alive"
 
-    pp repo_find, typeof(repo_find)
+    pp user
 
-    puts
+    em.refresh user
 
-    active_users = repo.active_users
-    pp active_users, typeof(active_users)
+    pp user
 
-    puts
+    # pp typeof(repo)
 
-    active_users = repo.active_users
-    pp active_users, typeof(active_users)
+    # repo_find = repo.find 1
 
-    puts
+    # pp repo_find, typeof(repo_find)
 
-    primary_user = repo.primary_user
-    pp primary_user, typeof(primary_user)
+    # puts
+
+    # active_users = repo.active_users
+    # pp active_users, typeof(active_users)
+
+    # puts
+
+    # active_users = repo.active_users
+    # pp active_users, typeof(active_users)
+
+    # puts
+
+    # primary_user = repo.primary_user
+    # pp primary_user, typeof(primary_user)
 
     # pp User.entity_class_metadata
 
