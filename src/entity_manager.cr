@@ -15,7 +15,12 @@ class Athena::ORM::EntityManager
   end
 
   # TODO: Support composite PKs via #find.
-  def find(entity_class : AORM::Entity.class, id : Hash(String, Int | String) | Int | String, lock_mode : AORM::LockMode? = nil, lock_version : Int32? = nil) : AORM::Entity?
+  def find(
+    entity_class : AORM::Entity.class,
+    id : Hash(String, Int | String) | Int | String,
+    lock_mode : AORM::LockMode? = nil,
+    lock_version : Int32? = nil
+  ) : AORM::Entity?
     class_metadata = self.class_metadata entity_class
     entity_class = class_metadata.entity_class
 
@@ -28,7 +33,7 @@ class Athena::ORM::EntityManager
     uow = self.unit_of_work
 
     uow.try_get_by_id(id, entity_class) do |entity|
-      return nil unless entity == entity_class
+      return nil if entity.class != entity_class
 
       # TODO: Handle locking
 
@@ -58,9 +63,9 @@ class Athena::ORM::EntityManager
     NotImplementedError.new "TODO: Implement this"
   end
 
-  def flush(entity : AORM::Entity? = nil) : Nil
+  def flush : Nil
     self.unless_closed do
-      self.unit_of_work.commit entity
+      self.unit_of_work.commit
     end
   end
 
@@ -72,6 +77,17 @@ class Athena::ORM::EntityManager
 
   def class_metadata(for entity_class : AORM::Entity.class) : AORM::Mapping::ClassBase
     self.metadata_factory.metadata entity_class
+  end
+
+  # Define overloads to get specific repositories
+  macro finished
+    {% for repo in Athena::ORM::EntityRepository.all_subclasses.reject &.abstract? %}
+      {% name = repo.name.split("::").last %}
+      {% entity_class = name.gsub(/Repository/, "") %}
+      def repository(entity_class : {{entity_class.id}}.class) : {{repo.id}}
+        @repository_factory.repository(self, entity_class).as {{repo.id}}
+      end
+    {% end %}
   end
 
   def repository(entity_class : AORM::Entity.class) : AORM::RepositoryInterface

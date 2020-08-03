@@ -16,7 +16,7 @@ struct Athena::ORM::DefaultRepositoryFactory
   end
 
   private def create_repository(em : AORM::EntityManagerInterface, entity_class : AORM::Entity.class) : AORM::RepositoryInterface
-    class_metadata = entity_class.entity_class_metadata
+    class_metadata = em.class_metadata entity_class
 
     repo_class = class_metadata.custom_repository_class || class_metadata.default_repository_class
 

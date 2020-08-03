@@ -47,6 +47,9 @@ struct Athena::ORM::Persisters::Entity::Basic
     sql = @platform.modify_sql_placeholders self.select_sql criteria, lock_mode, limit, nil, order_by
     params = self.expand_parameters criteria
 
+    puts sql
+    pp params
+
     entities = [] of AORM::Entity
 
     # TODO: Handle hints?
@@ -94,6 +97,9 @@ struct Athena::ORM::Persisters::Entity::Basic
 
     sql = @platform.modify_sql_placeholders self.select_sql criteria, limit: limit, offset: offset, order_by: order_by
     params = self.expand_parameters criteria
+
+    puts sql
+    pp params
 
     entities = [] of AORM::Entity
 

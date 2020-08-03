@@ -397,7 +397,7 @@ class Athena::ORM::UnitOfWork
     self.compute_scheduled_inserts_change_sets
 
     @identity_map.each do |entity_class, entity_hash|
-      class_metadata = entity_class.entity_class_metadata
+      class_metadata = @em.class_metadata entity_class
 
       # TODO: Skip readonly classes
       # TODO: Handle change tracking policies

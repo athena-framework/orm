@@ -27,7 +27,7 @@ module Athena::ORM::Mapping
       platform = context.target_platform
       generator_type : GeneratorType = generated_value.strategy
 
-      if generated_value.auto_identity?
+      if generator_type.auto_identity?
         generator_type = (platform.prefers_sequences? || platform.uses_sequence_emulated_identity_columns?) ? GeneratorType::Sequence : (platform.prefers_identity_columns? ? GeneratorType::Identity : GeneratorType::Table)
       end
 

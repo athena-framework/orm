@@ -17,9 +17,11 @@ module Athena::ORM::Mapping
 
     protected def self.build_metadata(context : ClassFactory::Context) : self
       table_annotation = {% if ann = EntityType.annotation(AORMA::Table) %}AORM::Mapping::Annotations::Table.new({{ann.named_args.double_splat}}){% else %}nil{% end %}
+      entity_annotation = {% if ann = EntityType.annotation(AORMA::Entity) %}AORM::Mapping::Annotations::Entity.new({{ann.named_args.double_splat}}){% else %}nil{% end %}
 
       metadata = new(
-        Table.build_metadata context, EntityType, table_annotation
+        Table.build_metadata(context, EntityType, table_annotation),
+        entity_annotation.try &.repository_class
       )
 
       {% for column, idx in EntityType.instance_vars.select &.annotation AORMA::Column %}
@@ -49,12 +51,14 @@ module Athena::ORM::Mapping
     @properties = Hash(String, AORM::Mapping::ColumnBase).new
 
     getter entity_class : AORM::Entity.class
+    getter custom_repository_class : AORM::RepositoryInterface.class | Nil
     getter table : AORM::Mapping::Table
     getter identifier = Set(String).new
     getter value_generation_plan : AORM::Sequencing::Planning::Interface = AORM::Sequencing::Planning::Noop.new
 
     def initialize(
       @table : AORM::Mapping::Table,
+      @custom_repository_class : AORM::RepositoryInterface.class | Nil = nil,
       @entity_class : AORM::Entity.class = EntityType
     ); end
 
@@ -122,22 +126,18 @@ module Athena::ORM::Mapping
       @identifier.size > 1
     end
 
-    def custom_repository_class : AORM::EntityRepository.class | Nil
-      nil
-    end
-
-    def default_repository_class : AORM::EntityRepository.class
-      AORM::EntityRepository
+    def default_repository_class : AORM::RepositoryInterface.class
+      AORM::EntityRepository(AORM::Entity)
     end
 
     protected def determine_value_generation_plan(target_platform : AORM::Platforms::Platform) : Nil
       executor_list = Hash(String, AORM::Sequencing::Executors::Interface).new
 
-      self.each do |name, property|
+      self.each do |property|
         executor = property.value_generation_executor(target_platform)
 
         if executor.is_a? AORM::Sequencing::Executors::Interface
-          executor_list[name] = executor
+          executor_list[property.name] = executor
         end
       end
 

@@ -1,2 +1,2 @@
-module Athena::ORM::RepositoryInterface
+abstract class Athena::ORM::RepositoryInterface
 end

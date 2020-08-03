@@ -1,8 +1,6 @@
 require "./repository_interface"
 
-class Athena::ORM::EntityRepository
-  include Athena::ORM::RepositoryInterface
-
+class Athena::ORM::EntityRepository(Entity) < Athena::ORM::RepositoryInterface
   getter entity_class : AORM::Entity.class
   getter em : AORM::EntityManagerInterface
   getter class_metadata : AORM::Mapping::ClassBase
@@ -15,32 +13,32 @@ class Athena::ORM::EntityRepository
     @em.clear
   end
 
-  def find(id : Hash(String, Int | String) | Int | String, lock_mode : AORM::LockMode? = nil, lock_version : Int32? = nil) : AORM::Entity?
-    @em.find @entity_class, id, lock_mode, lock_version
+  def find(id : Hash(String, Int | String) | Int | String, lock_mode : AORM::LockMode? = nil, lock_version : Int32? = nil) : Entity?
+    @em.find(@entity_class, id, lock_mode, lock_version).as Entity
   end
 
-  def find_all : Array(AORM::Entity)
+  def find_all : Array(Entity)
     self.find_by Hash(String, DB::Any | Array(DB::Any)).new
   end
 
-  def find_by(**criteria) : Array(ORM::Entity)
+  def find_by(**criteria) : Array(Entity)
     self.find_by criteria.to_h.transform_keys &.to_s
   end
 
-  def find_by(criteria : Hash(String, DB::Any | Array(DB::Any)), order_by : Array(String) = [] of String, limit : Int? = nil, offset : Int? = nil) : Array(ORM::Entity)
+  def find_by(criteria : Hash(String, DB::Any | Array(DB::Any)), order_by : Array(String) = [] of String, limit : Int? = nil, offset : Int? = nil) : Array(Entity)
     persister = @em.unit_of_work.entity_persister @entity_class
 
-    persister.load_all criteria, order_by, limit, offset
+    persister.load_all(criteria, order_by, limit, offset).map &.as Entity
   end
 
-  def find_one_by(**criteria) : AORM::Entity?
+  def find_one_by(**criteria) : Entity?
     self.find_one_by criteria.to_h.transform_keys &.to_s
   end
 
-  def find_one_by(criteria : Hash(String, DB::Any | Array(DB::Any)), order_by : Array(String) = [] of String) : AORM::Entity?
+  def find_one_by(criteria : Hash(String, DB::Any | Array(DB::Any)), order_by : Array(String) = [] of String) : Entity?
     persister = @em.unit_of_work.entity_persister @entity_class
 
-    persister.load criteria, limit: 1, order_by: order_by
+    persister.load(criteria, limit: 1, order_by: order_by).as Entity?
   end
 
   def count(**criteria) : Int

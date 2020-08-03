@@ -44,6 +44,7 @@ end
 
 # AORM::Types::Type.add_type TestEnumType, TestEnumType
 
+@[AORMA::Entity(repository_class: UserRepository)]
 class User < AORM::Entity
   def initialize(@name : String); end
 
@@ -68,15 +69,46 @@ end
 
 require "pg"
 
+class UserRepository < AORM::EntityRepository(User)
+  def active_users
+    self.find_by(alive: true)
+  end
+
+  def primary_user : User
+    self.find(4)
+  end
+end
+
 DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=blog" do |db|
   db.using_connection do |conn|
     em = AORM::EntityManager.new conn
 
     # pp em.class_metadata User
-    pp em.find User, 2
-    pp em.find User, 1
+    # pp em.find User, 2
+    # pp em.find User, 1
 
-    # repo = em.repository User
+    repo = em.repository User
+
+    pp typeof(repo)
+
+    repo_find = repo.find 1
+
+    pp repo_find, typeof(repo_find)
+
+    puts
+
+    active_users = repo.active_users
+    pp active_users, typeof(active_users)
+
+    puts
+
+    active_users = repo.active_users
+    pp active_users, typeof(active_users)
+
+    puts
+
+    primary_user = repo.primary_user
+    pp primary_user, typeof(primary_user)
 
     # pp User.entity_class_metadata
 

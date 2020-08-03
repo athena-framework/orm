@@ -4,4 +4,5 @@ module Athena::ORM::Annotations
   annotation GeneratedValue; end
   annotation SequenceGenerator; end
   annotation Table; end
+  annotation Entity; end
 end
