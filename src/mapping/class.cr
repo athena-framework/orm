@@ -15,21 +15,38 @@ module Athena::ORM::Mapping
         entity_annotation.try &.repository_class
       )
 
-      {% for column, idx in EntityType.instance_vars.select &.annotation AORMA::Column %}
-        {% ann = column.annotation AORMA::Column %}
-        {% type = ann[:type] == nil ? (column.type.union? ? column.type.union_types.first : column.type) : ann[:type] %}
+      {% for column, idx in EntityType.instance_vars %}
+        {% type = column.type.union? ? column.type.union_types.reject(&.==(Nil)).first : column.type %}
 
-        %property{idx} = AORM::Mapping::Column({{type}}, {{EntityType}}).build_metadata(
-          context,
-          {{column.name.stringify}},
-          metadata,
-          {% if ann = column.annotation(AORMA::Column) %}column: AORM::Mapping::Annotations::Column.new({{ann.named_args.double_splat}}),{% end %}
-          {% if column.annotation(AORMA::ID) %}id: AORM::Mapping::Annotations::ID.new,{% end %}
-          {% if ann = column.annotation(AORMA::GeneratedValue) %}generated_value: AORM::Mapping::Annotations::GeneratedValue.new({{ann.named_args.double_splat}}){% end %}
-          {% if ann = column.annotation(AORMA::SequenceGenerator) %}sequence_generator: AORM::Mapping::Annotations::SequenceGenerator.new({{ann.named_args.double_splat}}){% end %}
-        )
+        %property{idx} = nil
 
-        metadata.add_property %property{idx}
+        {% if column_ann = column.annotation AORMA::Column %}
+          {% type = column_ann[:type] == nil ? type : column_ann[:type] %}
+
+          %property{idx} = AORM::Mapping::Column({{type}}, {{EntityType}}).build_metadata(
+            context,
+            {{column.name.stringify}},
+            metadata,
+            {% if ann = column.annotation(AORMA::Column) %}column: AORM::Mapping::Annotations::Column.new({{ann.named_args.double_splat}}),{% end %}
+            {% if column.annotation(AORMA::ID) %}id: AORM::Mapping::Annotations::ID.new,{% end %}
+            {% if ann = column.annotation(AORMA::GeneratedValue) %}generated_value: AORM::Mapping::Annotations::GeneratedValue.new({{ann.named_args.double_splat}}){% end %}
+            {% if ann = column.annotation(AORMA::SequenceGenerator) %}sequence_generator: AORM::Mapping::Annotations::SequenceGenerator.new({{ann.named_args.double_splat}}){% end %}
+          )
+        {% elsif one_to_one_annotation = column.annotation AORMA::OneToOne %}
+          {% target_entity = one_to_one_annotation[:target_entity] != nil ? one_to_one_annotation[:target_entity] : type %}
+
+          %property{idx} = AORM::Mapping::Association({{EntityType}}, {{target_entity}}).build_metadata(
+            context,
+            {{column.name.stringify}},
+            metadata,
+            {% if ann = column.annotation(AORMA::OneToOne) %}one_to_one: AORM::Mapping::Annotations::OneToOne.new({{ann.named_args.double_splat}}),{% end %}
+            {% if column.annotation(AORMA::ID) %}id: AORM::Mapping::Annotations::ID.new,{% end %}
+          )
+        {% end %}
+
+        if p = %property{idx}
+          metadata.add_property p
+        end
       {% end %}
 
       metadata.determine_value_generation_plan context.target_platform
@@ -37,7 +54,8 @@ module Athena::ORM::Mapping
       metadata
     end
 
-    @properties = Hash(String, AORM::Mapping::ColumnBase).new
+    @properties = Hash(String, AORM::Mapping::Property).new
+    @field_names = Hash(String, String).new
 
     getter entity_class : AORM::Entity.class
     getter custom_repository_class : AORM::RepositoryInterface.class | Nil
@@ -51,7 +69,16 @@ module Athena::ORM::Mapping
       @entity_class : AORM::Entity.class = EntityType
     ); end
 
-    def add_property(property : AORM::Mapping::ColumnBase) : Nil
+    def add_property(property : AORM::Mapping::Property) : Nil
+      case property
+      in Column
+        @field_names[property.column_name] = property.name
+      in Association
+        property.join_columns.each do |join_column|
+          @field_names[join_column.column_name] = property.name
+        end
+      end
+
       @identifier << property.name if property.is_primary_key
 
       # TODO: Handle duplicate property
@@ -60,13 +87,13 @@ module Athena::ORM::Mapping
       @properties[property.name] = property
     end
 
-    def column(name : String) : AORM::Mapping::ColumnBase?
+    def column(name : String) : AORM::Mapping::Property?
       @properties.each_value do |property|
         return property if property.column_name == name
       end
     end
 
-    def property(name : String) : AORM::Mapping::ColumnBase?
+    def property(name : String) : AORM::Mapping::Property?
       @properties[name]?
     end
 
@@ -84,6 +111,10 @@ module Athena::ORM::Mapping
       @properties.each_value do |property|
         yield property
       end
+    end
+
+    def each
+      @properties.each
     end
 
     def root_class : AORM::Entity.class

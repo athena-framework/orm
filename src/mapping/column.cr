@@ -3,15 +3,12 @@ require "./table"
 
 module Athena::ORM::Mapping
   abstract struct ColumnBase
-    def set_value(entity : AORM::Entity, value : _) : Nil
-    end
-
-    def get_value(entity : AORM::Entity)
-      raise "BUG: Invoked default get_value"
-    end
+    include Athena::ORM::Mapping::Property
   end
 
   struct Column(IvarType, EntityType) < Athena::ORM::Mapping::ColumnBase
+    include Athena::ORM::Mapping::Common(EntityType)
+
     protected def self.build_metadata(
       context : ClassFactory::Context,
       name : String,
@@ -39,22 +36,18 @@ module Athena::ORM::Mapping
 
       new(
         name,
+        is_primary_key,
         type,
         column.name || name,
-        is_primary_key,
         class_metadata.table_name,
         column.nilable,
         value_generator
       )
     end
 
-    getter name : String
     getter type : AORM::Types::Type
 
-    getter default : IvarType? = nil
-
     getter column_name : String
-    getter is_primary_key : Bool = false
     getter value_generator : AORM::Mapping::ValueGeneratorMetadata?
     getter entity_class : EntityType.class
     getter table_name : String?
@@ -62,15 +55,16 @@ module Athena::ORM::Mapping
     getter? nilable : Bool
 
     def initialize(
-      @name : String,
+      name : String,
+      is_primary_key : Bool,
       @type : AORM::Types::Type,
       @column_name : String,
-      @is_primary_key : Bool,
       @table_name : String?,
       @nilable : Bool,
       @value_generator : ValueGeneratorMetadata?,
       @entity_class : EntityType.class = EntityType
     )
+      super name, is_primary_key
     end
 
     def has_value_generator? : Bool
@@ -81,33 +75,6 @@ module Athena::ORM::Mapping
       if generator = @value_generator
         AORM::Sequencing::Executors::ColumnValueGeneration.new self, generator.generator
       end
-    end
-
-    def set_value(entity : EntityType, value : _) : Nil
-      {% begin %}
-        case self.column_name
-          {% for column in EntityType.instance_vars.select &.annotation AORMA::Column %}
-            when {{column.name.stringify}}
-              if value.is_a? {{column.type}}
-                pointerof(entity.@{{column.id}}).value = value
-              end
-          {% end %}
-        end
-      {% end %}
-    end
-
-    def get_value(entity : EntityType) : AORM::Mapping::Value
-      {% begin %}
-        {% for column in EntityType.instance_vars.select &.annotation AORMA::Column %}
-          case @name
-            {% for column in EntityType.instance_vars.select &.annotation AORMA::Column %}
-              when {{column.name.stringify}} then AORM::Mapping::ColumnValue.new {{column.name.stringify}}, entity.@{{column.id}}
-            {% end %}
-          else
-            raise "BUG: Unknown column"
-          end
-        {% end %}
-      {% end %}
     end
   end
 end

@@ -50,17 +50,19 @@ struct Athena::ORM::Persisters::Entity::Basic
     puts sql
     pp params
 
-    entities = [] of AORM::Entity
+    raise "Nope"
 
-    # TODO: Handle hints?
+    # entities = [] of AORM::Entity
 
-    @connection.query_each sql, args: params do |rs|
-      entities << @class_metadata.entity_class.from_rs @class_metadata, rs, @platform
-    end
+    # # TODO: Handle hints?
 
-    return unless (entity = entities.first?)
+    # @connection.query_each sql, args: params do |rs|
+    #   entities << @class_metadata.entity_class.from_rs @class_metadata, rs, @platform
+    # end
 
-    @em.unit_of_work.manage_entity entity
+    # return unless (entity = entities.first?)
+
+    # @em.unit_of_work.manage_entity entity
   end
 
   def expand_parameters(criteria : Hash(String, _))
@@ -129,7 +131,7 @@ struct Athena::ORM::Persisters::Entity::Basic
 
     sql = String.build do |str|
       str << "SELECT " << column_list
-      str << " FROM " << table_name << ' ' << table_alias
+      str << " FROM " << table_name << ' ' << table_alias << @current_persister_context.select_join_sql
 
       unless conditional_sql.empty?
         str << " WHERE " << conditional_sql
@@ -148,7 +150,7 @@ struct Athena::ORM::Persisters::Entity::Basic
   end
 
   def select_conditional_statement_sql(field : String, value : _) : String
-    columns = self.select_conditional_statement_column_sql field
+    columns = self.select_condition_statement_column_sql field
 
     # TODO: Support comparison type
 
@@ -171,15 +173,30 @@ struct Athena::ORM::Persisters::Entity::Basic
     end
   end
 
-  def select_conditional_statement_column_sql(field : String) : Array(String)
+  def select_condition_statement_column_sql(field : String) : Array(String)
     property = @class_metadata.property(field).not_nil!
 
-    table_alias = sql_table_alias property.table_name
-    column_name = @platform.quote_identifier property.column_name
+    case property
+    when AORM::Mapping::ColumnBase
+      table_alias = sql_table_alias property.table_name
+      column_name = @platform.quote_identifier property.column_name
 
-    ["#{table_alias}.#{column_name}"]
+      return ["#{table_alias}.#{column_name}"]
+    when AORM::Mapping::Association
+      owning_association = property
 
-    # TODO: Handle associations
+      raise "Inverse side usage" unless owning_association.is_owning_side?
+
+      table_alias = self.sql_table_alias @class_metadata.table_name
+
+      owning_association.join_columns.map do |join_column|
+        quoted_column_name = @platform.quote_identifier join_column.column_name
+
+        "#{table_alias}.#{quoted_column_name}"
+      end
+    else
+      raise "Nope"
+    end
   end
 
   protected def select_columns_sql : String
@@ -187,9 +204,80 @@ struct Athena::ORM::Persisters::Entity::Basic
       return col_list
     end
 
-    @current_persister_context.select_column_list = @class_metadata.each.join ", " do |_, property|
-      self.select_column_sql property
+    @current_persister_context.select_join_sql = ""
+
+    column_list = [] of String
+    eager_alias_counter = 0
+
+    @class_metadata.each do |property|
+      case property
+      when AORM::Mapping::Column then column_list << self.select_column_sql property
+      when AORM::Mapping::Association
+        assoc_column_sql = self.select_column_asssociation_sql property.name, property, @class_metadata
+
+        column_list << assoc_column_sql unless assoc_column_sql.empty?
+
+        # TOOD: Handle non ToOne associations
+        is_assoc_to_one_inverse_side = !property.is_owning_side?
+        is_assoc_from_one_eager = true && property.fetch_mode.eager?
+
+        next if !(is_assoc_to_one_inverse_side || is_assoc_from_one_eager)
+
+        target_entity = property.target_entity
+        eager_class_metadata = @em.class_metadata target_entity
+
+        assoc_alias = "e#{eager_alias_counter}"
+        eager_alias_counter += 1
+
+        eager_class_metadata.each do |eager_property|
+          case eager_property
+          when AORM::Mapping::Column then column_list << self.select_column_sql eager_property, assoc_alias
+          when AORM::Mapping::Association
+            column_list << self.select_column_asssociation_sql(
+              eager_property.name,
+              eager_property,
+              eager_class_metadata,
+              assoc_alias
+            )
+          else
+            raise "Nope"
+          end
+        end
+
+        # TODO: Handle non ToOne associations
+        owning_association = property
+        join_condition = [] of String
+
+        unless property.is_owning_side?
+          owning_association = eager_class_metadata.property property.mapped_by.not_nil!
+        end
+
+        owning_association = owning_association.as AORM::Mapping::Association
+
+        join_table_alias = self.sql_table_alias eager_class_metadata.table_name, assoc_alias
+        join_table_name = eager_class_metadata.table.quoted_qualified_name @platform
+
+        @current_persister_context.select_join_sql += " #{self.join_sql_for_association property}"
+
+        source_class_metadata = @em.class_metadata owning_association.source_entity
+        target_class_metadata = @em.class_metadata owning_association.target_entity
+
+        target_table_alias = self.sql_table_alias target_class_metadata.table_name, property.is_owning_side? ? assoc_alias : ""
+        source_table_alias = self.sql_table_alias source_class_metadata.table_name, property.is_owning_side? ? "" : assoc_alias
+
+        owning_association.join_columns.each do |join_column|
+          join_condition << "#{source_table_alias}.#{@platform.quote_identifier join_column.column_name} = #{target_table_alias}.#{@platform.quote_identifier join_column.referenced_column_name}"
+        end
+
+        # TODO: Handle filter SQL
+
+        @current_persister_context.select_join_sql += %( #{join_table_name} #{join_table_alias} ON #{join_condition.join ", "})
+      else
+        raise "Nope"
+      end
     end
+
+    @current_persister_context.select_column_list = column_list.join ", "
   end
 
   protected def select_column_sql(property : AORM::Mapping::ColumnBase, calias : String = "r") : String
@@ -199,6 +287,29 @@ struct Athena::ORM::Persisters::Entity::Basic
 
     # TODO: Support the type altering the sql
     "#{sql} AS #{column_alias}"
+  end
+
+  protected def select_column_asssociation_sql(column_name : String, property : AORM::Mapping::Association, class_metadata : AORM::Mapping::ClassBase, calias : String = "r") : String
+    # TODO: Handle non ToOne associations
+    return "" unless property.is_owning_side?
+
+    column_list = [] of String
+    target_class_metadata = @em.class_metadata property.target_entity
+    table_alias = self.sql_table_alias class_metadata.table_name, (calias == "r" ? "" : calias)
+
+    # TODO: Handle join columns
+  end
+
+  protected def join_sql_for_association(association_metadata : AORM::Mapping::Association) : String
+    return "LEFT JOIN" unless association_metadata.is_owning_side?
+
+    association_metadata.join_columns.each do |join_column|
+      next unless join_column.nilable
+
+      return "LEFT JOIN"
+    end
+
+    "INNER JOIN"
   end
 
   def count(criteria : Hash(String, _)) : Int

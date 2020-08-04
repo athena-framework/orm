@@ -6,6 +6,7 @@ class Athena::ORM::Persisters::Entity::CachedPersisterContext
   getter handles_limit : Bool
 
   property select_column_list : String? = nil
+  property select_join_sql : String = ""
 
   def initialize(@class_metadata : AORM::Mapping::ClassBase, @handles_limit : Bool); end
 

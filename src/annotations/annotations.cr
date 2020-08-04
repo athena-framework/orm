@@ -5,4 +5,5 @@ module Athena::ORM::Annotations
   annotation SequenceGenerator; end
   annotation Table; end
   annotation Entity; end
+  annotation OneToOne; end
 end

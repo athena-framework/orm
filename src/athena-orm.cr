@@ -2,6 +2,8 @@ require "pg"
 
 require "./annotations/*"
 require "./mapping/annotations"
+require "./mapping/property"
+require "./mapping/common"
 require "./mapping/*"
 require "./persisters/entity/*"
 require "./platforms/*"
@@ -44,9 +46,35 @@ end
 
 # AORM::Types::Type.add_type TestEnumType, TestEnumType
 
+# class Post < AORM::Entity
+# @[AORMA::Column]
+# @[AORMA::ID]
+# @[AORMA::GeneratedValue]
+# getter! id : Int64
+
+#   @[AORMA::OneToOne(inversed_by: "post")]
+#   getter! user : User
+# end
+
+@[AORMA::Table(name: "settings")]
+class Setting < AORM::Entity
+  def initialize(@color : String, @user : User); end
+
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  getter! id : Int64
+
+  @[AORMA::Column]
+  property color : String
+
+  @[AORMA::OneToOne(inversed_by: "setting")]
+  property user : User
+end
+
 @[AORMA::Entity(repository_class: UserRepository)]
 class User < AORM::Entity
-  def initialize(@name : String); end
+  def initialize(@name : String, @setting : Setting); end
 
   @[AORMA::Column]
   @[AORMA::ID]
@@ -56,15 +84,8 @@ class User < AORM::Entity
   @[AORMA::Column]
   property name : String
 
-  @[AORMA::Column]
-  property alive : Bool = true
-end
-
-class Post < AORM::Entity
-  @[AORMA::Column]
-  @[AORMA::ID]
-  @[AORMA::GeneratedValue]
-  getter! id : Int64
+  @[AORMA::OneToOne(mapped_by: "user")]
+  property setting : Setting
 end
 
 require "pg"
@@ -84,21 +105,10 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
     em = AORM::EntityManager.new conn
 
     # pp em.class_metadata User
-    # pp em.find User, 2
-    # pp em.find User, 1
+    # pp em.class_metadata Setting
+    pp em.find User, 1
 
-    repo = em.repository User
-
-    user = repo.find 2
-
-    user.alive = false
-    user.name = "Alive"
-
-    pp user
-
-    em.refresh user
-
-    pp user
+    # repo = em.repository User
 
     # pp typeof(repo)
 
@@ -120,8 +130,6 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
 
     # primary_user = repo.primary_user
     # pp primary_user, typeof(primary_user)
-
-    # pp User.entity_class_metadata
 
     # pp repo.find 1
     # pp repo.find 123
