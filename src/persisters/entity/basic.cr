@@ -50,19 +50,19 @@ struct Athena::ORM::Persisters::Entity::Basic
     puts sql
     pp params
 
-    raise "Nope"
+    entities = [] of AORM::Entity
 
-    # entities = [] of AORM::Entity
+    # TODO: Handle hints?
 
-    # # TODO: Handle hints?
+    @connection.query_all sql, args: params do |rs|
+      if entity = @class_metadata.entity_class.from_rs @em, @class_metadata, rs, @platform
+        entities << entity
+      end
+    end
 
-    # @connection.query_each sql, args: params do |rs|
-    #   entities << @class_metadata.entity_class.from_rs @class_metadata, rs, @platform
-    # end
+    return unless (entity = entities.first?)
 
-    # return unless (entity = entities.first?)
-
-    # @em.unit_of_work.manage_entity entity
+    @em.unit_of_work.manage_entity entity
   end
 
   def expand_parameters(criteria : Hash(String, _))
@@ -289,15 +289,20 @@ struct Athena::ORM::Persisters::Entity::Basic
     "#{sql} AS #{column_alias}"
   end
 
-  protected def select_column_asssociation_sql(column_name : String, property : AORM::Mapping::Association, class_metadata : AORM::Mapping::ClassBase, calias : String = "r") : String
+  protected def select_column_asssociation_sql(column_name : String, association : AORM::Mapping::Association, class_metadata : AORM::Mapping::ClassBase, calias : String = "r") : String
     # TODO: Handle non ToOne associations
-    return "" unless property.is_owning_side?
+    return "" unless association.is_owning_side?
 
-    column_list = [] of String
-    target_class_metadata = @em.class_metadata property.target_entity
+    target_class_metadata = @em.class_metadata association.target_entity
     table_alias = self.sql_table_alias class_metadata.table_name, (calias == "r" ? "" : calias)
 
-    # TODO: Handle join columns
+    association.join_columns.each.join ", " do |join_column|
+      column_name = join_column.column_name
+      quoted_column_name = @platform.quote_identifier column_name
+      result_column_name = self.sql_column_alias
+
+      "#{table_alias}.#{quoted_column_name} AS #{result_column_name}"
+    end
   end
 
   protected def join_sql_for_association(association_metadata : AORM::Mapping::Association) : String

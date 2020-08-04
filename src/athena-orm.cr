@@ -58,7 +58,7 @@ end
 
 @[AORMA::Table(name: "settings")]
 class Setting < AORM::Entity
-  def initialize(@color : String, @user : User); end
+  def initialize(@color : String); end
 
   @[AORMA::Column]
   @[AORMA::ID]
@@ -69,7 +69,7 @@ class Setting < AORM::Entity
   property color : String
 
   @[AORMA::OneToOne(inversed_by: "setting")]
-  property user : User
+  property! user : User
 end
 
 @[AORMA::Entity(repository_class: UserRepository)]
@@ -83,6 +83,9 @@ class User < AORM::Entity
 
   @[AORMA::Column]
   property name : String
+
+  @[AORMA::Column]
+  property alive : Bool = true
 
   @[AORMA::OneToOne(mapped_by: "user")]
   property setting : Setting

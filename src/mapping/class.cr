@@ -89,7 +89,13 @@ module Athena::ORM::Mapping
 
     def column(name : String) : AORM::Mapping::Property?
       @properties.each_value do |property|
-        return property if property.column_name == name
+        case property
+        when Column then return property if property.column_name == name
+        when Association
+          property.join_columns.each do |join_column|
+            return join_column if join_column.column_name == name
+          end
+        end
       end
     end
 

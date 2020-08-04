@@ -311,7 +311,7 @@ class Athena::ORM::UnitOfWork
     if (
          class_metadata.is_identifier_composite? ||
          !class_metadata.property(class_metadata.single_identifier_field_name).is_a? AORM::Mapping::Column ||
-         !class_metadata.property(class_metadata.single_identifier_field_name).not_nil!.has_value_generator?
+         !class_metadata.property(class_metadata.single_identifier_field_name).not_nil!.as(AORM::Mapping::Column).has_value_generator?
        )
       # TODO: Handle versioned fields
 
@@ -461,8 +461,8 @@ class Athena::ORM::UnitOfWork
       if (
            !class_metadata.is_identifier?(name) ||
            !class_metadata.property(name).is_a?(AORM::Mapping::Column) ||
-           !class_metadata.property(name).not_nil!.has_value_generator? ||
-           !class_metadata.property(name).not_nil!.value_generator.not_nil!.type.identity?
+           !class_metadata.property(name).as(AORM::Mapping::Column).not_nil!.has_value_generator? ||
+           !class_metadata.property(name).not_nil!.as(AORM::Mapping::Column).value_generator.not_nil!.type.identity?
          ) # TODO: Handle versioned columns
         actual_data[name] = column_value
       end
@@ -503,15 +503,16 @@ class Athena::ORM::UnitOfWork
         # TODO: Handle collections
 
         case property
-        in AORM::Mapping::Column
+        when AORM::Mapping::Column
           # TODO: Handle notify change tracking policy
           changeset[name] = Change.new original_value, actual_value
-        in AORM::Mapping::Association
-          changeset[property.name] = Change.new nil, v if property.is_owning_side?
-
-          self.schedule_orphan_removal if !original_data.nil? && property.is_orphan_removal?
+        when AORM::Mapping::Association
+          changeset[property.name] = Change.new original_value, actual_value if property.is_owning_side?
+          # self.schedule_orphan_removal original_value.value if !original_data.nil? && property.is_orphan_removal?
 
           # TODO: Handle non ToOne associations
+        else
+          raise "Nope"
         end
 
         unless changeset.empty?
@@ -531,21 +532,21 @@ class Athena::ORM::UnitOfWork
 
       value = property.get_value entity
 
-      next if value.nil?
+      next if value.value.nil?
 
-      self.compute_association_changes property, value
+      self.compute_association_changes property, value.value.as AORM::Entity
     end
   end
 
-  private def compute_association_changes(property : AORM::Mapping::Association, value : _) : Nil
+  private def compute_association_changes(property : AORM::Mapping::Association, value : AORM::Entity) : Nil
     # TODO: Handle proxies
     # TODO: Handle non ToOne associations
     unwrapped_value = [value]
     target_entity = property.target_entity
     target_class_metadata = @em.class_metadata target_entity
 
-    unwrapped_value.each_with_index do |idx, entity|
-      case self.entity_state(entity, :new)
+    unwrapped_value.each_with_index do |entity, idx|
+      case self.entity_state(entity, EntityState::New)
       when .new?
         # TODO: Handle cascade
         self.persist_new target_class_metadata, entity
@@ -585,7 +586,7 @@ class Athena::ORM::UnitOfWork
   end
 
   private def has_missing_ids_which_are_foreign_keys?(class_metadata : AORM::Mapping::ClassBase, id_arr : Array(AORM::Mapping::Value)) : Bool
-    id_.arr.any? { |value| value.value.nil? && class_metadata.property(value.name).is_a?(AORM::Mapping::Association) }
+    id_arr.any? { |value| value.value.nil? && class_metadata.property(value.name).is_a?(AORM::Mapping::Association) }
   end
 
   # TODO: Abstract the id flattening I guess
