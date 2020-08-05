@@ -73,7 +73,7 @@ end
 
 @[AORMA::Entity(repository_class: UserRepository)]
 class User < AORM::Entity
-  def initialize(@name : String, @setting : Setting); end
+  def initialize(@name : String); end
 
   @[AORMA::Column]
   @[AORMA::ID]
@@ -87,7 +87,7 @@ class User < AORM::Entity
   property alive : Bool = true
 
   @[AORMA::OneToOne(mapped_by: "user")]
-  property setting : Setting
+  property! setting : Setting
 end
 
 require "pg"

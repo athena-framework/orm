@@ -16,13 +16,9 @@ abstract class Athena::ORM::Entity
             {% for column in @type.instance_vars %}
               when {{column.name.stringify}}
                 {% if column.type <= AORM::Entity? %}
-                  return instance if property.as(AORM::Mapping::Association).is_owning_side?
-                  association_class_metadata = em.class_metadata property.as(AORM::Mapping::Association).target_entity
-                  value = association_class_metadata.entity_class.from_rs(em, association_class_metadata, rs, platform)
-                  pointerof(instance.@{{column.id}}).value = value.as {{column.type}}
+                  # Only support setting scalar values atm
                 {% else %}
-                  value = property.as(AORM::Mapping::Column).type.from_db(rs, platform)
-                  pointerof(instance.@{{column.id}}).value = value.as({{column.type}})
+                  pointerof(instance.@{{column.id}}).value = property.as(AORM::Mapping::ColumnMetadata).type.from_db(rs, platform).as({{column.type}})
                 {% end %}
             {% end %}
             end

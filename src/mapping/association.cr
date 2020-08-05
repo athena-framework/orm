@@ -38,6 +38,10 @@ module Athena::ORM::Mapping
       # TODO: Handle association value generation executors
       nil
     end
+
+    def get_value(entity : AORM::Entity)
+      raise "BUG: Invoked default get_value"
+    end
   end
 
   abstract struct ToOneAssociationMetadata(SourceEntity, TargetEntity) < AssociationMetadata(SourceEntity, TargetEntity)

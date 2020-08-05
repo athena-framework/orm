@@ -176,13 +176,14 @@ struct Athena::ORM::Persisters::Entity::Basic
   def select_condition_statement_column_sql(field : String) : Array(String)
     property = @class_metadata.property(field).not_nil!
 
-    case property
-    when AORM::Mapping::ColumnMetadata
+    if property.is_a? AORM::Mapping::FieldMetadata
       table_alias = sql_table_alias property.table_name
       column_name = @platform.quote_identifier property.column_name
 
       return ["#{table_alias}.#{column_name}"]
-    when AORM::Mapping::Association
+    end
+
+    if property.is_a? AORM::Mapping::AssociationMetadata
       owning_association = property
 
       raise "Inverse side usage" unless owning_association.is_owning_side?
@@ -194,9 +195,10 @@ struct Athena::ORM::Persisters::Entity::Basic
 
         "#{table_alias}.#{quoted_column_name}"
       end
-    else
-      raise "Nope"
     end
+
+    # TODO: Handle this better
+    raise "Unknown field"
   end
 
   protected def select_columns_sql : String
@@ -211,14 +213,14 @@ struct Athena::ORM::Persisters::Entity::Basic
 
     @class_metadata.each do |property|
       case property
-      when AORM::Mapping::Column then column_list << self.select_column_sql property
-      when AORM::Mapping::Association
+      when AORM::Mapping::FieldMetadata then column_list << self.select_column_sql property
+      when AORM::Mapping::AssociationMetadata
         assoc_column_sql = self.select_column_asssociation_sql property.name, property, @class_metadata
 
         column_list << assoc_column_sql unless assoc_column_sql.empty?
 
         # TOOD: Handle non ToOne associations
-        is_assoc_to_one_inverse_side = !property.is_owning_side?
+        is_assoc_to_one_inverse_side = property.is_a?(AORM::Mapping::ToOneAssociationMetadata) && !property.is_owning_side?
         is_assoc_from_one_eager = true && property.fetch_mode.eager?
 
         next if !(is_assoc_to_one_inverse_side || is_assoc_from_one_eager)
@@ -231,16 +233,15 @@ struct Athena::ORM::Persisters::Entity::Basic
 
         eager_class_metadata.each do |eager_property|
           case eager_property
-          when AORM::Mapping::Column then column_list << self.select_column_sql eager_property, assoc_alias
-          when AORM::Mapping::Association
+          in AORM::Mapping::FieldMetadata then column_list << self.select_column_sql eager_property, assoc_alias
+          in AORM::Mapping::ToOneAssociationMetadata
+            # TODO: Could probably use overloads for this
             column_list << self.select_column_asssociation_sql(
               eager_property.name,
               eager_property,
               eager_class_metadata,
               assoc_alias
             )
-          else
-            raise "Nope"
           end
         end
 
@@ -252,7 +253,7 @@ struct Athena::ORM::Persisters::Entity::Basic
           owning_association = eager_class_metadata.property property.mapped_by.not_nil!
         end
 
-        owning_association = owning_association.as AORM::Mapping::Association
+        owning_association = owning_association
 
         join_table_alias = self.sql_table_alias eager_class_metadata.table_name, assoc_alias
         join_table_name = eager_class_metadata.table.quoted_qualified_name @platform
@@ -272,8 +273,6 @@ struct Athena::ORM::Persisters::Entity::Basic
         # TODO: Handle filter SQL
 
         @current_persister_context.select_join_sql += %( #{join_table_name} #{join_table_alias} ON #{join_condition.join ", "})
-      else
-        raise "Nope"
       end
     end
 

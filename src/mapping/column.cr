@@ -17,6 +17,10 @@ module Athena::ORM::Mapping
       @nilable : Bool
     )
     end
+
+    def get_value(entity : AORM::Entity)
+      raise "BUG: Invoked default get_value"
+    end
   end
 
   abstract struct LocalColumnMetadata < ColumnMetadata
