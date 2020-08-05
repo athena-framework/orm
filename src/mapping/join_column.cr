@@ -1,4 +1,6 @@
-struct Athena::ORM::Mapping::JoinColumnMetadata < Athena::ORM::Mapping::ColumnMetadata
+struct Athena::ORM::Mapping::JoinColumnMetadata
+  include Athena::ORM::Mapping::ColumnMetadata
+
   protected def self.build_metadata(
     context : ClassFactory::Context,
     class_metadata : ClassBase,
@@ -22,7 +24,7 @@ struct Athena::ORM::Mapping::JoinColumnMetadata < Athena::ORM::Mapping::ColumnMe
     )
   end
 
-  getter reference_column_name : String?
+  getter referenced_column_name : String
   getter aliased_name : String?
 
   def initialize(
@@ -31,7 +33,7 @@ struct Athena::ORM::Mapping::JoinColumnMetadata < Athena::ORM::Mapping::ColumnMe
     type : AORM::Types::Type,
     table_name : String?,
     nilable : Bool,
-    @reference_column_name : String?,
+    @referenced_column_name : String,
     @aliased_name : String?
   )
     super column_name, is_primary_key, type, table_name, nilable

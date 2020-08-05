@@ -312,8 +312,8 @@ class Athena::ORM::UnitOfWork
     # TODO: Handle AssociationMetadata
     if (
          class_metadata.is_identifier_composite? ||
-         !property.is_a? AORM::Mapping::FieldMetadata ||
-         !property.has_value_generator?
+         !property.is_a?(AORM::Mapping::FieldMetadata) ||
+         !property.as(AORM::Mapping::FieldMetadata).has_value_generator?
        )
       # TODO: Handle versioned fields
 
@@ -533,7 +533,7 @@ class Athena::ORM::UnitOfWork
 
       next if value.value.nil?
 
-      self.compute_change_set property, value.value # .as AORM::Entity
+      self.compute_change_set property, value.value.as AORM::Entity
     end
   end
 

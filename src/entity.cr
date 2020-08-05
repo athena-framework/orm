@@ -13,13 +13,9 @@ abstract class Athena::ORM::Entity
           instance = allocate
           class_metadata.each do |property|
             case property.name
-            {% for column in @type.instance_vars %}
+            {% for column in @type.instance_vars.select &.annotation AORMA::Column %}
               when {{column.name.stringify}}
-                {% if column.type <= AORM::Entity? %}
-                  # Only support setting scalar values atm
-                {% else %}
-                  pointerof(instance.@{{column.id}}).value = property.as(AORM::Mapping::ColumnMetadata).type.from_db(rs, platform).as({{column.type}})
-                {% end %}
+                pointerof(instance.@{{column.id}}).value = property.as(AORM::Mapping::ColumnMetadata).type.from_db(rs, platform).as({{column.type}})
             {% end %}
             end
           end

@@ -6,7 +6,8 @@ module Athena::ORM::Mapping
     Eager
   end
 
-  abstract struct AssociationMetadata(SourceEntity, TargetEntity)
+  # TODO: Make this an abstract struct again
+  module AssociationMetadata(SourceEntity, TargetEntity)
     include Athena::ORM::Mapping::Property
 
     getter name : String
@@ -39,12 +40,17 @@ module Athena::ORM::Mapping
       nil
     end
 
+    def set_value(entity : AORM::Entity, value : _) : Nil
+    end
+
     def get_value(entity : AORM::Entity)
       raise "BUG: Invoked default get_value"
     end
   end
 
-  abstract struct ToOneAssociationMetadata(SourceEntity, TargetEntity) < AssociationMetadata(SourceEntity, TargetEntity)
+  abstract struct ToOneAssociationMetadata(SourceEntity, TargetEntity)
+    include AssociationMetadata(SourceEntity, TargetEntity)
+
     protected def self.build_metadata(
       context : ClassFactory::Context,
       name : String,
@@ -100,7 +106,7 @@ module Athena::ORM::Mapping
 
     def set_value(entity : SourceEntity, value : _) : Nil
       {% begin %}
-        case self.column_name
+        case @name
           {% for column in SourceEntity.instance_vars %}
             when {{column.name.stringify}}
               if value.is_a? {{column.type}}

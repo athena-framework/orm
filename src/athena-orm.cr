@@ -4,6 +4,7 @@ require "./annotations/*"
 require "./mapping/annotations"
 require "./mapping/property"
 require "./mapping/*"
+require "./hydrators/*"
 require "./persisters/entity/*"
 require "./platforms/*"
 require "./sequencing/executors/*"
@@ -27,6 +28,11 @@ module Athena::ORM
 
   enum LockMode
     None
+  end
+
+  enum HydrationMode
+    Object
+    SimpleObject
   end
 end
 

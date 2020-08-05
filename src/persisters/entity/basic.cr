@@ -50,19 +50,23 @@ struct Athena::ORM::Persisters::Entity::Basic
     puts sql
     pp params
 
+    hydrator = @em.hydrator (!!@current_persister_context.select_join_sql ? AORM::HydrationMode::Object : AORM::HydrationMode::SimpleObject)
+
+    # results = hydrator.hydrate_all @connection.query(sql, args: params), @class_metadata
+
+    # pp results
+
     entities = [] of AORM::Entity
 
     # TODO: Handle hints?
 
     @connection.query_all sql, args: params do |rs|
-      if entity = @class_metadata.entity_class.from_rs @em, @class_metadata, rs, @platform
+      if entity = hydrator.hydrate rs, @class_metadata
         entities << entity
       end
     end
 
-    return unless (entity = entities.first?)
-
-    @em.unit_of_work.manage_entity entity
+    entities.first?
   end
 
   def expand_parameters(criteria : Hash(String, _))
@@ -190,7 +194,7 @@ struct Athena::ORM::Persisters::Entity::Basic
 
       table_alias = self.sql_table_alias @class_metadata.table_name
 
-      owning_association.join_columns.map do |join_column|
+      return owning_association.join_columns.map do |join_column|
         quoted_column_name = @platform.quote_identifier join_column.column_name
 
         "#{table_alias}.#{quoted_column_name}"
@@ -220,7 +224,8 @@ struct Athena::ORM::Persisters::Entity::Basic
         column_list << assoc_column_sql unless assoc_column_sql.empty?
 
         # TOOD: Handle non ToOne associations
-        is_assoc_to_one_inverse_side = property.is_a?(AORM::Mapping::ToOneAssociationMetadata) && !property.is_owning_side?
+        # TOOD: Change this back to ToOneAssociationMetadata
+        is_assoc_to_one_inverse_side = !property.is_owning_side?
         is_assoc_from_one_eager = true && property.fetch_mode.eager?
 
         next if !(is_assoc_to_one_inverse_side || is_assoc_from_one_eager)
@@ -233,8 +238,8 @@ struct Athena::ORM::Persisters::Entity::Basic
 
         eager_class_metadata.each do |eager_property|
           case eager_property
-          in AORM::Mapping::FieldMetadata then column_list << self.select_column_sql eager_property, assoc_alias
-          in AORM::Mapping::ToOneAssociationMetadata
+          when AORM::Mapping::FieldMetadata then column_list << self.select_column_sql eager_property, assoc_alias
+          when AORM::Mapping::OneToOneAssociationMetadata
             # TODO: Could probably use overloads for this
             column_list << self.select_column_asssociation_sql(
               eager_property.name,
@@ -253,7 +258,7 @@ struct Athena::ORM::Persisters::Entity::Basic
           owning_association = eager_class_metadata.property property.mapped_by.not_nil!
         end
 
-        owning_association = owning_association
+        owning_association = owning_association.as AORM::Mapping::AssociationMetadata
 
         join_table_alias = self.sql_table_alias eager_class_metadata.table_name, assoc_alias
         join_table_name = eager_class_metadata.table.quoted_qualified_name @platform
@@ -288,7 +293,7 @@ struct Athena::ORM::Persisters::Entity::Basic
     "#{sql} AS #{column_alias}"
   end
 
-  protected def select_column_asssociation_sql(column_name : String, association : AORM::Mapping::Association, class_metadata : AORM::Mapping::ClassBase, calias : String = "r") : String
+  protected def select_column_asssociation_sql(column_name : String, association : AORM::Mapping::AssociationMetadata, class_metadata : AORM::Mapping::ClassBase, calias : String = "r") : String
     # TODO: Handle non ToOne associations
     return "" unless association.is_owning_side?
 
@@ -304,11 +309,11 @@ struct Athena::ORM::Persisters::Entity::Basic
     end
   end
 
-  protected def join_sql_for_association(association_metadata : AORM::Mapping::Association) : String
+  protected def join_sql_for_association(association_metadata : AORM::Mapping::AssociationMetadata) : String
     return "LEFT JOIN" unless association_metadata.is_owning_side?
 
     association_metadata.join_columns.each do |join_column|
-      next unless join_column.nilable
+      next unless join_column.nilable?
 
       return "LEFT JOIN"
     end

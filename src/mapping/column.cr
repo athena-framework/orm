@@ -1,7 +1,8 @@
 require "./property"
 
 module Athena::ORM::Mapping
-  abstract struct ColumnMetadata
+  # TODO: Make this an abstract struct again
+  module ColumnMetadata
     getter column_name : String
     getter table_name : String?
     getter type : AORM::Types::Type
@@ -18,12 +19,17 @@ module Athena::ORM::Mapping
     )
     end
 
+    def set_value(entity : AORM::Entity, value : _) : Nil
+    end
+
     def get_value(entity : AORM::Entity)
       raise "BUG: Invoked default get_value"
     end
   end
 
-  abstract struct LocalColumnMetadata < ColumnMetadata
+  abstract struct LocalColumnMetadata
+    include ColumnMetadata
+
     getter value_generator : AORM::Mapping::ValueGeneratorMetadata?
 
     def initialize(
