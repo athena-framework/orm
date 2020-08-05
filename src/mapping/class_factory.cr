@@ -1,5 +1,5 @@
 class Athena::ORM::Mapping::ClassFactory
-  record Context, factory : AORM::Mapping::ClassFactory, target_platform : AORM::Platforms::Platform
+  record Context, metadata_factory : AORM::Mapping::ClassFactory, target_platform : AORM::Platforms::Platform
 
   @loaded_metadata = Hash(AORM::Entity.class, ClassBase).new
 

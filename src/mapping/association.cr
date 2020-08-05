@@ -1,13 +1,46 @@
+require "./property"
+
 module Athena::ORM::Mapping
   enum FetchMode
     Lazy
     Eager
   end
 
-  struct Association(SourceEntity, TargetEntity)
+  abstract struct AssociationMetadata(SourceEntity, TargetEntity)
     include Athena::ORM::Mapping::Property
-    include Athena::ORM::Mapping::Common(SourceEntity)
 
+    getter name : String
+
+    getter fetch_mode : FetchMode
+    getter source_entity : AORM::Entity.class
+    getter target_entity : AORM::Entity.class
+    getter mapped_by : String?
+    getter inversed_by : String?
+
+    getter? is_owning_side : Bool
+    getter? is_orphan_removal : Bool = false
+    getter? is_primary_key : Bool
+
+    def initialize(
+      @name : String,
+      @is_primary_key : Bool,
+      @fetch_mode : FetchMode,
+      @mapped_by : String?,
+      @inversed_by : String?,
+      @is_owning_side : Bool,
+      @is_orphan_removal : Bool,
+      @source_entity : AORM::Entity.class = SourceEntity,
+      @target_entity : AORM::Entity.class = TargetEntity
+    )
+    end
+
+    def value_generation_executor(platform : AORM::Platforms::Platform) : AORM::Sequencing::Executors::Interface?
+      # TODO: Handle association value generation executors
+      nil
+    end
+  end
+
+  abstract struct ToOneAssociationMetadata(SourceEntity, TargetEntity) < AssociationMetadata(SourceEntity, TargetEntity)
     protected def self.build_metadata(
       context : ClassFactory::Context,
       name : String,
@@ -28,7 +61,7 @@ module Athena::ORM::Mapping
       end
 
       # TODO: Handle JoinColumn and JoinColumns annotations
-      join_columns = !is_owning_side ? Array(JoinColumn).new : [JoinColumn.build_metadata(context, name)]
+      join_columns = !is_owning_side ? Array(JoinColumnMetadata).new : [JoinColumnMetadata.build_metadata(context, class_metadata, TargetEntity, name)]
 
       # TODO: Set type of join_column
 
@@ -46,33 +79,46 @@ module Athena::ORM::Mapping
       )
     end
 
-    getter fetch_mode : FetchMode
-    getter source_entity : AORM::Entity.class
-    getter target_entity : AORM::Entity.class
-    getter mapped_by : String?
-    getter inversed_by : String?
-    getter join_columns : Array(JoinColumn)
-
-    getter? is_owning_side : Bool
-    getter? is_orphan_removal : Bool = false
+    getter join_columns : Array(JoinColumnMetadata)
 
     def initialize(
       name : String,
       is_primary_key : Bool,
-      @fetch_mode : FetchMode,
-      @mapped_by : String?,
-      @inversed_by : String?,
-      @is_owning_side : Bool,
-      @is_orphan_removal : Bool,
-      @join_columns : Array(JoinColumn),
-      @source_entity : AORM::Entity.class = SourceEntity,
-      @target_entity : AORM::Entity.class = TargetEntity
+      fetch_mode : FetchMode,
+      mapped_by : String?,
+      inversed_by : String?,
+      is_owning_side : Bool,
+      is_orphan_removal : Bool,
+      @join_columns : Array(JoinColumnMetadata)
     )
-      super name, is_primary_key
+      super name, is_primary_key, fetch_mode, mapped_by, inversed_by, is_owning_side, is_orphan_removal
     end
 
-    def value_generation_executor(platform : AORM::Platforms::Platform) : AORM::Sequencing::Executors::Interface?
-      # TODO: Handle association value generators
+    def set_value(entity : SourceEntity, value : _) : Nil
+      {% begin %}
+        case self.column_name
+          {% for column in SourceEntity.instance_vars %}
+            when {{column.name.stringify}}
+              if value.is_a? {{column.type}}
+                pointerof(entity.@{{column.id}}).value = value
+              end
+          {% end %}
+        end
+      {% end %}
+    end
+
+    def get_value(entity : SourceEntity) : AORM::Mapping::Value
+      {% begin %}
+        case @name
+          {% for column in SourceEntity.instance_vars %}
+            when {{column.name.stringify}} then AORM::Mapping::ColumnValue.new {{column.name.stringify}}, entity.@{{column.id}}
+          {% end %}
+        else
+          raise "BUG: Unknown column #{@name} within #{SourceEntity}"
+        end
+      {% end %}
     end
   end
+
+  struct OneToOneAssociationMetadata(SourceEntity, TargetEntity) < ToOneAssociationMetadata(SourceEntity, TargetEntity); end
 end

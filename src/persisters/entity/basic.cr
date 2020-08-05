@@ -11,7 +11,7 @@ struct Athena::ORM::Persisters::Entity::Basic
   @platform : AORM::Platforms::Platform
 
   @insert_sql : String? = nil
-  @insert_columns : Hash(String, AORM::Mapping::ColumnBase)? = nil
+  @insert_columns : Hash(String, AORM::Mapping::ColumnMetadata)? = nil
 
   @current_persister_context : AORM::Persisters::Entity::CachedPersisterContext
   @limits_handling_context : AORM::Persisters::Entity::CachedPersisterContext
@@ -177,7 +177,7 @@ struct Athena::ORM::Persisters::Entity::Basic
     property = @class_metadata.property(field).not_nil!
 
     case property
-    when AORM::Mapping::ColumnBase
+    when AORM::Mapping::ColumnMetadata
       table_alias = sql_table_alias property.table_name
       column_name = @platform.quote_identifier property.column_name
 
@@ -280,7 +280,7 @@ struct Athena::ORM::Persisters::Entity::Basic
     @current_persister_context.select_column_list = column_list.join ", "
   end
 
-  protected def select_column_sql(property : AORM::Mapping::ColumnBase, calias : String = "r") : String
+  protected def select_column_sql(property : AORM::Mapping::ColumnMetadata, calias : String = "r") : String
     column_alias = self.sql_column_alias
 
     sql = %(#{self.sql_table_alias property.table_name, (calias == "r" ? "" : calias)}.#{@platform.quote_identifier property.column_name})
@@ -488,7 +488,7 @@ struct Athena::ORM::Persisters::Entity::Basic
     end
   end
 
-  protected def insert_column_list : Hash(String, AORM::Mapping::ColumnBase)
+  protected def insert_column_list : Hash(String, AORM::Mapping::ColumnMetadata)
     if columns = @insert_columns
       return columns
     end
@@ -496,8 +496,8 @@ struct Athena::ORM::Persisters::Entity::Basic
     @insert_columns = self.column_list(@class_metadata)
   end
 
-  protected def column_list(class_metadata : AORM::Mapping::ClassBase, column_prefix : String = "") : Hash(String, AORM::Mapping::ColumnBase)
-    columns = Hash(String, AORM::Mapping::ColumnBase).new
+  protected def column_list(class_metadata : AORM::Mapping::ClassBase, column_prefix : String = "") : Hash(String, AORM::Mapping::ColumnMetadata)
+    columns = Hash(String, AORM::Mapping::ColumnMetadata).new
 
     class_metadata.each do |property|
       if !property.has_value_generator? || !property.value_generator.try &.type.identity?

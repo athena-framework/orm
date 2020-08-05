@@ -4,7 +4,7 @@ module Athena::ORM::Mapping
   abstract class ClassBase; end
 
   class Class(EntityType) < ClassBase
-    include Enumerable(Athena::ORM::Mapping::ColumnBase)
+    include Enumerable(Athena::ORM::Mapping::ColumnMetadata)
 
     protected def self.build_metadata(context : ClassFactory::Context) : self
       table_annotation = {% if ann = EntityType.annotation(AORMA::Table) %}AORM::Mapping::Annotations::Table.new({{ann.named_args.double_splat}}){% else %}nil{% end %}
@@ -23,7 +23,7 @@ module Athena::ORM::Mapping
         {% if column_ann = column.annotation AORMA::Column %}
           {% type = column_ann[:type] == nil ? type : column_ann[:type] %}
 
-          %property{idx} = AORM::Mapping::Column({{type}}, {{EntityType}}).build_metadata(
+          %property{idx} = AORM::Mapping::FieldMetadata({{type}}, {{EntityType}}).build_metadata(
             context,
             {{column.name.stringify}},
             metadata,
@@ -35,7 +35,7 @@ module Athena::ORM::Mapping
         {% elsif one_to_one_annotation = column.annotation AORMA::OneToOne %}
           {% target_entity = one_to_one_annotation[:target_entity] != nil ? one_to_one_annotation[:target_entity] : type %}
 
-          %property{idx} = AORM::Mapping::Association({{EntityType}}, {{target_entity}}).build_metadata(
+          %property{idx} = AORM::Mapping::OneToOneAssociationMetadata({{EntityType}}, {{target_entity}}).build_metadata(
             context,
             {{column.name.stringify}},
             metadata,
@@ -71,15 +71,15 @@ module Athena::ORM::Mapping
 
     def add_property(property : AORM::Mapping::Property) : Nil
       case property
-      in Column
+      in FieldMetadata
         @field_names[property.column_name] = property.name
-      in Association
+      in ToOneAssociationMetadata
         property.join_columns.each do |join_column|
           @field_names[join_column.column_name] = property.name
         end
       end
 
-      @identifier << property.name if property.is_primary_key
+      @identifier << property.name if property.is_primary_key?
 
       # TODO: Handle duplicate property
       # property.declaring_class = self
@@ -87,11 +87,11 @@ module Athena::ORM::Mapping
       @properties[property.name] = property
     end
 
-    def column(name : String) : AORM::Mapping::Property?
+    def column(name : String) : AORM::Mapping::ColumnMetadata?
       @properties.each_value do |property|
         case property
-        when Column then return property if property.column_name == name
-        when Association
+        when FieldMetadata then return property if property.column_name == name
+        when ToOneAssociationMetadata
           property.join_columns.each do |join_column|
             return join_column if join_column.column_name == name
           end

@@ -3,7 +3,7 @@ require "./interface"
 struct Athena::ORM::Sequencing::Executors::ColumnValueGeneration
   include Athena::ORM::Sequencing::Executors::Interface
 
-  def initialize(@column_metadata : AORM::Mapping::ColumnBase, @generator : AORM::Sequencing::Generators::Interface); end
+  def initialize(@column_metadata : AORM::Mapping::ColumnMetadata, @generator : AORM::Sequencing::Generators::Interface); end
 
   def execute(em : AORM::EntityManagerInterface, entity : AORM::Entity) : Tuple
     value = @generator.generate em, entity
