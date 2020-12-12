@@ -84,7 +84,7 @@ class Setting < AORM::Entity
   # property! user : User
 end
 
-@[AORMA::Entity]
+@[AORMA::Entity(repository_class: UserRepository)]
 @[AORMA::Table(name: "users")]
 class User < AORM::Entity
   def initialize(@name : String); end
@@ -106,15 +106,15 @@ end
 
 require "pg"
 
-# class UserRepository < AORM::EntityRepository(User)
-#   def active_users
-#     self.find_by(alive: true)
-#   end
+class UserRepository < AORM::EntityRepository(User)
+  def active_users
+    self.find_by(alive: true)
+  end
 
-#   def primary_user : User
-#     self.find(4)
-#   end
-# end
+  def primary_user : User
+    self.find(4)
+  end
+end
 
 # DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=blog" do |db|
 # db.using_connection do |conn|
@@ -122,17 +122,17 @@ em = AORM::EntityManager.new "postgres://blog_user:mYAw3s0meB!log@localhost:5432
 
 # pp em.class_metadata User
 # pp em.class_metadata Setting
-u = em.find User, 2
-s = em.find Setting, 1
+# u = em.find User, 2
+# s = em.find Setting, 1
 
-pp typeof(u)
-pp typeof(s)
+# pp typeof(u)
+# pp typeof(s)
 
-u = em.find! User, 2
-s = em.find! Setting, 1
+# u = em.find! User, 2
+# s = em.find! Setting, 1
 
-pp typeof(u)
-pp typeof(s)
+# pp typeof(u)
+# pp typeof(s)
 
 # u.not_nil!.alive = false
 
@@ -145,9 +145,15 @@ pp typeof(s)
 # pp em.find User, 1
 # pp em.find User, 1
 
-# repo = em.repository User
+repo = em.repository User
 
-# pp typeof(repo)
+pp typeof(repo)
+
+u = repo.find 1
+u2 = repo.find! 1
+
+pp typeof(u)
+pp typeof(u2)
 
 # repo_find = repo.find 1
 # repo_find = repo.find 1

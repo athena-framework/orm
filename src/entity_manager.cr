@@ -43,14 +43,14 @@ class Athena::ORM::EntityManager
 
       # TODO: Handle locking
 
-      return entity.as T
+      return entity.as T?
     end
 
     persister = uow.entity_persister entity_class
 
     # TODO: Handle locking
 
-    persister.load_by_id(id).as T
+    persister.load_by_id(id).as T?
   end
 
   def find!(
@@ -59,7 +59,7 @@ class Athena::ORM::EntityManager
     lock_mode : AORM::LockMode? = nil,
     lock_version : Int32? = nil
   ) : AORM::Entity forall T
-    self.find(T, id, lock_mode, lock_version) || raise AORM::Exceptions::NoResult.new
+    self.find(entity_class, id, lock_mode, lock_version) || raise AORM::Exceptions::NoResult.new
   end
 
   def persist(entity : AORM::Entity) : Nil
