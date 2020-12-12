@@ -1,5 +1,10 @@
 abstract class Athena::ORM::Platforms::Platform
+  # GENERAL CONFIGURATION
+
+  # getter keyword_list : AORM::Platforms::Keywords::List { self.reserved_keywords_class.new }
+
   abstract def name : String
+  # abstract def reserved_keywords_class : AORM::Platforms::Keywords::List.class
 
   # TYPES
 
