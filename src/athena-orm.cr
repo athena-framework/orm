@@ -149,11 +149,15 @@ repo = em.repository User
 
 pp typeof(repo)
 
-u = repo.find 1
-u2 = repo.find! 1
+repo = em.repository Setting
 
-pp typeof(u)
-pp typeof(u2)
+pp typeof(repo)
+
+# u = repo.find 1
+# u2 = repo.find! 1
+
+# pp typeof(u)
+# pp typeof(u2)
 
 # repo_find = repo.find 1
 # repo_find = repo.find 1
