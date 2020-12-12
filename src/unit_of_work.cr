@@ -10,24 +10,24 @@ class Athena::ORM::UnitOfWork
 
   @identity_map = Hash(AORM::Entity.class, Hash(String, AORM::Entity)).new
 
-  @entity_identifiers = Hash(UInt64, Hash(String, AORM::Mapping::Value)).new
+  @entity_identifiers = Hash(AORM::Entity, Hash(String, AORM::Mapping::Value)).new
 
-  @entity_states = Hash(UInt64, EntityState).new
+  @entity_states = Hash(AORM::Entity, EntityState).new
 
   # Pending entity deltions
-  @entity_deletions = Hash(UInt64, AORM::Entity).new
+  @entity_deletions = Set(AORM::Entity).new
 
   # Pending entity insertions
-  @entity_inserstions = Hash(UInt64, AORM::Entity).new
+  @entity_inserstions = Set(AORM::Entity).new
 
   # Pending entity updates
-  @entity_updates = Hash(UInt64, AORM::Entity).new
+  @entity_updates = Set(AORM::Entity).new
 
   @entity_persisters = Hash(AORM::Entity.class, AORM::Persisters::Entity::Interface).new
 
-  @original_entity_data = Hash(UInt64, Hash(String, AORM::Mapping::Value)).new
-  @entity_change_sets = Hash(UInt64, Hash(String, Change)).new
-  @orphan_removals = Hash(UInt64, AORM::Entity).new
+  @original_entity_data = Hash(AORM::Entity, Hash(String, AORM::Mapping::Value)).new
+  @entity_change_sets = Hash(AORM::Entity, Hash(String, Change)).new
+  @orphan_removals = Set(AORM::Entity).new
 
   def initialize(@em : AORM::EntityManagerInterface); end
 
@@ -39,23 +39,23 @@ class Athena::ORM::UnitOfWork
     # Nothing to do
     return if @entity_deletions.empty? && @entity_inserstions.empty? && @entity_updates.empty?
 
-    # p! @entity_inserstions
-    # p! @entity_updates
-    # p! @entity_deletions
+    p! @entity_inserstions
+    p! @entity_updates
+    p! @entity_deletions
 
     # TODO: determine the order of the inserts
     # so that referential integrity is maintained.
 
     @em.transaction do
-      @entity_inserstions.each_value do |entity|
+      @entity_inserstions.each do |entity|
         self.execute_inserts @em.class_metadata entity.class
       end
 
-      @entity_updates.each do |_obj_id, entity|
+      @entity_updates.each do |entity|
         self.execute_updates @em.class_metadata entity.class
       end
 
-      @entity_deletions.each do |_obj_id, entity|
+      @entity_deletions.each do |entity|
         self.execute_deletions @em.class_metadata entity.class
       end
     rescue ex : ::Exception
@@ -86,26 +86,25 @@ class Athena::ORM::UnitOfWork
     persister = self.entity_persister class_metadata.entity_class
     generation_plan = class_metadata.value_generation_plan
 
-    @entity_inserstions.each do |obj_id, entity|
+    @entity_inserstions.each do |entity|
       next if entity_class != @em.class_metadata(entity.class).entity_class
 
       persister.insert entity
 
       if generation_plan.contains_deferred?
-        obj_id = entity.object_id
         id = persister.identifier entity
 
-        @entity_identifiers[obj_id] = self.flatten_id id
-        @entity_states[obj_id] = :managed
+        @entity_identifiers[entity] = self.flatten_id id
+        @entity_states[entity] = :managed
 
         id.each do |i|
-          @original_entity_data[obj_id][i.name] = i
+          @original_entity_data[entity][i.name] = i
         end
 
         self.add_to_identity_map entity
       end
 
-      @entity_inserstions.delete obj_id
+      @entity_inserstions.delete entity
 
       # TODO: Handle eventing (postPersist)
     end
@@ -115,16 +114,17 @@ class Athena::ORM::UnitOfWork
     entity_class = class_metadata.entity_class
     persister = self.entity_persister class_metadata.entity_class
 
-    @entity_updates.each do |obj_id, entity|
+    @entity_updates.each do |entity|
       next if entity_class != @em.class_metadata(entity.class).entity_class
 
       # TODO: Handle eventing (preUpdate)
 
-      unless @entity_change_sets[obj_id].empty?
+      unless @entity_change_sets[entity].empty?
+        pp "Updating #{entity.object_id}"
         persister.update entity
       end
 
-      @entity_updates.delete obj_id
+      @entity_updates.delete entity
 
       # TODO: Handle eventing (postUpdate)
     end
@@ -134,15 +134,15 @@ class Athena::ORM::UnitOfWork
     entity_class = class_metadata.entity_class
     persister = self.entity_persister class_metadata.entity_class
 
-    @entity_deletions.each do |obj_id, entity|
+    @entity_deletions.each do |entity|
       next if entity_class != @em.class_metadata(entity.class).entity_class
 
       persister.delete entity
 
-      @entity_deletions.delete obj_id
-      @entity_identifiers.delete obj_id
-      @entity_states.delete obj_id
-      @original_entity_data.delete obj_id
+      @entity_deletions.delete entity
+      @entity_identifiers.delete entity
+      @entity_states.delete entity
+      @original_entity_data.delete entity
 
       unless class_metadata.is_identifier_composite?
         property = class_metadata.property(class_metadata.single_identifier_field_name).not_nil!
@@ -157,15 +157,13 @@ class Athena::ORM::UnitOfWork
   end
 
   def persist(entity : AORM::Entity) : Nil
-    visited = Set(UInt64).new
+    visited = Set(AORM::Entity).new
 
     self.persist entity, visited
   end
 
-  private def persist(entity : AORM::Entity, visited : Set(UInt64)) : Nil
-    obj_id = entity.object_id
-
-    return unless visited.add? obj_id
+  private def persist(entity : AORM::Entity, visited : Set(AORM::Entity)) : Nil
+    return unless visited.add? entity
 
     class_metadata = @em.class_metadata entity.class
 
@@ -173,10 +171,10 @@ class Athena::ORM::UnitOfWork
     in .managed? then return # TODO: Handle change tracking
     in .new?     then self.persist_new class_metadata, entity
     in .removed? # Remanage the entity
-      @entity_deletions.delete obj_id
+      @entity_deletions.delete entity
       self.add_to_identity_map entity
 
-      @entity_states[obj_id] = :managed
+      @entity_states[entity] = :managed
     in .detached? then return # noop
     end
 
@@ -189,10 +187,8 @@ class Athena::ORM::UnitOfWork
     self.remove entity, visited
   end
 
-  private def remove(entity : AORM::Entity, visited : Set(UInt64)) : Nil
-    obj_id = entity.object_id
-
-    return unless visited.add? obj_id
+  private def remove(entity : AORM::Entity, visited : Set(AORM::Entity)) : Nil
+    return unless visited.add? entity
 
     # TODO: Handle cascade for nested models
 
@@ -205,8 +201,6 @@ class Athena::ORM::UnitOfWork
   end
 
   private def persist_new(class_metadata : AORM::Mapping::ClassBase, entity : AORM::Entity) : Nil
-    obj_id = entity.object_id
-
     generation_plan = class_metadata.value_generation_plan
     persister = self.entity_persister class_metadata.entity_class
     generation_plan.execute_immediate @em, entity
@@ -215,35 +209,29 @@ class Athena::ORM::UnitOfWork
       id = persister.identifier entity
 
       unless self.has_missing_ids_which_are_foreign_keys? class_metadata, id
-        @entity_identifiers[obj_id] = self.flatten_id id
+        @entity_identifiers[entity] = self.flatten_id id
       end
     end
 
-    @entity_states[obj_id] = :managed
+    @entity_states[entity] = :managed
     self.schedule_for_insert entity
   end
 
   private def schedule_for_insert(entity : AORM::Entity) : Nil
-    obj_id = entity.object_id
-
     # TODO: Use proper exception classes for these
-    raise "Entity scheduled for deletion" if @entity_deletions.has_key? obj_id
-    raise "Entity already scheduled for insertion" if @entity_inserstions.has_key? obj_id
+    raise "Entity scheduled for deletion" if @entity_deletions.includes? entity
+    raise "Entity already scheduled for insertion" unless @entity_inserstions.add? entity
 
-    @entity_inserstions[obj_id] = entity
-
-    if @entity_identifiers.has_key? obj_id
+    if @entity_identifiers.has_key? entity
       self.add_to_identity_map entity
     end
   end
 
   private def schedule_for_delete(entity : AORM::Entity) : Nil
-    obj_id = entity.object_id
-
-    if @entity_inserstions.has_key? obj_id
-      @entity_inserstions.delete obj_id
-      @entity_identifiers.delete obj_id
-      @entity_states.delete obj_id
+    if @entity_inserstions.includes? entity
+      @entity_inserstions.delete entity
+      @entity_identifiers.delete entity
+      @entity_states.delete entity
 
       return
     end
@@ -252,11 +240,11 @@ class Athena::ORM::UnitOfWork
 
     self.remove_from_identity_map entity
 
-    @entity_updates.delete obj_id
+    @entity_updates.delete entity
 
-    unless @entity_deletions.has_key? obj_id
-      @entity_deletions[obj_id] = entity
-      @entity_states[obj_id] = :removed
+    unless @entity_deletions.includes? entity
+      @entity_deletions[entity] = entity
+      @entity_states[entity] = :removed
     end
   end
 
@@ -266,10 +254,8 @@ class Athena::ORM::UnitOfWork
     self.remove entity, visited
   end
 
-  private def refresh(entity : AORM::Entity, visited : Set(UInt64)) : Nil
-    obj_id = entity.object_id
-
-    return unless visited.add? obj_id
+  private def refresh(entity : AORM::Entity, visited : Set(AORM::Entity)) : Nil
+    return unless visited.add? entity
 
     class_metadata = @em.class_metadata entity.class
 
@@ -291,9 +277,7 @@ class Athena::ORM::UnitOfWork
   end
 
   def entity_state(entity : AORM::Entity, assume : EntityState? = nil) : EntityState
-    obj_id = entity.object_id
-
-    if state = @entity_states[obj_id]?
+    if state = @entity_states[entity]?
       return state
     end
 
@@ -332,17 +316,15 @@ class Athena::ORM::UnitOfWork
   end
 
   def change_set(entity : AORM::Entity) : Hash(String, Change)
-    obj_id = entity.object_id
-
-    unless @entity_change_sets.has_key? obj_id
+    unless @entity_change_sets.has_key? entity
       return Hash(String, Change).new
     end
 
-    @entity_change_sets[obj_id]
+    @entity_change_sets[entity]
   end
 
   def entity_identifier(entity : AORM::Entity) : Hash(String, AORM::Mapping::Value)
-    @entity_identifiers[entity.object_id]
+    @entity_identifiers[entity]
   end
 
   protected def entity_persister(entity_class : AORM::Entity.class) : AORM::Persisters::Entity::Interface
@@ -367,10 +349,8 @@ class Athena::ORM::UnitOfWork
   end
 
   def add_to_identity_map(entity : AORM::Entity) : Bool
-    obj_id = entity.object_id
-
     class_metadata = @em.class_metadata entity.class
-    identifier = @entity_identifiers[obj_id]?
+    identifier = @entity_identifiers[entity]?
 
     if identifier.nil? || identifier.empty?
       # TODO: Use a property exception
@@ -394,20 +374,17 @@ class Athena::ORM::UnitOfWork
   end
 
   def is_in_identity_map(entity : AORM::Entity) : Bool
-    obj_id = entity.object_id
-
-    return false if !@entity_identifiers.has_key?(obj_id) || @entity_identifiers[obj_id].empty?
+    return false if !@entity_identifiers.has_key?(entity) || @entity_identifiers[entity].empty?
 
     class_metadata = @em.class_metadata entity.class
-    id_hash = @entity_identifiers[obj_id].values.join " "
+    id_hash = @entity_identifiers[entity].values.join " "
 
     @identity_map.has_key?(class_metadata.root_class) && @identity_map[class_metadata.root_class].has_key?(id_hash)
   end
 
   def remove_from_identity_map(entity : AORM::Entity) : Bool
-    obj_id = entity.object_id
     class_metadata = @em.class_metadata entity.class
-    id_hash = @entity_identifiers[obj_id].values.join " "
+    id_hash = @entity_identifiers[entity].values.join " "
 
     # TODO: Use proper exception type
     raise "Entity has no identity" if id_hash.blank?
@@ -430,9 +407,8 @@ class Athena::ORM::UnitOfWork
 
       entity_hash.each_value do |entity|
         # TODO: Skip ghosts/proxies
-        obj_id = entity.object_id
 
-        if !@entity_inserstions.has_key?(obj_id) && !@entity_deletions.has_key?(obj_id) && @entity_states.has_key?(obj_id)
+        if !@entity_inserstions.includes?(entity) && !@entity_deletions.includes?(entity) && @entity_states.has_key?(entity)
           self.compute_change_set class_metadata, entity
         end
       end
@@ -440,7 +416,7 @@ class Athena::ORM::UnitOfWork
   end
 
   private def compute_scheduled_inserts_change_sets : Nil
-    @entity_inserstions.each do |_, entity|
+    @entity_inserstions.each do |entity|
       class_metadata = @em.class_metadata entity.class
 
       self.compute_change_set class_metadata, entity
@@ -448,8 +424,6 @@ class Athena::ORM::UnitOfWork
   end
 
   private def compute_change_set(class_metadata : AORM::Mapping::ClassBase, entity : AORM::Entity) : Nil
-    obj_id = entity.object_id
-
     # TODO: Handle read only objects
     # TODO: Handle inheritence types
     # TODO: Handle eventing (preFlush) & ~ListenersInvoker::INVOKE_MANAGER???
@@ -469,10 +443,10 @@ class Athena::ORM::UnitOfWork
       end
     end
 
-    if !@original_entity_data.has_key? obj_id
+    if !@original_entity_data.has_key? entity
       # entity is new or managed but not fully persisted yet
 
-      @original_entity_data[obj_id] = actual_data
+      @original_entity_data[entity] = actual_data
       changeset = Hash(String, Change).new
 
       actual_data.each do |name, v|
@@ -484,10 +458,10 @@ class Athena::ORM::UnitOfWork
         end
       end
 
-      @entity_change_sets[obj_id] = changeset
+      @entity_change_sets[entity] = changeset
     else
       # entity is fully managed
-      original_data = @original_entity_data[obj_id]
+      original_data = @original_entity_data[entity]
       # TODO: Handle different change tracking policies
       changeset = Hash(String, Change).new
 
@@ -518,9 +492,9 @@ class Athena::ORM::UnitOfWork
       end
 
       unless changeset.empty?
-        @entity_change_sets[obj_id] = changeset
-        @original_entity_data[obj_id] = actual_data
-        @entity_updates[obj_id] = entity
+        @entity_change_sets[entity] = changeset
+        @original_entity_data[entity] = actual_data
+        @entity_updates.add entity
       end
     end
 
@@ -559,16 +533,15 @@ class Athena::ORM::UnitOfWork
   end
 
   def schedule_orphan_removal(entity : AORM::Entity) : Nil
-    @orphan_removals[entity.object_id] = entity
+    @orphan_removals.add entity
   end
 
   protected def manage_entity(entity : AORM::Entity) : AORM::Entity
     class_metadata = @em.class_metadata entity.class
     persister = self.entity_persister class_metadata.entity_class
-    obj_id = entity.object_id
 
-    @entity_identifiers[obj_id] = flatten_id persister.identifier entity
-    @entity_states[obj_id] = :managed
+    @entity_identifiers[entity] = flatten_id persister.identifier entity
+    @entity_states[entity] = :managed
     self.compute_change_set class_metadata, entity
 
     self.add_to_identity_map entity

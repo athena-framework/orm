@@ -69,7 +69,7 @@ class Athena::ORM::EntityManager
     end
   end
 
-  def clear(entity : AORM::Entity? = nil) : Nil
+  def clear(entity : AORM::Entity.class | Nil = nil) : Nil
     self.unit_of_work.clear
 
     # TODO: Handle eventing (onClear)

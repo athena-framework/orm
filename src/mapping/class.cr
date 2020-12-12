@@ -115,7 +115,7 @@ module Athena::ORM::Mapping
 
     def each(&)
       @properties.each_value do |property|
-        yield property
+        yield property.as(AORM::Mapping::ColumnMetadata)
       end
     end
 

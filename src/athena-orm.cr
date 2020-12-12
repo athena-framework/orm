@@ -121,7 +121,15 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
 
   # pp em.class_metadata User
   # pp em.class_metadata Setting
-  pp em.find User, 1
+  u = em.find User, 2
+
+  u.not_nil!.alive = false
+
+  pp u
+
+  em.flush
+
+  pp u
   # pp em.find User, 1
   # pp em.find User, 1
   # pp em.find User, 1
@@ -167,15 +175,15 @@ DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=b
 
   # pp repo2.find 2
 
-  #   u1 = User.new "Jim"
+  # u1 = User.new "Jim"
   #   u2 = User.new "Sally"
 
   #   em = AORM::EntityManager.new conn
 
-  #   em.persist u1
+  # em.persist u1
   #   em.persist u2
 
-  #   em.flush
+  # em.flush
   #   puts
 
   #   em.remove u2
