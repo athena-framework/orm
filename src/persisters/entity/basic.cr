@@ -7,7 +7,7 @@ struct Athena::ORM::Persisters::Entity::Basic
 
   private record Parameter(T) < ParameterBase, name : String, value : T, type : AORM::Types::Type
 
-  @connection : DB::Connection
+  @connection : DB::Database
   @platform : AORM::Platforms::Platform
 
   @insert_sql : String? = nil
@@ -112,7 +112,7 @@ struct Athena::ORM::Persisters::Entity::Basic
     # TODO: Handle hints?
 
     @connection.query_each sql, args: params do |rs|
-      entities << @class_metadata.entity_class.from_rs @class_metadata, rs, @platform
+      entities << @class_metadata.entity_class.from_rs @em, @class_metadata, rs, @platform
     end
 
     entities.map { |e| @em.unit_of_work.manage_entity e }

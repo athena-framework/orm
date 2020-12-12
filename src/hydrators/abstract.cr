@@ -23,6 +23,7 @@ abstract struct Athena::ORM::Hydrators::Abstract
 
     # Check for associations
     class_metadata.each do |property|
+      # TODO: Have this check for ToOneAssociationMetadata
       next unless property.is_a? AORM::Mapping::AssociationMetadata
       next if property.is_owning_side?
 

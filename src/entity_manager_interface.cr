@@ -8,7 +8,7 @@ module Athena::ORM::EntityManagerInterface
   abstract def repository(entity_class : AORM::Entity.class) : AORM::RepositoryInterface
   abstract def contains(entity : AORM::Entity) : Bool
 
-  abstract def connection : DB::Connection
+  abstract def connection : DB::Database
   abstract def transaction(& : DB::Transaction ->) : Nil
 
   abstract def unit_of_work # : AORM::UnitOfWork

@@ -36,9 +36,15 @@ module Athena::ORM
   end
 end
 
-class DB::Connection
+class PG::Driver
   def database_platform
     AORM::Platforms::Postgres.new
+  end
+end
+
+class DB::Database
+  def database_platform
+    @driver.database_platform
   end
 end
 
@@ -61,23 +67,24 @@ end
 #   getter! user : User
 # end
 
-@[AORMA::Table(name: "settings")]
-class Setting < AORM::Entity
-  def initialize(@color : String); end
+# @[AORMA::Table(name: "settings")]
+# class Setting < AORM::Entity
+#   def initialize(@color : String); end
 
-  @[AORMA::Column]
-  @[AORMA::ID]
-  @[AORMA::GeneratedValue]
-  getter! id : Int64
+#   @[AORMA::Column]
+#   @[AORMA::ID]
+#   @[AORMA::GeneratedValue]
+#   getter! id : Int64
 
-  @[AORMA::Column]
-  property color : String
+#   @[AORMA::Column]
+#   property color : String
 
-  @[AORMA::OneToOne(inversed_by: "setting")]
-  property! user : User
-end
+#   @[AORMA::OneToOne(inversed_by: "setting")]
+#   property! user : User
+# end
 
-@[AORMA::Entity(repository_class: UserRepository)]
+@[AORMA::Entity]
+@[AORMA::Table(name: "users")]
 class User < AORM::Entity
   def initialize(@name : String); end
 
@@ -92,88 +99,94 @@ class User < AORM::Entity
   @[AORMA::Column]
   property alive : Bool = true
 
-  @[AORMA::OneToOne(mapped_by: "user")]
-  property! setting : Setting
+  # @[AORMA::OneToOne(mapped_by: "user")]
+  # property! setting : Setting
 end
 
 require "pg"
 
-class UserRepository < AORM::EntityRepository(User)
-  def active_users
-    self.find_by(alive: true)
-  end
+# class UserRepository < AORM::EntityRepository(User)
+#   def active_users
+#     self.find_by(alive: true)
+#   end
 
-  def primary_user : User
-    self.find(4)
-  end
-end
+#   def primary_user : User
+#     self.find(4)
+#   end
+# end
 
 DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=blog" do |db|
-  db.using_connection do |conn|
-    em = AORM::EntityManager.new conn
+  # db.using_connection do |conn|
+  em = AORM::EntityManager.new db
 
-    # pp em.class_metadata User
-    # pp em.class_metadata Setting
-    pp em.find User, 1
+  # pp em.class_metadata User
+  # pp em.class_metadata Setting
+  pp em.find User, 1
+  # pp em.find User, 1
+  # pp em.find User, 1
+  # pp em.find User, 1
 
-    # repo = em.repository User
+  # repo = em.repository User
 
-    # pp typeof(repo)
+  # pp typeof(repo)
 
-    # repo_find = repo.find 1
+  # repo_find = repo.find 1
+  # repo_find = repo.find 1
+  # repo_find = repo.find 1
+  # repo_find = repo.find 1
 
-    # pp repo_find, typeof(repo_find)
+  # pp repo_find, typeof(repo_find)
 
-    # puts
+  # puts
 
-    # active_users = repo.active_users
-    # pp active_users, typeof(active_users)
+  # active_users = repo.active_users
+  # pp active_users, typeof(active_users)
 
-    # puts
+  # puts
 
-    # active_users = repo.active_users
-    # pp active_users, typeof(active_users)
+  # active_users = repo.active_users
+  # pp active_users, typeof(active_users)
 
-    # puts
+  # puts
 
-    # primary_user = repo.primary_user
-    # pp primary_user, typeof(primary_user)
+  # primary_user = repo.primary_user
+  # pp primary_user, typeof(primary_user)
 
-    # pp repo.find 1
-    # pp repo.find 123
+  # pp repo.find 1
+  # pp repo.find 123
 
-    # pp repo.find_by id: 1, alive: true
-    # pp repo.find_by id: [1, 3, 5, nil], alive: false
+  # pp repo.find_by id: 1, alive: true
+  # pp repo.find_by id: [1, 3, 5, nil], alive: false
 
-    # pp repo.find_one_by id: 3
-    # pp repo.find_one_by id: 4
+  # pp repo.find_one_by id: 3
+  # pp repo.find_one_by id: 4
 
-    # pp repo.count alive: false
+  # pp repo.count alive: false
 
-    # repo2 = em.repository Post
+  # repo2 = em.repository Post
 
-    # pp repo2.find 2
+  # pp repo2.find 2
 
-    # u1 = User.new "Jim"
-    # u2 = User.new "Sally"
+  #   u1 = User.new "Jim"
+  #   u2 = User.new "Sally"
 
-    # em = AORM::EntityManager.new conn
+  #   em = AORM::EntityManager.new conn
 
-    # em.persist u1
-    # em.persist u2
+  #   em.persist u1
+  #   em.persist u2
 
-    # em.flush
-    # puts
+  #   em.flush
+  #   puts
 
-    # em.remove u2
-    # u1.name = "Bob"
-    # u1.alive = false
+  #   em.remove u2
+  #   u1.name = "Bob"
+  #   u1.alive = false
 
-    # em.flush
-    # puts
+  #   em.flush
+  #   puts
 
-    # u1.name = "Fred"
+  #   u1.name = "Fred"
 
-    # em.flush
-  end
+  #   em.flush
+  # end
 end

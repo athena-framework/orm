@@ -20,6 +20,7 @@ module Athena::ORM::Mapping
     end
 
     def set_value(entity : AORM::Entity, value : _) : Nil
+      raise "BUG: Invoked default set_value"
     end
 
     def get_value(entity : AORM::Entity)

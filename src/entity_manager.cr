@@ -3,14 +3,14 @@ require "./entity_manager_interface"
 class Athena::ORM::EntityManager
   include Athena::ORM::EntityManagerInterface
 
-  getter connection : DB::Connection
+  getter connection : DB::Database
   getter? closed : Bool = false
   getter unit_of_work : AORM::UnitOfWork { AORM::UnitOfWork.new self }
   getter metadata_factory : AORM::Mapping::ClassFactory { AORM::Mapping::ClassFactory.new self }
 
   @repository_factory : AORM::RepositoryFactoryInterface
 
-  def initialize(@connection : DB::Connection)
+  def initialize(@connection : DB::Database)
     @repository_factory = AORM::DefaultRepositoryFactory.new
   end
 
@@ -82,8 +82,7 @@ class Athena::ORM::EntityManager
   # TODO: Figure out if there is a better way to handle this
   macro finished
     {% for repo in Athena::ORM::EntityRepository.all_subclasses.reject &.abstract? %}
-      {% name = repo.name.split("::").last %}
-      {% entity_class = name.gsub(/Repository/, "") %}
+      {% entity_class = repo.name.gsub(/Repository$/, "") %}
       def repository(entity_class : {{entity_class.id}}.class) : {{repo.id}}
         @repository_factory.repository(self, entity_class).as {{repo.id}}
       end
