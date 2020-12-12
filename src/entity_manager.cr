@@ -94,13 +94,14 @@ class Athena::ORM::EntityManager
     self.metadata_factory.metadata entity_class
   end
 
-  # TODO: Figure out if there is a better way to handle this
   macro finished
-    {% for repo in Athena::ORM::EntityRepository.all_subclasses.reject &.abstract? %}
-      {% entity_class = repo.name.gsub(/Repository$/, "") %}
-      def repository(entity_class : {{entity_class.id}}.class) : {{repo.id}}
-        @repository_factory.repository(self, entity_class).as {{repo.id}}
-      end
+    {% for entity in Athena::ORM::Entity.all_subclasses.reject &.abstract? %}
+      # Define a `#repository` overload for entities who have custom repos.
+      {% if (entity_ann = entity.annotation(AORMA::Entity)) && (repository_class = entity_ann[:repository_class]) %}
+        def repository(entity_class : {{entity.id}}.class) : {{repository_class.id}}
+          @repository_factory.repository(self, entity_class).as {{repository_class.id}}
+        end
+      {% end %}
     {% end %}
   end
 
