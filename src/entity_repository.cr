@@ -17,6 +17,10 @@ class Athena::ORM::EntityRepository(EntityType) < Athena::ORM::RepositoryInterfa
     @em.find(@entity_class, id, lock_mode, lock_version).as EntityType
   end
 
+  def find!(id : Hash(String, Int | String) | Int | String, lock_mode : AORM::LockMode? = nil, lock_version : Int32? = nil) : EntityType
+    @em.find!(@entity_class, id, lock_mode, lock_version)
+  end
+
   def find_all : Array(EntityType)
     self.find_by Hash(String, DB::Any | Array(DB::Any)).new
   end

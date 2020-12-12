@@ -1,5 +1,6 @@
 module Athena::ORM::EntityManagerInterface
   abstract def find(entity_class : AORM::Entity.class, id : _) : AORM::Entity?
+  abstract def find!(entity_class : AORM::Entity.class, id : _) : AORM::Entity
   abstract def persist(entity : AORM::Entity) : Nil
   abstract def remove(entity : AORM::Entity) : Nil
   abstract def clear(entity_class : AORM::Entity.class | Nil = nil) : Nil

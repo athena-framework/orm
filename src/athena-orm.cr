@@ -1,6 +1,7 @@
 require "pg"
 
 require "./annotations/*"
+require "./exceptions/*"
 require "./mapping/annotations"
 require "./mapping/property"
 require "./mapping/*"
@@ -67,21 +68,21 @@ end
 #   getter! user : User
 # end
 
-# @[AORMA::Table(name: "settings")]
-# class Setting < AORM::Entity
-#   def initialize(@color : String); end
+@[AORMA::Table(name: "settings")]
+class Setting < AORM::Entity
+  def initialize(@color : String); end
 
-#   @[AORMA::Column]
-#   @[AORMA::ID]
-#   @[AORMA::GeneratedValue]
-#   getter! id : Int64
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  getter! id : Int64
 
-#   @[AORMA::Column]
-#   property color : String
+  @[AORMA::Column]
+  property color : String
 
-#   @[AORMA::OneToOne(inversed_by: "setting")]
-#   property! user : User
-# end
+  # @[AORMA::OneToOne(inversed_by: "setting")]
+  # property! user : User
+end
 
 @[AORMA::Entity]
 @[AORMA::Table(name: "users")]
@@ -115,86 +116,96 @@ require "pg"
 #   end
 # end
 
-DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=blog" do |db|
-  # db.using_connection do |conn|
-  em = AORM::EntityManager.new db
+# DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=blog" do |db|
+# db.using_connection do |conn|
+em = AORM::EntityManager.new "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=blog"
 
-  # pp em.class_metadata User
-  # pp em.class_metadata Setting
-  u = em.find User, 2
+# pp em.class_metadata User
+# pp em.class_metadata Setting
+u = em.find User, 2
+s = em.find Setting, 1
 
-  u.not_nil!.alive = false
+pp typeof(u)
+pp typeof(s)
 
-  pp u
+u = em.find! User, 2
+s = em.find! Setting, 1
 
-  em.flush
+pp typeof(u)
+pp typeof(s)
 
-  pp u
-  # pp em.find User, 1
-  # pp em.find User, 1
-  # pp em.find User, 1
+# u.not_nil!.alive = false
 
-  # repo = em.repository User
+# pp u
 
-  # pp typeof(repo)
+# em.flush
 
-  # repo_find = repo.find 1
-  # repo_find = repo.find 1
-  # repo_find = repo.find 1
-  # repo_find = repo.find 1
+# pp u
+# pp em.find User, 1
+# pp em.find User, 1
+# pp em.find User, 1
 
-  # pp repo_find, typeof(repo_find)
+# repo = em.repository User
 
-  # puts
+# pp typeof(repo)
 
-  # active_users = repo.active_users
-  # pp active_users, typeof(active_users)
+# repo_find = repo.find 1
+# repo_find = repo.find 1
+# repo_find = repo.find 1
+# repo_find = repo.find 1
 
-  # puts
+# pp repo_find, typeof(repo_find)
 
-  # active_users = repo.active_users
-  # pp active_users, typeof(active_users)
+# puts
 
-  # puts
+# active_users = repo.active_users
+# pp active_users, typeof(active_users)
 
-  # primary_user = repo.primary_user
-  # pp primary_user, typeof(primary_user)
+# puts
 
-  # pp repo.find 1
-  # pp repo.find 123
+# active_users = repo.active_users
+# pp active_users, typeof(active_users)
 
-  # pp repo.find_by id: 1, alive: true
-  # pp repo.find_by id: [1, 3, 5, nil], alive: false
+# puts
 
-  # pp repo.find_one_by id: 3
-  # pp repo.find_one_by id: 4
+# primary_user = repo.primary_user
+# pp primary_user, typeof(primary_user)
 
-  # pp repo.count alive: false
+# pp repo.find 1
+# pp repo.find 123
 
-  # repo2 = em.repository Post
+# pp repo.find_by id: 1, alive: true
+# pp repo.find_by id: [1, 3, 5, nil], alive: false
 
-  # pp repo2.find 2
+# pp repo.find_one_by id: 3
+# pp repo.find_one_by id: 4
 
-  # u1 = User.new "Jim"
-  #   u2 = User.new "Sally"
+# pp repo.count alive: false
 
-  #   em = AORM::EntityManager.new conn
+# repo2 = em.repository Post
 
-  # em.persist u1
-  #   em.persist u2
+# pp repo2.find 2
 
-  # em.flush
-  #   puts
+# u1 = User.new "Jim"
+#   u2 = User.new "Sally"
 
-  #   em.remove u2
-  #   u1.name = "Bob"
-  #   u1.alive = false
+#   em = AORM::EntityManager.new conn
 
-  #   em.flush
-  #   puts
+# em.persist u1
+#   em.persist u2
 
-  #   u1.name = "Fred"
+# em.flush
+#   puts
 
-  #   em.flush
-  # end
-end
+#   em.remove u2
+#   u1.name = "Bob"
+#   u1.alive = false
+
+#   em.flush
+#   puts
+
+#   u1.name = "Fred"
+
+#   em.flush
+# end
+# end

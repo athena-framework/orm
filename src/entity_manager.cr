@@ -10,17 +10,23 @@ class Athena::ORM::EntityManager
 
   @repository_factory : AORM::RepositoryFactoryInterface
 
+  def self.new(connection_string : String) : self
+    new DB.open connection_string
+  end
+
   def initialize(@connection : DB::Database)
     @repository_factory = AORM::DefaultRepositoryFactory.new
   end
 
   # TODO: Support composite PKs via #find.
   def find(
-    entity_class : AORM::Entity.class,
+    entity_class : T.class,
     id : Hash(String, Int | String) | Int | String,
     lock_mode : AORM::LockMode? = nil,
     lock_version : Int32? = nil
-  ) : AORM::Entity?
+  ) : AORM::Entity? forall T
+    {% raise "entity_class must be an AORM::Entity.class, not '#{T}'." unless T <= AORM::Entity %}
+
     class_metadata = self.class_metadata entity_class
     entity_class = class_metadata.entity_class
 
@@ -37,14 +43,23 @@ class Athena::ORM::EntityManager
 
       # TODO: Handle locking
 
-      return entity
+      return entity.as T
     end
 
     persister = uow.entity_persister entity_class
 
     # TODO: Handle locking
 
-    persister.load_by_id id
+    persister.load_by_id(id).as T
+  end
+
+  def find!(
+    entity_class : T.class,
+    id : Hash(String, Int | String) | Int | String,
+    lock_mode : AORM::LockMode? = nil,
+    lock_version : Int32? = nil
+  ) : AORM::Entity forall T
+    self.find(T, id, lock_mode, lock_version) || raise AORM::Exceptions::NoResult.new
   end
 
   def persist(entity : AORM::Entity) : Nil
