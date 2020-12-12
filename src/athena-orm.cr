@@ -19,6 +19,8 @@ require "./entity_manager"
 require "./entity_repository"
 require "./unit_of_work"
 
+require "./ext/db"
+
 # Convenience alias to make referencing `Athena::ORM` types easier.
 alias AORM = Athena::ORM
 
@@ -34,18 +36,6 @@ module Athena::ORM
   enum HydrationMode
     Object
     SimpleObject
-  end
-end
-
-class PG::Driver
-  def database_platform
-    AORM::Platforms::Postgres.new
-  end
-end
-
-class DB::Database
-  def database_platform
-    @driver.database_platform
   end
 end
 
@@ -122,11 +112,11 @@ em = AORM::EntityManager.new "postgres://blog_user:mYAw3s0meB!log@localhost:5432
 
 # pp em.class_metadata User
 # pp em.class_metadata Setting
-# u = em.find User, 2
-# s = em.find Setting, 1
+u = em.find User, 2
+s = em.find Setting, 1
 
-# pp typeof(u)
-# pp typeof(s)
+pp typeof(u)
+pp typeof(s)
 
 # u = em.find! User, 2
 # s = em.find! Setting, 1

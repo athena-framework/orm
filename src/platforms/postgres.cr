@@ -1,4 +1,5 @@
-struct Athena::ORM::Platforms::Postgres < Athena::ORM::Platforms::Platform
+# Base platform for Postgres.
+class Athena::ORM::Platforms::Postgres < Athena::ORM::Platforms::Platform
   def name : String
     "postgresql"
   end

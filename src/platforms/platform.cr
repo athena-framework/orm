@@ -1,4 +1,4 @@
-abstract struct Athena::ORM::Platforms::Platform
+abstract class Athena::ORM::Platforms::Platform
   abstract def name : String
 
   # TYPES
