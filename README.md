@@ -5,18 +5,6 @@
 
 WIP ORM lib
 
-## Installation
-
-1. Add the dependency to your `shard.yml`:
-
-```yaml
-dependencies:
-  athena-orm:
-    github: athena-framework/orm
-```
-
-2. Run `shards install`
-
 ## Documentation
 
 Everything is documented in the [API Docs](https://athena-framework.github.io/orm/Athena/ORM.html).
