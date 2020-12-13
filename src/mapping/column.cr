@@ -2,7 +2,7 @@ require "./property"
 
 module Athena::ORM::Mapping
   # TODO: Make this an abstract struct again
-  module ColumnMetadata
+  abstract struct ColumnMetadata
     getter column_name : String
     getter table_name : String?
     getter type : AORM::Types::Type
@@ -28,9 +28,7 @@ module Athena::ORM::Mapping
     end
   end
 
-  abstract struct LocalColumnMetadata
-    include ColumnMetadata
-
+  abstract struct LocalColumnMetadata < ColumnMetadata
     getter value_generator : AORM::Mapping::ValueGeneratorMetadata?
 
     def initialize(

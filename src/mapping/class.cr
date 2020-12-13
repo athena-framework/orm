@@ -55,7 +55,7 @@ module Athena::ORM::Mapping
     end
 
     @properties = Hash(String, AORM::Mapping::Property).new
-    @field_names = Hash(String, String).new
+    getter field_names = Hash(String, String).new
 
     getter entity_class : AORM::Entity.class
     getter custom_repository_class : AORM::RepositoryInterface.class | Nil
@@ -113,9 +113,15 @@ module Athena::ORM::Mapping
       @identifier.includes? name
     end
 
+    def map_each_property
+      @properties.compact_map do |_name, property|
+        yield property
+      end
+    end
+
     def each(&)
       @properties.each_value do |property|
-        yield property.as(AORM::Mapping::ColumnMetadata)
+        yield property
       end
     end
 

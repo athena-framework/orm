@@ -71,8 +71,8 @@ class Setting < AORM::Entity
   @[AORMA::Column]
   property color : String
 
-  # @[AORMA::OneToOne(inversed_by: "setting")]
-  # property! user : User
+  @[AORMA::OneToOne(inversed_by: "setting")]
+  property! user : User
 end
 
 @[AORMA::Entity(repository_class: UserRepository)]
@@ -91,8 +91,8 @@ class User < AORM::Entity
   @[AORMA::Column]
   property alive : Bool = true
 
-  # @[AORMA::OneToOne(mapped_by: "user")]
-  # property! setting : Setting
+  @[AORMA::OneToOne(mapped_by: "user")]
+  property! setting : Setting
 end
 
 require "pg"
@@ -113,11 +113,27 @@ em = AORM::EntityManager.new "postgres://blog_user:mYAw3s0meB!log@localhost:5432
 
 # pp em.class_metadata User
 # pp em.class_metadata Setting
-u = em.find User, 2
-s = em.find Setting, 1
+u = em.find User, 1
+# s = em.find Setting, 1
 
-pp typeof(u)
-pp typeof(s)
+# pp typeof(u)
+# pp u
+
+nu = User.new "Bob"
+
+ns = Setting.new "blue"
+
+em.persist ns
+
+nu.setting = ns
+
+em.persist nu
+
+em.flush
+
+pp nu
+
+# pp typeof(s)
 
 # u = em.find! User, 2
 # s = em.find! Setting, 1
@@ -127,8 +143,6 @@ pp typeof(s)
 
 # u.not_nil!.alive = false
 
-# pp u
-
 # em.flush
 
 # pp u
@@ -136,13 +150,15 @@ pp typeof(s)
 # pp em.find User, 1
 # pp em.find User, 1
 
-repo = em.repository User
+# repo = em.repository User
 
-pp typeof(repo)
+# pp typeof(repo)
 
-repo = em.repository Setting
+# repo = em.repository Setting
 
-pp typeof(repo)
+# pp typeof(repo)
+
+# pp repo.active_users
 
 # u = repo.find 1
 # u2 = repo.find! 1

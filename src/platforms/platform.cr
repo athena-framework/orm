@@ -7,6 +7,7 @@ abstract class Athena::ORM::Platforms::Platform
   # abstract def reserved_keywords_class : AORM::Platforms::Keywords::List.class
 
   # TYPES
+  # TODO: Have some struct to represent metadata included in the `AORMA::Column` annotation and pass that to these type methods.
 
   abstract def boolean_type_declaration_sql : String
   abstract def integer_type_declaration_sql : String

@@ -365,11 +365,10 @@ struct Athena::ORM::Persisters::Entity::Basic
 
   private def update_table(entity : AORM::Entity, quoted_table_name : String, update_data : Array(ParameterBase), versioned : Bool) : Nil
     set = [] of String
-    params = [] of DB::Any
 
-    update_data.each do |param|
+    params = update_data.map do |param|
       set << "#{@platform.quote_identifier param.name} = ?"
-      params << param.value.value
+      param.value.value
     end
 
     identifier = @em.unit_of_work.entity_identifier entity
@@ -378,8 +377,12 @@ struct Athena::ORM::Persisters::Entity::Basic
     @class_metadata.identifier.each do |id_name|
       property = @class_metadata.property(id_name).not_nil!
 
-      where << @platform.quote_identifier property.column_name
-      params << identifier[id_name].value
+      case property
+      when AORM::Mapping::FieldMetadata
+        where << @platform.quote_identifier property.column_name
+        params << identifier[id_name].value
+      else
+      end
 
       # TODO: Handle associations
     end
@@ -407,11 +410,15 @@ struct Athena::ORM::Persisters::Entity::Basic
       property = @class_metadata.property(name).not_nil!
       new_value = change.new
 
-      # TODO: Handle associations and versioned properties
-      column_table_name = property.table_name || table_name
-      column_name = "#{column_prefix}#{property.column_name}"
+      case property
+      when AORM::Mapping::LocalColumnMetadata
+        # TODO: Handle associations and versioned properties
+        column_table_name = property.table_name || table_name
+        column_name = "#{column_prefix}#{property.column_name}"
 
-      (result[column_table_name] ||= Array(ParameterBase).new) << Parameter.new column_name, new_value, property.type
+        (result[column_table_name] ||= Array(ParameterBase).new) << Parameter.new column_name, new_value, property.type
+      else
+      end
     end
 
     result
@@ -426,9 +433,14 @@ struct Athena::ORM::Persisters::Entity::Basic
 
     @class_metadata.identifier.each do |name|
       property = @class_metadata.property(name).not_nil!
-      quoted_column_name = @platform.quote_identifier property.column_name
 
-      id[quoted_column_name] = identifier[name]
+      if property.is_a? AORM::Mapping::FieldMetadata
+        quoted_column_name = @platform.quote_identifier property.column_name
+
+        id[quoted_column_name] = identifier[name]
+
+        next
+      end
 
       # TODO: Handle join column FK deletion
     end
@@ -437,10 +449,9 @@ struct Athena::ORM::Persisters::Entity::Basic
     raise "NO PK" if id.empty?
 
     columns = [] of String
-    values = [] of DB::Any
     conditions = [] of String
 
-    id.each do |name, value|
+    values = id.map do |name, value|
       v = value.value
 
       if v.nil?
@@ -449,8 +460,9 @@ struct Athena::ORM::Persisters::Entity::Basic
       end
 
       columns << name
-      values << v
       conditions << "#{name} = ?"
+
+      v
     end
 
     stmt = @connection.fetch_or_build_prepared_statement @platform.modify_sql_placeholders %(DELETE FROM #{table_name} WHERE #{conditions.join(" AND ")})
@@ -459,8 +471,10 @@ struct Athena::ORM::Persisters::Entity::Basic
   end
 
   def insert(entity : AORM::Entity) : Nil
-    stmt = @connection.fetch_or_build_prepared_statement @platform.modify_sql_placeholders self.insert_sql
+    stmt = @connection.fetch_or_build_prepared_statement @platform.modify_sql_placeholders p!(self.insert_sql)
     insert_data = self.prepare_insert_data entity
+
+    p! insert_data
 
     stmt.exec args: insert_data
   end
@@ -487,9 +501,49 @@ struct Athena::ORM::Persisters::Entity::Basic
   end
 
   protected def prepare_insert_data(entity : AORM::Entity) : Array
-    @class_metadata.map do |property|
-      property.get_value(entity).value
+    uow = @em.unit_of_work
+    table_name = @class_metadata.table_name
+
+    @class_metadata.map_each_property do |property|
+      new_value = property.get_value(entity).value
+
+      case property
+      when AORM::Mapping::LocalColumnMetadata
+        new_value
+      when AORM::Mapping::AssociationMetadata
+        # TODO: Check for AORM::Mapping::ToOneAssociationMetadata here.
+        if property.is_owning_side?
+          if new_value.is_a?(AORM::Entity) && uow.is_scheduled_for_insert?(new_value)
+            # TODO: Handle scheduling extra update
+            pp "SCHEDULED UPDATE"
+          end
+
+          target_class = @em.class_metadata property.target_entity
+          target_persister = uow.entity_persister target_class.entity_class
+
+          property.join_columns.each do |join_column|
+            column_table_name = join_column.table_name || table_name
+            column_name = join_column.column_name
+
+            new_value.nil? ? nil : target_persister.column_value new_value.as(ORM::Entity), join_column.referenced_column_name
+          end
+        end
+      end
     end
+  end
+
+  def column_value(entity : AORM::Entity, column_name : String)
+    property = @class_metadata.property @class_metadata.field_names[column_name]
+
+    return nil unless property
+
+    property_value = property.get_value entity
+
+    if property.is_a? AORM::Mapping::LocalColumnMetadata
+      return property_value
+    end
+
+    raise "TOO FAR"
   end
 
   protected def insert_column_list : Hash(String, AORM::Mapping::ColumnMetadata)
@@ -504,8 +558,12 @@ struct Athena::ORM::Persisters::Entity::Basic
     columns = Hash(String, AORM::Mapping::ColumnMetadata).new
 
     class_metadata.each do |property|
-      if !property.has_value_generator? || !property.value_generator.try &.type.identity?
-        columns["#{column_prefix}#{property.name}"] = property
+      case property
+      when AORM::Mapping::LocalColumnMetadata
+        if !property.has_value_generator? || !property.value_generator.try &.type.identity?
+          columns["#{column_prefix}#{property.name}"] = property
+        end
+      else
       end
     end
 

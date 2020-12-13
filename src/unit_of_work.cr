@@ -14,11 +14,11 @@ class Athena::ORM::UnitOfWork
 
   @entity_states = Hash(AORM::Entity, EntityState).new
 
-  # Pending entity deltions
+  # Pending entity deletions
   @entity_deletions = Set(AORM::Entity).new
 
   # Pending entity insertions
-  @entity_inserstions = Set(AORM::Entity).new
+  @entity_insertions = Set(AORM::Entity).new
 
   # Pending entity updates
   @entity_updates = Set(AORM::Entity).new
@@ -29,6 +29,8 @@ class Athena::ORM::UnitOfWork
   @entity_change_sets = Hash(AORM::Entity, Hash(String, Change)).new
   @orphan_removals = Set(AORM::Entity).new
 
+  @non_cascaded_new_detected_entities = Hash(AORM::Entity, Tuple(AORM::Mapping::AssociationMetadataBase, AORM::Entity)).new
+
   def initialize(@em : AORM::EntityManagerInterface); end
 
   def commit : Nil
@@ -37,17 +39,19 @@ class Athena::ORM::UnitOfWork
     self.compute_changesets
 
     # Nothing to do
-    return if @entity_deletions.empty? && @entity_inserstions.empty? && @entity_updates.empty?
+    return if @entity_deletions.empty? && @entity_insertions.empty? && @entity_updates.empty?
 
-    p! @entity_inserstions
-    p! @entity_updates
-    p! @entity_deletions
+    p! @entity_insertions
+    # p! @entity_updates
+    # p! @entity_deletions
+
+    self.assert_that_there_are_no_unintentionally_non_persisted_associations
 
     # TODO: determine the order of the inserts
     # so that referential integrity is maintained.
 
     @em.transaction do
-      @entity_inserstions.each do |entity|
+      @entity_insertions.each do |entity|
         self.execute_inserts @em.class_metadata entity.class
       end
 
@@ -73,8 +77,18 @@ class Athena::ORM::UnitOfWork
     self.post_commit_cleanup
   end
 
-  private def post_commit_cleanup
-    @entity_inserstions.clear
+  private def assert_that_there_are_no_unintentionally_non_persisted_associations : Nil
+    entities_needing_persist = @entity_insertions - @non_cascaded_new_detected_entities.keys
+
+    @non_cascaded_new_detected_entities.clear
+
+    unless entities_needing_persist.empty?
+      raise "NEW NON CASCADE ENTITY"
+    end
+  end
+
+  private def post_commit_cleanup : Nil
+    @entity_insertions.clear
     @entity_updates.clear
     @entity_deletions.clear
     @entity_change_sets.clear
@@ -86,7 +100,7 @@ class Athena::ORM::UnitOfWork
     persister = self.entity_persister class_metadata.entity_class
     generation_plan = class_metadata.value_generation_plan
 
-    @entity_inserstions.each do |entity|
+    @entity_insertions.each do |entity|
       next if entity_class != @em.class_metadata(entity.class).entity_class
 
       persister.insert entity
@@ -104,7 +118,7 @@ class Athena::ORM::UnitOfWork
         self.add_to_identity_map entity
       end
 
-      @entity_inserstions.delete entity
+      @entity_insertions.delete entity
 
       # TODO: Handle eventing (postPersist)
     end
@@ -120,7 +134,6 @@ class Athena::ORM::UnitOfWork
       # TODO: Handle eventing (preUpdate)
 
       unless @entity_change_sets[entity].empty?
-        pp "Updating #{entity.object_id}"
         persister.update entity
       end
 
@@ -179,6 +192,7 @@ class Athena::ORM::UnitOfWork
     end
 
     # TODO: Handle cascade for nested entities
+    pp entity
   end
 
   def remove(entity : AORM::Entity) : Nil
@@ -220,16 +234,20 @@ class Athena::ORM::UnitOfWork
   private def schedule_for_insert(entity : AORM::Entity) : Nil
     # TODO: Use proper exception classes for these
     raise "Entity scheduled for deletion" if @entity_deletions.includes? entity
-    raise "Entity already scheduled for insertion" unless @entity_inserstions.add? entity
+    raise "Entity already scheduled for insertion" unless @entity_insertions.add? entity
 
     if @entity_identifiers.has_key? entity
       self.add_to_identity_map entity
     end
   end
 
+  def is_scheduled_for_insert?(entity : AORM::Entity) : Bool
+    @entity_insertions.includes? entity
+  end
+
   private def schedule_for_delete(entity : AORM::Entity) : Nil
-    if @entity_inserstions.includes? entity
-      @entity_inserstions.delete entity
+    if @entity_insertions.includes? entity
+      @entity_insertions.delete entity
       @entity_identifiers.delete entity
       @entity_states.delete entity
 
@@ -272,8 +290,9 @@ class Athena::ORM::UnitOfWork
     @entity_identifiers.clear
     @entity_states.clear
     @entity_deletions.clear
-    @entity_inserstions.clear
+    @entity_insertions.clear
     @entity_persisters.clear
+    @non_cascaded_new_detected_entities.clear
   end
 
   def entity_state(entity : AORM::Entity, assume : EntityState? = nil) : EntityState
@@ -408,7 +427,7 @@ class Athena::ORM::UnitOfWork
       entity_hash.each_value do |entity|
         # TODO: Skip ghosts/proxies
 
-        if !@entity_inserstions.includes?(entity) && !@entity_deletions.includes?(entity) && @entity_states.has_key?(entity)
+        if !@entity_insertions.includes?(entity) && !@entity_deletions.includes?(entity) && @entity_states.has_key?(entity)
           self.compute_change_set class_metadata, entity
         end
       end
@@ -416,7 +435,7 @@ class Athena::ORM::UnitOfWork
   end
 
   private def compute_scheduled_inserts_change_sets : Nil
-    @entity_inserstions.each do |entity|
+    @entity_insertions.each do |entity|
       class_metadata = @em.class_metadata entity.class
 
       self.compute_change_set class_metadata, entity
@@ -507,10 +526,12 @@ class Athena::ORM::UnitOfWork
 
       next if value.value.nil?
 
+      # Compute association changeset
       self.compute_change_set property, value.value.as AORM::Entity
     end
   end
 
+  # Compute association changeset
   private def compute_change_set(property : AORM::Mapping::AssociationMetadata, value : AORM::Entity) : Nil
     # TODO: Handle proxies
     # TODO: Handle non ToOne associations
@@ -521,7 +542,9 @@ class Athena::ORM::UnitOfWork
     unwrapped_value.each_with_index do |entity, idx|
       case self.entity_state(entity, EntityState::New)
       when .new?
-        # TODO: Handle cascade
+        # TODO: Allow providing cascade option on column
+        @non_cascaded_new_detected_entities[entity] = {property, entity}
+
         self.persist_new target_class_metadata, entity
         self.compute_change_set target_class_metadata, entity
       when .removed?

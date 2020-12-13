@@ -113,13 +113,6 @@ class Athena::ORM::EntityManager
     self.unit_of_work.scheduled_for_insert?(entity) || self.unit_of_work.has?(entity) && !self.unit_of_work.scheduled_for_delete?(entity)
   end
 
-  def copy(entity : AORM::Entity, deep : Bool = false) : AORM::Entity
-    case deep
-    in true  then entity.clone
-    in false then entity.dup
-    end
-  end
-
   def transaction(& : DB::Transaction ->) : Nil
     @connection.transaction do |tx|
       yield tx

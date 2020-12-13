@@ -6,8 +6,11 @@ module Athena::ORM::Mapping
     Eager
   end
 
+  module AssociationMetadataBase; end
+
   # TODO: Make this an abstract struct again
   module AssociationMetadata(SourceEntity, TargetEntity)
+    include Athena::ORM::Mapping::AssociationMetadataBase
     include Athena::ORM::Mapping::Property
 
     getter name : String

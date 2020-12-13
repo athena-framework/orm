@@ -1,6 +1,4 @@
-struct Athena::ORM::Mapping::JoinColumnMetadata
-  include Athena::ORM::Mapping::ColumnMetadata
-
+struct Athena::ORM::Mapping::JoinColumnMetadata < Athena::ORM::Mapping::ColumnMetadata
   protected def self.build_metadata(
     context : ClassFactory::Context,
     class_metadata : ClassBase,

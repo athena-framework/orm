@@ -16,5 +16,4 @@ module Athena::ORM::EntityManagerInterface
 
   abstract def close : Nil
   abstract def closed? : Bool
-  abstract def copy(entity : AORM::Entity, deep : Bool = false) : AORM::Entity
 end
