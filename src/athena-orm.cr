@@ -111,25 +111,25 @@ em = AORM::EntityManager.new "postgres://blog_user:mYAw3s0meB!og@localhost:5435/
 
 # pp em.class_metadata User
 # pp em.class_metadata Setting
-# u = em.find User, 1
+u = em.find User, 10
 # s = em.find Setting, 1
 
-# pp typeof(u)
-# pp u
+pp typeof(u)
+pp u
 
-nu = User.new "Bob"
+# nu = User.new "Bob"
 
-ns = Setting.new "blue"
-ns.user = nu
-nu.setting = ns
+# ns = Setting.new "blue"
+# ns.user = nu
+# nu.setting = ns
 
-em.persist nu
+# em.persist nu
 
-em.persist ns
+# em.persist ns
 
-em.flush
+# em.flush
 
-pp nu
+# pp nu
 
 # pp typeof(s)
 

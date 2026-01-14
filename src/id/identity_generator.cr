@@ -1,14 +1,12 @@
-require "./generator"
+require "./abstract_generator"
 
-struct Athena::ORM::Id::IdentityGenerator
-  include Athena::ORM::Id::Generator
-
+class Athena::ORM::ID::IdentityGenerator < Athena::ORM::ID::AbstractGenerator
+  # :inherit:
   def generate(em : AORM::EntityManagerInterface, entity : AORM::Entity? = nil)
-    # Identity columns are populated by the database after INSERT
-    # The actual value retrieval happens in execute_deferred via LAST_INSERT_ID or RETURNING
-    raise "BUG: IdentityGenerator.generate should not be called directly"
+    raise NotImplementedError.new "#{self.class} is not yet supported."
   end
 
+  # :inherit:
   def post_insert? : Bool
     true
   end

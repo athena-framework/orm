@@ -1,9 +1,6 @@
-require "./generator"
+require "./abstract_generator"
 
-struct Athena::ORM::Id::SequenceGenerator
-  include Athena::ORM::Id::Generator
-
-  # TODO: Make these UInt64 to support UNSIGNED BIGINT
+class Athena::ORM::ID::SequenceGenerator < Athena::ORM::ID::AbstractGenerator
   getter next_value : Int64 = 0
   getter max_value : Int64? = nil
 
@@ -23,9 +20,5 @@ struct Athena::ORM::Id::SequenceGenerator
     @next_value += 1
 
     value
-  end
-
-  def post_insert? : Bool
-    false
   end
 end

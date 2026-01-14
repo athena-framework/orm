@@ -94,14 +94,13 @@ class Athena::ORM::UnitOfWork
   private def execute_inserts(class_metadata : AORM::Mapping::ClassBase) : Nil
     entity_class = class_metadata.entity_class
     persister = self.entity_persister class_metadata.entity_class
-    generation_plan = class_metadata.value_generation_plan
 
     @entity_insertions.each do |entity|
       next if entity_class != @em.class_metadata(entity.class).entity_class
 
       persister.insert entity
 
-      if generation_plan.contains_deferred?
+      if (generator = class_metadata.id_generator) && generator.post_insert?
         id = persister.identifier entity
 
         @entity_identifiers[entity] = self.flatten_id id
@@ -209,12 +208,26 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def persist_new(class_metadata : AORM::Mapping::ClassBase, entity : AORM::Entity) : Nil
-    generation_plan = class_metadata.value_generation_plan
-    persister = self.entity_persister class_metadata.entity_class
-    generation_plan.execute_immediate @em, entity
+  private def generate_and_set_id(class_metadata : AORM::Mapping::ClassBase, entity : AORM::Entity) : Nil
+    generator = class_metadata.id_generator.not_nil!
+    id_field = class_metadata.single_identifier_field_name
+    column = class_metadata.property(id_field).as(AORM::Mapping::ColumnMetadata)
 
-    unless generation_plan.contains_deferred?
+    value = generator.generate @em, entity
+    platform = @em.connection.database_platform
+    converted_value = column.type.from_db value, platform
+
+    column.set_value entity, converted_value
+  end
+
+  private def persist_new(class_metadata : AORM::Mapping::ClassBase, entity : AORM::Entity) : Nil
+    persister = self.entity_persister class_metadata.entity_class
+
+    if (generator = class_metadata.id_generator) && !generator.post_insert?
+      generate_and_set_id class_metadata, entity
+    end
+
+    if generator.nil? || !generator.post_insert?
       id = persister.identifier entity
 
       unless self.has_missing_ids_which_are_foreign_keys? class_metadata, id

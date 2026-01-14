@@ -14,7 +14,7 @@ module Athena::ORM::Mapping
 
   struct ValueGeneratorMetadata
     getter type : AORM::Mapping::GeneratorType
-    getter generator : AORM::Id::Generator
+    getter generator : AORM::ID::AbstractGenerator
 
     protected def self.build_metadata(
       context : ClassFactory::Context,
@@ -42,7 +42,7 @@ module Athena::ORM::Mapping
                                       )
                                     end
 
-                                    {generator_type, AORM::Id::SequenceGenerator.new(sequence_name, allocation_size)}
+                                    {generator_type, AORM::ID::SequenceGenerator.new(sequence_name, allocation_size)}
                                   in .identity?, .table?, .custom? then return nil # TODO: Support other types of generators
                                   in .none?, .auto? then return nil                # Auto is a pseudo type and will be resolved to something else
                                   end
@@ -50,6 +50,6 @@ module Athena::ORM::Mapping
       new generator_type, generator
     end
 
-    def initialize(@type : AORM::Mapping::GeneratorType, @generator : AORM::Id::Generator); end
+    def initialize(@type : AORM::Mapping::GeneratorType, @generator : AORM::ID::AbstractGenerator); end
   end
 end

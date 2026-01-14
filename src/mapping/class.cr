@@ -49,7 +49,7 @@ module Athena::ORM::Mapping
         end
       {% end %}
 
-      metadata.determine_value_generation_plan context.target_platform
+      metadata.determine_id_generator context.target_platform
 
       metadata
     end
@@ -61,7 +61,7 @@ module Athena::ORM::Mapping
     getter custom_repository_class : AORM::RepositoryInterface.class | Nil
     getter table : AORM::Mapping::Table
     getter identifier = Set(String).new
-    getter value_generation_plan : AORM::Id::GenerationPlan = AORM::Id::NoopPlan.new
+    getter id_generator : AORM::ID::AbstractGenerator? = nil
 
     def initialize(
       @table : AORM::Mapping::Table,
@@ -158,26 +158,15 @@ module Athena::ORM::Mapping
       AORM::EntityRepository(AORM::Entity)
     end
 
-    protected def determine_value_generation_plan(target_platform : AORM::Platforms::Platform) : Nil
-      generator_list = Array(Tuple(AORM::Mapping::ColumnMetadata, AORM::Id::Generator)).new
-
+    protected def determine_id_generator(target_platform : AORM::Platforms::Platform) : Nil
       self.each do |property|
         if property.has_value_generator?
-          if generator = property.value_generator
-            generator_list << {property.as(AORM::Mapping::ColumnMetadata), generator.generator}
+          if vg = property.value_generator
+            @id_generator = vg.generator
+            return # Only support single ID column for now
           end
         end
       end
-
-      return if generator_list.empty?
-
-      @value_generation_plan = case generator_list.size
-                               when 1
-                                 column, generator = generator_list.first
-                                 AORM::Id::SingleColumnPlan.new self, column, generator
-                               else
-                                 raise "TODO: Support generating composite values"
-                               end
     end
   end
 end
