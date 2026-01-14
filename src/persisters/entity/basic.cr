@@ -502,34 +502,38 @@ struct Athena::ORM::Persisters::Entity::Basic
 
   protected def prepare_insert_data(entity : AORM::Entity) : Array
     uow = @em.unit_of_work
-    table_name = @class_metadata.table_name
+    data = [] of DB::Any
 
-    @class_metadata.map_each_property do |property|
-      new_value = property.get_value(entity).value
-
-      case property
+    self.insert_column_list.each do |name, column_metadata|
+      case column_metadata
       when AORM::Mapping::LocalColumnMetadata
-        new_value
-      when AORM::Mapping::AssociationMetadata
-        # TODO: Check for AORM::Mapping::ToOneAssociationMetadata here.
-        if property.is_owning_side?
-          if new_value.is_a?(AORM::Entity) && uow.is_scheduled_for_insert?(new_value)
-            # TODO: Handle scheduling extra update
-            pp "SCHEDULED UPDATE"
-          end
+        value = column_metadata.get_value(entity).value
+        data << (value.is_a?(DB::Any) ? value : nil)
+      when AORM::Mapping::JoinColumnMetadata
+        # Get the association property name from the column list key (e.g., "user.user_id" -> "user")
+        assoc_name = name.split(".").first
+        property = @class_metadata.property(assoc_name)
 
-          target_class = @em.class_metadata property.target_entity
-          target_persister = uow.entity_persister target_class.entity_class
+        if property.is_a?(AORM::Mapping::ToOneAssociationMetadata)
+          assoc_value = property.get_value(entity).value
 
-          property.join_columns.each do |join_column|
-            column_table_name = join_column.table_name || table_name
-            column_name = join_column.column_name
+          if assoc_value.nil?
+            data << nil
+          else
+            target_entity = assoc_value.as(AORM::Entity)
+            target_class = @em.class_metadata property.target_entity
+            target_persister = uow.entity_persister target_class.entity_class
 
-            new_value.nil? ? nil : target_persister.column_value new_value.as(ORM::Entity), join_column.referenced_column_name
+            # Get the referenced column value from the target entity
+            column_value = target_persister.column_value target_entity, column_metadata.referenced_column_name
+            raw_value = column_value.is_a?(AORM::Mapping::Value) ? column_value.value : column_value
+            data << (raw_value.is_a?(DB::Any) ? raw_value : nil)
           end
         end
       end
     end
+
+    data
   end
 
   def column_value(entity : AORM::Entity, column_name : String)
@@ -563,7 +567,12 @@ struct Athena::ORM::Persisters::Entity::Basic
         if !property.has_value_generator? || !property.value_generator.try &.type.identity?
           columns["#{column_prefix}#{property.name}"] = property
         end
-      else
+      when AORM::Mapping::ToOneAssociationMetadata
+        if property.is_owning_side?
+          property.join_columns.each do |join_column|
+            columns["#{column_prefix}#{property.name}.#{join_column.column_name}"] = join_column
+          end
+        end
       end
     end
 

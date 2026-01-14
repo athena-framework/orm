@@ -120,12 +120,12 @@ em = AORM::EntityManager.new "postgres://blog_user:mYAw3s0meB!og@localhost:5435/
 nu = User.new "Bob"
 
 ns = Setting.new "blue"
-
-em.persist ns
-
+ns.user = nu
 nu.setting = ns
 
 em.persist nu
+
+em.persist ns
 
 em.flush
 
