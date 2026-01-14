@@ -19,12 +19,9 @@ authors:
 dependencies:
   db:
     github: crystal-lang/crystal-db
-    version: ~> 0.10.0
 
 development_dependencies:
   ameba:
     github: crystal-ameba/ameba
-    version: ~> 0.13.0
   pg:
     github: will/crystal-pg
-    version: ~> 0.22.0

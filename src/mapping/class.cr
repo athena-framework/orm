@@ -61,7 +61,7 @@ module Athena::ORM::Mapping
     getter custom_repository_class : AORM::RepositoryInterface.class | Nil
     getter table : AORM::Mapping::Table
     getter identifier = Set(String).new
-    getter value_generation_plan : AORM::Sequencing::Planning::Interface = AORM::Sequencing::Planning::Noop.new
+    getter value_generation_plan : AORM::Id::GenerationPlan = AORM::Id::NoopPlan.new
 
     def initialize(
       @table : AORM::Mapping::Table,
@@ -159,21 +159,24 @@ module Athena::ORM::Mapping
     end
 
     protected def determine_value_generation_plan(target_platform : AORM::Platforms::Platform) : Nil
-      executor_list = Hash(String, AORM::Sequencing::Executors::Interface).new
+      generator_list = Array(Tuple(AORM::Mapping::ColumnMetadata, AORM::Id::Generator)).new
 
       self.each do |property|
-        executor = property.value_generation_executor(target_platform)
-
-        if executor.is_a? AORM::Sequencing::Executors::Interface
-          executor_list[property.name] = executor
+        if property.has_value_generator?
+          if generator = property.value_generator
+            generator_list << {property.as(AORM::Mapping::ColumnMetadata), generator.generator}
+          end
         end
       end
 
-      return if executor_list.empty?
+      return if generator_list.empty?
 
-      @value_generation_plan = case executor_list.size
-                               when 1 then AORM::Sequencing::Planning::SingleValue.new self, executor_list.values.first
-                               else        raise "TODO: Support generating composite values"
+      @value_generation_plan = case generator_list.size
+                               when 1
+                                 column, generator = generator_list.first
+                                 AORM::Id::SingleColumnPlan.new self, column, generator
+                               else
+                                 raise "TODO: Support generating composite values"
                                end
     end
   end

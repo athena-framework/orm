@@ -18,12 +18,11 @@ class Athena::ORM::EntityManager
     @repository_factory = AORM::DefaultRepositoryFactory.new
   end
 
-  # TODO: Support composite PKs via #find.
   def find(
     entity_class : T.class,
     id : Hash(String, Int | String) | Int | String,
     lock_mode : AORM::LockMode? = nil,
-    lock_version : Int32? = nil
+    lock_version : Int32? = nil,
   ) : AORM::Entity? forall T
     {% raise "entity_class must be an AORM::Entity.class, not '#{T}'." unless T <= AORM::Entity %}
 
@@ -32,6 +31,7 @@ class Athena::ORM::EntityManager
 
     # TODO: Handle locking
 
+    # TODO: Support composite PKs via #find.
     unless id.is_a? Hash
       id = {class_metadata.single_identifier_field_name => id}
     end
@@ -57,7 +57,7 @@ class Athena::ORM::EntityManager
     entity_class : T.class,
     id : Hash(String, Int | String) | Int | String,
     lock_mode : AORM::LockMode? = nil,
-    lock_version : Int32? = nil
+    lock_version : Int32? = nil,
   ) : AORM::Entity forall T
     self.find(entity_class, id, lock_mode, lock_version) || raise AORM::Exceptions::NoResult.new
   end

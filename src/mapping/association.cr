@@ -38,8 +38,11 @@ module Athena::ORM::Mapping
     )
     end
 
-    def value_generation_executor(platform : AORM::Platforms::Platform) : AORM::Sequencing::Executors::Interface?
-      # TODO: Handle association value generation executors
+    def has_value_generator? : Bool
+      false
+    end
+
+    def value_generator : AORM::Mapping::ValueGeneratorMetadata?
       nil
     end
 

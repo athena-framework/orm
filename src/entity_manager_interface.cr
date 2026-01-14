@@ -8,6 +8,12 @@ module Athena::ORM::EntityManagerInterface
   abstract def flush : Nil
   abstract def repository(entity_class : AORM::Entity.class) : AORM::RepositoryInterface
   abstract def contains(entity : AORM::Entity) : Bool
+  # abstract def get_reference(entity_class : AORM::Entity.class, id : _) : AORM::Entity?
+
+  # abstract def lock : Nil
+  # abstract def filters : FilterCollection
+  # abstract def filter_state_clean? : Bool
+  # abstract def has_filters? : Bool
 
   abstract def connection : DB::Database
   abstract def transaction(& : DB::Transaction ->) : Nil

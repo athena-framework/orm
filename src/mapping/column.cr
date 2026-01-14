@@ -47,12 +47,6 @@ module Athena::ORM::Mapping
     def has_value_generator? : Bool
       !@value_generator.nil?
     end
-
-    def value_generation_executor(platform : AORM::Platforms::Platform) : AORM::Sequencing::Executors::Interface?
-      if generator = @value_generator
-        AORM::Sequencing::Executors::ColumnValueGeneration.new self, generator.generator
-      end
-    end
   end
 
   struct FieldMetadata(IvarType, EntityType) < LocalColumnMetadata

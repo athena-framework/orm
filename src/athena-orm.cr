@@ -2,6 +2,7 @@ require "pg"
 
 require "./annotations/*"
 require "./exceptions/*"
+require "./id/*"
 require "./mapping/annotations"
 require "./mapping/property"
 require "./mapping/*"
@@ -9,9 +10,6 @@ require "./hydrators/*"
 require "./persisters/entity/*"
 require "./platforms/keywords/*"
 require "./platforms/*"
-require "./sequencing/executors/*"
-require "./sequencing/generators/*"
-require "./sequencing/planning/*"
 require "./types/*"
 
 require "./default_repository_factory"
@@ -109,11 +107,11 @@ end
 
 # DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=blog" do |db|
 # db.using_connection do |conn|
-em = AORM::EntityManager.new "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=blog"
+em = AORM::EntityManager.new "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres"
 
 # pp em.class_metadata User
 # pp em.class_metadata Setting
-u = em.find User, 1
+# u = em.find User, 1
 # s = em.find Setting, 1
 
 # pp typeof(u)

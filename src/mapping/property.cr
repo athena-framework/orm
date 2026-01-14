@@ -10,5 +10,6 @@ module Athena::ORM::Mapping::Property
   abstract def set_value(entity : AORM::Entity, value : _)
   abstract def name : String
   abstract def is_primary_key? : Bool
-  abstract def value_generation_executor(platform : AORM::Platforms::Platform) : AORM::Sequencing::Executors::Interface?
+  abstract def has_value_generator? : Bool
+  abstract def value_generator : AORM::Mapping::ValueGeneratorMetadata?
 end

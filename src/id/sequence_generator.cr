@@ -1,7 +1,7 @@
-require "./interface"
+require "./generator"
 
-struct Athena::ORM::Sequencing::Generators::Sequence
-  include Athena::ORM::Sequencing::Generators::Interface
+struct Athena::ORM::Id::SequenceGenerator
+  include Athena::ORM::Id::Generator
 
   # TODO: Make these UInt64 to support UNSIGNED BIGINT
   getter next_value : Int64 = 0
@@ -25,7 +25,7 @@ struct Athena::ORM::Sequencing::Generators::Sequence
     value
   end
 
-  def post_insert_generator? : Bool
+  def post_insert? : Bool
     false
   end
 end
