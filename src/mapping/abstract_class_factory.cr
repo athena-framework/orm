@@ -3,18 +3,16 @@ require "./class_factory_interface"
 abstract class Athena::ORM::Mapping::AbstractClassFactory
   include Athena::ORM::Mapping::ClassFactoryInterface
 
-  @loaded_metadata = Hash(AORM::Entity.class, ClassInterface).new
+  @@loaded_metadata = Hash(AORM::Entity.class, ClassInterface).new
 
   def metadata(for entity_class : AORM::Entity.class) : ClassInterface
-    if metadata = @loaded_metadata[entity_class]?
+    if metadata = @@loaded_metadata[entity_class]?
       return metadata
     end
 
-    # TODO: Cache this somewhere?
-
     self.load entity_class
 
-    @loaded_metadata[entity_class]
+    @@loaded_metadata[entity_class]
   end
 
   private abstract def new_class_metadata_instance(entity_class : AORM::Entity.class) : ClassInterface
@@ -27,7 +25,7 @@ abstract class Athena::ORM::Mapping::AbstractClassFactory
 
     self.load metadata, nil, false, [] of String
 
-    @loaded_metadata[entity_class] = metadata
+    @@loaded_metadata[entity_class] = metadata
 
     metadata
   end

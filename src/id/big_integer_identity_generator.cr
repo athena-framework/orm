@@ -3,7 +3,8 @@ require "./abstract_generator"
 class Athena::ORM::ID::BigIntegerIdentityGenerator < Athena::ORM::ID::AbstractGenerator
   # :inherit:
   def generate(em : AORM::EntityManagerInterface, entity : AORM::Entity? = nil)
-    0_i64
+    # TODO: How to make this platform agnostic?
+    em.connection.scalar("SELECT LASTVAL()").as Int64
   end
 
   # :inherit:

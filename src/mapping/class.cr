@@ -65,7 +65,7 @@ class Athena::ORM::Mapping::Class(T)
   property custom_repository_class : AORM::RepositoryInterface.class | Nil
   property? read_only : Bool = false
   property id_generator_type : AORM::Mapping::Annotations::GeneratedValue::Strategy = :none
-  setter id_generator : AORM::ID::AbstractGenerator? = nil
+  property! id_generator : AORM::ID::AbstractGenerator
 
   @table : TableInfo
 

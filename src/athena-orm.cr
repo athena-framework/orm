@@ -93,8 +93,6 @@ class User < AORM::Entity
   # property! setting : Setting
 end
 
-require "pg"
-
 class UserRepository < AORM::EntityRepository(User)
   def active_users
     self.find_by(alive: true)
@@ -105,11 +103,16 @@ class UserRepository < AORM::EntityRepository(User)
   end
 end
 
-# DB.open "postgres://blog_user:mYAw3s0meB!log@localhost:5432/blog?currentSchema=blog" do |db|
-# db.using_connection do |conn|
-em = AORM::EntityManager.new "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres"
+connection = DB.connect "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres"
 
-pp em.class_metadata User
+em = AORM::EntityManager.new connection
+
+# em.connection.exec %(INSERT INTO users ("name") VALUES ('bob');)
+
+md = em.class_metadata User
+
+# pp md.id_generator.generate em
+
 # pp em.class_metadata Setting
 # u = em.find User, 10
 # s = em.find Setting, 1
