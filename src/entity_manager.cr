@@ -120,8 +120,16 @@ class Athena::ORM::EntityManager
     end
   end
 
+  # :nodoc:
+  #
+  # Just in case something happens that prevents `#close` being explicitly called.
+  def finalize
+    self.close
+  end
+
   def close : Nil
     self.clear
+    @connection.release
 
     @closed = true
   end
