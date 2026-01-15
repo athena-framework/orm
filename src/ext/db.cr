@@ -28,6 +28,10 @@ class PG::Connection
     end
   end
 
+  def last_insert_id : Int64
+    self.scalar("SELECT LASTVAL()").as Int64
+  end
+
   private def version : SemanticVersion
     version = @connection.server_parameters["server_version"]
 

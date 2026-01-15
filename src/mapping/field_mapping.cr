@@ -15,12 +15,24 @@ record Athena::ORM::Mapping::FieldMapping,
   index : Bool = false,
   id : Bool? = nil,
   quoted : Bool? = nil do
-  def self.from_column_mapping(mapping : Driver::ColumnMapping) : Athena::ORM::Mapping::FieldMapping
-    Athena::ORM::Mapping::FieldMapping.new(
+  def self.from_column_mapping(mapping : Driver::ColumnMapping) : self
+    new(
       mapping.field_name,
       mapping.column_name.not_nil!,
       mapping.type.not_nil!,
-      id: mapping.id
+      mapping.length,
+      mapping.precision,
+      mapping.scale,
+      mapping.unique,
+      mapping.nullable,
+      mapping.not_insertable,
+      mapping.not_updatable,
+      mapping.enum_type,
+      mapping.column_definition,
+      mapping.generated,
+      mapping.index,
+      mapping.id,
+      mapping.quoted,
     )
   end
 end

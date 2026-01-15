@@ -51,12 +51,25 @@ class Athena::ORM::Mapping::Class(T)
   # :nodoc:
   abstract struct FieldInfoBase
     abstract def apply_type_mapping(mapper : TypedFieldMapper, mapping : Driver::ColumnMapping) : Driver::ColumnMapping
+    abstract def apply_type_association_mapping(mapper : TypedFieldMapper, mapping : Driver::ColumnMapping) : Driver::ColumnMapping
   end
 
   # :nodoc:
   record FieldInfo(IVarType, Idx) < FieldInfoBase, has_default : Bool, default : IVarType? do
     def apply_type_mapping(mapper : TypedFieldMapper, mapping : Driver::ColumnMapping) : Driver::ColumnMapping
       mapper.validate_and_complete(mapping, self) # self has concrete type here
+    end
+
+    def apply_type_association_mapping(mapper : TypedFieldMapper, mapping : Driver::ColumnMapping) : Driver::ColumnMapping
+      {% begin %}
+        {% ivar_type = IVarType.nilable? ? IVarType.union_types.reject(&.nilable?).first : IVarType %}
+
+        {% if ivar_type <= AORM::Entity? %}
+          mapping = mapping.copy_with target_entity: {{ivar_type}}
+        {% end %}
+      {% end %}
+
+      mapping
     end
   end
 
@@ -67,11 +80,13 @@ class Athena::ORM::Mapping::Class(T)
   property id_generator_type : AORM::Mapping::Annotations::GeneratedValue::Strategy = :none
   property! id_generator : AORM::ID::AbstractGenerator
 
+  property? embedded_class : Bool = false
+
   @table : TableInfo
 
   getter field_mappings = Hash(String, FieldMapping).new
 
-  # Maps column name to field name
+  # Maps column name => field name
   @field_names = Hash(String, String).new
 
   # This is internal references to each ivar
@@ -162,6 +177,58 @@ class Athena::ORM::Mapping::Class(T)
     # TODO: Handle `enum_type` property
 
     mapping
+  end
+
+  def map_one_to_one(mapping : Driver::ColumnMapping) : Nil
+    mapping = mapping.copy_with type: "one_to_one"
+
+    mapping = self.validate_and_complete_association_mapping mapping
+
+    # self.store_association_mapping mapping
+  end
+
+  def validate_and_complete_association_mapping(mapping : Driver::ColumnMapping) : AssociationMapping
+    # TODO: Handle unsetting things?
+
+    mapping = mapping.copy_with is_owning_side: true, source_entity: @entity_class
+    mapping = @field_info[mapping.field_name].apply_type_association_mapping TypedFieldMapper.new, mapping
+
+    if "many_to_one" == mapping.type && mapping.orphan_removal
+      raise "illegal orphan removal"
+    end
+
+    # TODO: Handle PK FKs
+
+    raise "Missing field name" if mapping.field_name.nil?
+    raise "Missing target entity" if mapping.target_entity.nil?
+
+    if !(mapped_by = mapping.mapped_by) # && !(join_table = mapping.join_table)
+      # TODO: Handle join table info
+    else
+      mapping = mapping.copy_with is_owning_side: false
+    end
+
+    if mapping.id && mapping.type.try &.ends_with? "to_many"
+      raise "illegal to many identifier association"
+    end
+
+    unless mapping.fetch_mode
+      mapping = mapping.copy_with fetch_mode: Annotations::OneToOne::FetchMode::LAZY
+    end
+
+    # TODO: Handle cascades
+
+    case mapping.type
+    when "one_to_one"
+      # TODO: Raise if join columns but is not owning side
+
+      # mapping.is_owning_side ? raise "todo" : OneToOneInverseSideMapping.new mapping
+      OneToOneInverseSideMapping.new mapping
+    else
+      raise "Invalid association type"
+    end
+
+    AssociationMapping.new "foo", ::User, ::Setting
   end
 
   private def assert_field_not_mapped(field_name : String)

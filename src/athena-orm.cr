@@ -46,32 +46,22 @@ end
 
 # AORM::Types::Type.add_type TestEnumType, TestEnumType
 
-# class Post < AORM::Entity
-# @[AORMA::Column]
-# @[AORMA::ID]
-# @[AORMA::GeneratedValue]
-# getter! id : Int64
+@[AORMA::Entity]
+@[AORMA::Table(name: "articles")]
+class Setting < AORM::Entity
+  def initialize(@color : String); end
 
-#   @[AORMA::OneToOne(inversed_by: "post")]
-#   getter! user : User
-# end
+  @[AORMA::Column(type: "bigint")]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  getter! id : Int64
 
-# @[AORMA::Entity]
-# @[AORMA::Table(name: "`settings`")]
-# class Setting < AORM::Entity
-#   def initialize(@color : String); end
+  @[AORMA::Column]
+  property color : String
 
-#   @[AORMA::Column]
-#   @[AORMA::ID]
-#   @[AORMA::GeneratedValue]
-#   getter! id : Int64
-
-#   @[AORMA::Column]
-#   property color : String
-
-#   @[AORMA::OneToOne(inversed_by: "setting")]
-#   property! user : User
-# end
+  @[AORMA::OneToOne(inversed_by: "setting")]
+  property! user : User
+end
 
 @[AORMA::Entity(repository_class: UserRepository)]
 @[AORMA::Table(name: "users")]
@@ -83,14 +73,14 @@ class User < AORM::Entity
   @[AORMA::GeneratedValue]
   getter! id : Int64
 
-  # @[AORMA::Column]
-  # property name : String
+  @[AORMA::Column(type: "text")]
+  property name : String
 
-  # @[AORMA::Column]
+  # @[AORMA::Column(name: "is_alive")]
   # property alive : Bool = true
 
-  # @[AORMA::OneToOne(mapped_by: "user")]
-  # property! setting : Setting
+  @[AORMA::OneToOne(mapped_by: "user")]
+  property! setting : Setting
 end
 
 class UserRepository < AORM::EntityRepository(User)
@@ -111,6 +101,7 @@ em = AORM::EntityManager.new connection
 
 md = em.class_metadata User
 
+pp md
 # pp md.id_generator.generate em
 
 # pp em.class_metadata Setting

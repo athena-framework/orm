@@ -35,7 +35,8 @@ module Athena::ORM::Mapping::Annotations
     fetch_mode : FetchMode = :lazy,
     mapped_by : String? = nil,
     inversed_by : String? = nil,
-    orphan_removal : Bool = false do
+    orphan_removal : Bool = false,
+    cascade : Array(String)? = nil do
     enum FetchMode
       LAZY
       EAGER

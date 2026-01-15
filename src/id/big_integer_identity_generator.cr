@@ -1,10 +1,9 @@
 require "./abstract_generator"
 
-class Athena::ORM::ID::BigIntegerIdentityGenerator < Athena::ORM::ID::AbstractGenerator
+struct Athena::ORM::ID::BigIntegerIdentityGenerator < Athena::ORM::ID::AbstractGenerator
   # :inherit:
   def generate(em : AORM::EntityManagerInterface, entity : AORM::Entity? = nil)
-    # TODO: How to make this platform agnostic?
-    em.connection.scalar("SELECT LASTVAL()").as Int64
+    em.connection.last_insert_id
   end
 
   # :inherit:

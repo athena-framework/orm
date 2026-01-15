@@ -22,7 +22,18 @@ module Athena::ORM::Mapping::Driver
     column_definition : String? = nil,
     generated : String? = nil,
     index : Bool = false,
-    id : Bool? = nil
+    id : Bool? = nil,
+    quoted : Bool? = nil,
+    source_entity : AORM::Entity.class | Nil = nil,
+    target_entity : AORM::Entity.class | Nil = nil,
+    join_columns : Array(String)? = nil,
+    inversed_by : String? = nil,
+    mapped_by : String? = nil,
+    cascade : Array(String)? = nil,
+    orphan_removal : Bool? = nil,
+    fetch_mode : Annotations::OneToOne::FetchMode? = nil,
+    is_owning_side : Bool? = nil,
+    join_table : Hash(String, String)? = nil
 
   struct Annotation
     def load_metadata_for_entity(metadata : Class(T)) : Nil forall T
@@ -69,25 +80,47 @@ module Athena::ORM::Mapping::Driver
 
       # TODO: Handle `ChangeTrackingPolicy` annotation
 
-      {% for ivar in T.instance_vars %}
-      {% if ann = ivar.annotation AORMA::Column %}
-        mapping = self.column_ann_to_mapping {{ivar.name.id.stringify}}, AORM::Mapping::Annotations::Column.new({{ann.named_args.double_splat}})
+      {% for ivar, idx in T.instance_vars %}
+        mapping = ColumnMapping.new field_name: {{ivar.name.id.stringify}}
 
-        {% if ivar.annotation AORMA::ID %}
-          mapping = mapping.copy_with id: true
+        {% if ann = ivar.annotation AORMA::Column %}
+          mapping = self.column_ann_to_mapping {{ivar.name.id.stringify}}, AORM::Mapping::Annotations::Column.new({{ann.named_args.double_splat}})
+
+          {% if ivar.annotation AORMA::ID %}
+            mapping = mapping.copy_with id: true
+          {% end %}
+
+          {% if ann = ivar.annotation AORMA::GeneratedValue %}
+            metadata.id_generator_type = AORM::Mapping::Annotations::GeneratedValue.new({{ann.named_args.double_splat}}).strategy
+          {% end %}
+
+          # TODO: Handle `Version` annotation
+
+          metadata.map_field mapping
+        {% elsif ann = ivar.annotation AORMA::OneToOne %}
+          one_to_one_ann = AORM::Mapping::Annotations::OneToOne.new({{ann.named_args.double_splat}})
+
+          if metadata.embedded_class?
+            raise "Can't use OneToOne on embedded class"
+          end
+
+          {% if ivar.annotation AORMA::ID %}
+            mapping = mapping.copy_with id: true
+          {% end %}
+
+          mapping = mapping.copy_with(
+            target_entity: one_to_one_ann.target_entity,
+            join_columns: [] of String,
+            mapped_by: one_to_one_ann.mapped_by,
+            inversed_by: one_to_one_ann.inversed_by,
+            cascade: one_to_one_ann.cascade,
+            orphan_removal: one_to_one_ann.orphan_removal,
+            fetch_mode: one_to_one_ann.fetch_mode
+          )
+
+          metadata.map_one_to_one mapping
         {% end %}
-
-        {% if ann = ivar.annotation AORMA::GeneratedValue %}
-          metadata.id_generator_type = AORM::Mapping::Annotations::GeneratedValue.new({{ann.named_args.double_splat}}).strategy
-        {% end %}
-
-        # TODO: Handle `Version` annotation
-
-        metadata.map_field mapping
       {% end %}
-
-
-    {% end %}
 
       # TODO: Handle `AssociationOverrides` annotation
 
