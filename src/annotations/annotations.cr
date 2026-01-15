@@ -6,4 +6,6 @@ module Athena::ORM::Annotations
   annotation Table; end
   annotation Entity; end
   annotation OneToOne; end
+  annotation MappedSuperclass; end
+  annotation Embeddable; end
 end

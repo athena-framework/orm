@@ -1,16 +1,15 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     container_name: postgres
     ports:
       - 5435:5432
     environment:
       - POSTGRES_USER=blog_user
-      - POSTGRES_PASSWORD='mYAw3s0meB!og'
+      - POSTGRES_PASSWORD=mYAw3s0meB!og
       - POSTGRES_DB=postgres
     volumes:
-      - orm2-data:/var/lib/postgresql/data
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - orm-data:/var/lib/postgresql/data
 
 volumes:
-  orm2-data:
+  orm-data:

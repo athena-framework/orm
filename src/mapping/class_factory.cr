@@ -1,21 +1,16 @@
-class Athena::ORM::Mapping::ClassFactory
-  record Context, metadata_factory : AORM::Mapping::ClassFactory, target_platform : AORM::Platforms::Platform
+class Athena::ORM::Mapping::ClassFactory < Athena::ORM::Mapping::AbstractClassFactory
+  protected setter entity_manager : AORM::EntityManagerInterface?
 
-  @loaded_metadata = Hash(AORM::Entity.class, ClassBase).new
-
-  getter target_platform : AORM::Platforms::Platform { @em.connection.database_platform }
-
-  def initialize(@em : AORM::EntityManagerInterface); end
-
-  def metadata(for entity : AORM::Entity.class) : AORM::Mapping::ClassBase
-    if metadata = @loaded_metadata[entity]?
-      return metadata
-    end
-
-    @loaded_metadata[entity] = entity.entity_metadata_class.build_metadata self.metadata_context
+  def initialize
+    @driver = Driver::Annotation.new
   end
 
-  private def metadata_context : Context
-    Context.new self, self.target_platform
+  private def load(metadata : ClassInterface, parent : ClassInterface?, root_entity_found : Bool, non_superclass_parents : Array(String)) : Nil
+    # TODO: Handle if there is a parent
+    @driver.load_metadata_for_entity metadata
+  end
+
+  private def new_class_metadata_instance(entity_class : T.class) : ClassInterface forall T
+    Class(T).new entity_class
   end
 end

@@ -3,9 +3,9 @@ require "./repository_interface"
 class Athena::ORM::EntityRepository(EntityType) < Athena::ORM::RepositoryInterface
   getter entity_class : AORM::Entity.class
   getter em : AORM::EntityManagerInterface
-  getter class_metadata : AORM::Mapping::ClassBase
+  getter class_metadata : AORM::Mapping::ClassInterface
 
-  def initialize(@em : AORM::EntityManagerInterface, @class_metadata : AORM::Mapping::ClassBase)
+  def initialize(@em : AORM::EntityManagerInterface, @class_metadata : AORM::Mapping::ClassInterface)
     @entity_class = @class_metadata.entity_class
   end
 

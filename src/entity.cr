@@ -1,9 +1,9 @@
 abstract class Athena::ORM::Entity
-  def self.entity_metadata_class : AORM::Mapping::ClassBase.class
-    {% begin %}
-      AORM::Mapping::Class({{@type}})
-    {% end %}
-  end
+  # def self.entity_metadata_class
+  #   {% begin %}
+  #     AORM::Mapping::Class({{@type}})
+  #   {% end %}
+  # end
 
   macro inherited
     {% verbatim do %}

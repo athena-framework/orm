@@ -6,7 +6,7 @@ class Athena::ORM::EntityManager
   getter connection : DB::Database
   getter? closed : Bool = false
   getter unit_of_work : AORM::UnitOfWork { AORM::UnitOfWork.new self }
-  getter metadata_factory : AORM::Mapping::ClassFactory { AORM::Mapping::ClassFactory.new self }
+  getter! metadata_factory : AORM::Mapping::ClassFactory
 
   @repository_factory : AORM::RepositoryFactoryInterface
 
@@ -16,6 +16,11 @@ class Athena::ORM::EntityManager
 
   def initialize(@connection : DB::Database)
     @repository_factory = AORM::DefaultRepositoryFactory.new
+
+    metadata_factory = AORM::Mapping::ClassFactory.new
+    metadata_factory.entity_manager = self
+
+    @metadata_factory = metadata_factory
   end
 
   def find(
@@ -90,7 +95,7 @@ class Athena::ORM::EntityManager
     # TODO: Handle eventing (onClear)
   end
 
-  def class_metadata(for entity_class : AORM::Entity.class) : AORM::Mapping::ClassBase
+  def class_metadata(for entity_class : AORM::Entity.class) : AORM::Mapping::ClassInterface
     self.metadata_factory.metadata entity_class
   end
 

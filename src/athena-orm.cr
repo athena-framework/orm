@@ -4,8 +4,7 @@ require "./annotations/*"
 require "./exceptions/*"
 require "./id/*"
 require "./mapping/annotations"
-require "./mapping/property"
-require "./mapping/*"
+require "./mapping/**"
 require "./hydrators/*"
 require "./persisters/entity/*"
 require "./platforms/keywords/*"
@@ -57,7 +56,8 @@ end
 #   getter! user : User
 # end
 
-@[AORMA::Table(name: "settings")]
+@[AORMA::Entity]
+@[AORMA::Table(name: "`settings`")]
 class Setting < AORM::Entity
   def initialize(@color : String); end
 
@@ -109,13 +109,13 @@ end
 # db.using_connection do |conn|
 em = AORM::EntityManager.new "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres"
 
-# pp em.class_metadata User
-# pp em.class_metadata Setting
-u = em.find User, 10
+pp em.class_metadata User
+pp em.class_metadata Setting
+# u = em.find User, 10
 # s = em.find Setting, 1
 
-pp typeof(u)
-pp u
+# pp typeof(u)
+# pp u
 
 # nu = User.new "Bob"
 
