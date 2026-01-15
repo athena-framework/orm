@@ -10,13 +10,15 @@ abstract class Athena::ORM::Mapping::AbstractClassFactory
       return metadata
     end
 
+    # TODO: Cache this somewhere?
+
     self.load entity_class
 
     @loaded_metadata[entity_class]
   end
 
   private abstract def new_class_metadata_instance(entity_class : AORM::Entity.class) : ClassInterface
-  private abstract def load(metadata : ClassInterface, parent : ClassInterface?, root_entity_found : Bool, non_superclass_parents : Array(String)) : Nil
+  private abstract def load(metadata : ClassInterface, parent_metadata : ClassInterface?, root_entity_found : Bool, non_superclass_parents : Array(String)) : Nil
 
   private def load(entity_class : AORM::Entity.class) : Nil
     # TODO: Handle loading parent types

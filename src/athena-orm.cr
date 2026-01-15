@@ -78,16 +78,16 @@ end
 class User < AORM::Entity
   def initialize(@name : String); end
 
-  @[AORMA::Column]
+  @[AORMA::Column(type: "bigint")]
   @[AORMA::ID]
   @[AORMA::GeneratedValue]
   getter! id : Int64
 
-  @[AORMA::Column]
-  property name : String
+  # @[AORMA::Column]
+  # property name : String
 
-  @[AORMA::Column]
-  property alive : Bool = true
+  # @[AORMA::Column]
+  # property alive : Bool = true
 
   # @[AORMA::OneToOne(mapped_by: "user")]
   # property! setting : Setting
@@ -144,7 +144,7 @@ pp em.class_metadata User
 # em.flush
 
 # pp u
-# pp em.find User, 1
+# pp em.find User, 1load
 # pp em.find User, 1
 # pp em.find User, 1
 

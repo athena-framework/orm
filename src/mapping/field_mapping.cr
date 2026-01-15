@@ -13,12 +13,14 @@ record Athena::ORM::Mapping::FieldMapping,
   column_definition : String? = nil,
   generated : String? = nil,
   index : Bool = false,
-  id : Bool? = nil do
-  def self.new(mapping : Driver::ColumnMapping) : self
-    new(
+  id : Bool? = nil,
+  quoted : Bool? = nil do
+  def self.from_column_mapping(mapping : Driver::ColumnMapping) : Athena::ORM::Mapping::FieldMapping
+    Athena::ORM::Mapping::FieldMapping.new(
       mapping.field_name,
       mapping.column_name.not_nil!,
       mapping.type.not_nil!,
+      id: mapping.id
     )
   end
 end

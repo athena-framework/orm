@@ -65,13 +65,22 @@ class Athena::ORM::Mapping::Class(T)
   property custom_repository_class : AORM::RepositoryInterface.class | Nil
   property? read_only : Bool = false
   property id_generator_type : AORM::Mapping::Annotations::GeneratedValue::Strategy = :none
+  setter id_generator : AORM::ID::AbstractGenerator? = nil
 
   @table : TableInfo
 
-  @field_mappings = Hash(String, FieldMapping).new
+  getter field_mappings = Hash(String, FieldMapping).new
+
+  # Maps column name to field name
+  @field_names = Hash(String, String).new
 
   # This is internal references to each ivar
   @field_info = Hash(String, FieldInfoBase).new
+
+  # Fields that make up the primary key
+  getter identifier = Set(String).new
+
+  @is_identifier_composite : Bool = false
 
   def initialize(
     @entity_class : AORM::Entity.class = T,
@@ -82,6 +91,22 @@ class Athena::ORM::Mapping::Class(T)
     {% for ivar, idx in T.instance_vars %}
       @field_info[{{ivar.name.id.stringify}}] = FieldInfo({{ivar.type}}, {{idx}}).new({{ivar.has_default_value?}}, {{ivar.default_value}})
     {% end %}
+  end
+
+  def single_identifier_field_name : String
+    raise "single id not allowed on composite primary key" if @is_identifier_composite
+
+    raise "no ID defined" unless id = @identifier.first?
+
+    id
+  end
+
+  def single_identifier_column_name : String
+    self.column_name(self.single_identifier_field_name)
+  end
+
+  def column_name(field_name : String) : String
+    @field_mappings[field_name]?.try(&.column_name) || field_name
   end
 
   def map_field(mapping : Driver::ColumnMapping) : Nil
@@ -110,9 +135,31 @@ class Athena::ORM::Mapping::Class(T)
       mapping = mapping.copy_with column_name: mapping.field_name
     end
 
-    mapping = FieldMapping.new mapping
+    mapping = FieldMapping.from_column_mapping mapping
 
-    # TODO: Finish mapping
+    if mapping.column_name.starts_with?('`')
+      mapping = mapping.copy_with column_name: mapping.column_name.strip('`'), quoted: true
+    end
+
+    # TODO: Handle discriminator maps
+    if @field_names.has_key? mapping.column_name
+      raise "Duplicate column name '#{mapping.column_name}'."
+    end
+
+    @field_names[mapping.column_name] = mapping.field_name
+
+    if mapping.id == true
+      # TODO: Handle version field
+      @identifier << mapping.field_name
+
+      if !@is_identifier_composite && @identifier.size > 1
+        @is_identifier_composite = true
+      end
+    end
+
+    # TODO: Handle `generated` property
+
+    # TODO: Handle `enum_type` property
 
     mapping
   end
