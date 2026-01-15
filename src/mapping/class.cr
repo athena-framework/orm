@@ -4,29 +4,127 @@ module Athena::ORM::Mapping::ClassInterface
   abstract def entity_class : AORM::Entity.class
 end
 
+private struct Athena::ORM::Mapping::TypedFieldMapper
+  DEFAULT_TYPE_FIELD_MAPPINGS = {
+    ::String => "string",
+    ::Bool   => "boolean",
+    ::Int64  => "integer",
+  }
+
+  @typed_field_mappings : Hash(String, String)
+
+  def initialize(typed_field_mappings : Hash(String, String) = {} of String => String)
+    typed_field_mappings = Hash(String, String).new
+
+    DEFAULT_TYPE_FIELD_MAPPINGS.each do |name, type|
+      typed_field_mappings[name.to_s] = type
+    end
+
+    typed_field_mappings.each do |name, type|
+      typed_field_mappings[name.to_s] = type
+    end
+
+    @typed_field_mappings = typed_field_mappings
+  end
+
+  def validate_and_complete(mapping : Driver::ColumnMapping, info : Class::FieldInfo(T, I)) : Driver::ColumnMapping forall T, I
+    return mapping unless mapping.type.nil?
+
+    if type = @typed_field_mappings[{{ T.nilable? ? T.union_types.reject(&.nilable?).first.stringify : T.stringify }}]?
+      mapping = mapping.copy_with type: type
+    end
+
+    mapping
+  end
+
+  def validate_and_complete(mapping : Driver::ColumnMapping, info : Class::FieldInfoBase) : NoReturn
+    raise "BUG: Invoked wrong overload"
+  end
+end
+
 class Athena::ORM::Mapping::Class(T)
   include Athena::ORM::Mapping::ClassInterface
 
   # :nodoc:
   record TableInfo, name : String? = nil, schema : String? = nil, indexes : Array(String)? = nil, unique_constraints : Array(String)? = nil, quoted : Bool = false
 
+  # :nodoc:
+  abstract struct FieldInfoBase
+    abstract def apply_type_mapping(mapper : TypedFieldMapper, mapping : Driver::ColumnMapping) : Driver::ColumnMapping
+  end
+
+  # :nodoc:
+  record FieldInfo(IVarType, Idx) < FieldInfoBase, has_default : Bool, default : IVarType? do
+    def apply_type_mapping(mapper : TypedFieldMapper, mapping : Driver::ColumnMapping) : Driver::ColumnMapping
+      mapper.validate_and_complete(mapping, self) # self has concrete type here
+    end
+  end
+
   getter entity_class : AORM::Entity.class
 
   property custom_repository_class : AORM::RepositoryInterface.class | Nil
   property? read_only : Bool = false
+  property id_generator_type : AORM::Mapping::Annotations::GeneratedValue::Strategy = :none
 
   @table : TableInfo
+
+  @field_mappings = Hash(String, FieldMapping).new
+
+  # This is internal references to each ivar
+  @field_info = Hash(String, FieldInfoBase).new
 
   def initialize(
     @entity_class : AORM::Entity.class = T,
   )
     # TODO: Handle naming strategy
     @table = TableInfo.new @entity_class.to_s.split("::").last.underscore
+
+    {% for ivar, idx in T.instance_vars %}
+      @field_info[{{ivar.name.id.stringify}}] = FieldInfo({{ivar.type}}, {{idx}}).new({{ivar.has_default_value?}}, {{ivar.default_value}})
+    {% end %}
   end
 
-  # TODO: Make this not use a hash
-  def primary_table=(table : Hash(String, String | Nil | Bool)) : Nil
-    if (name = table["name"]?) && name.is_a?(String)
+  def map_field(mapping : Driver::ColumnMapping) : Nil
+    mapping = self.validate_and_complete_field_mapping mapping
+    self.assert_field_not_mapped mapping.field_name
+
+    if mapping.generated == true
+      @requires_fetch_after_change = true
+    end
+
+    @field_mappings[mapping.field_name] = mapping
+  end
+
+  private def validate_and_complete_field_mapping(mapping : Driver::ColumnMapping) : FieldMapping
+    raise "Missing field name" if mapping.field_name.nil?
+
+    # mapping = TypedFieldMapper.new.validate_and_complete(mapping, @field_info[mapping.field_name])
+    mapping = @field_info[mapping.field_name].apply_type_mapping TypedFieldMapper.new, mapping
+
+    if mapping.type.nil?
+      mapping = mapping.copy_with type: "string"
+    end
+
+    if mapping.column_name.nil?
+      # TODO: Handle naming strategy
+      mapping = mapping.copy_with column_name: mapping.field_name
+    end
+
+    mapping = FieldMapping.new mapping
+
+    # TODO: Finish mapping
+
+    mapping
+  end
+
+  private def assert_field_not_mapped(field_name : String)
+    if @field_mappings.has_key? field_name
+      raise "Duplicate field mapping '#{field_name}'."
+    end
+  end
+
+  def primary_table=(table : Driver::TableMapping) : Nil
+    if name = table.name
       # TODO: Handle myschema.mytable
 
       if name.starts_with?('`')
@@ -34,12 +132,12 @@ class Athena::ORM::Mapping::Class(T)
       end
     end
 
-    if (value = table["quoted"]?) && (value.is_a?(Bool))
-      @table = @table.copy_with quoted: value
+    if quoted = table.quoted
+      @table = @table.copy_with quoted: quoted
     end
 
-    if (value = table["schema"]?) && (value.is_a?(String))
-      @table = @table.copy_with schema: value
+    if schema = table.schema
+      @table = @table.copy_with schema: schema
     end
 
     # TODO: Handle indexes, unique_constraints, and options

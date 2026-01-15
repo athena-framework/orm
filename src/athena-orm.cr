@@ -56,22 +56,22 @@ end
 #   getter! user : User
 # end
 
-@[AORMA::Entity]
-@[AORMA::Table(name: "`settings`")]
-class Setting < AORM::Entity
-  def initialize(@color : String); end
+# @[AORMA::Entity]
+# @[AORMA::Table(name: "`settings`")]
+# class Setting < AORM::Entity
+#   def initialize(@color : String); end
 
-  @[AORMA::Column]
-  @[AORMA::ID]
-  @[AORMA::GeneratedValue]
-  getter! id : Int64
+#   @[AORMA::Column]
+#   @[AORMA::ID]
+#   @[AORMA::GeneratedValue]
+#   getter! id : Int64
 
-  @[AORMA::Column]
-  property color : String
+#   @[AORMA::Column]
+#   property color : String
 
-  @[AORMA::OneToOne(inversed_by: "setting")]
-  property! user : User
-end
+#   @[AORMA::OneToOne(inversed_by: "setting")]
+#   property! user : User
+# end
 
 @[AORMA::Entity(repository_class: UserRepository)]
 @[AORMA::Table(name: "users")]
@@ -89,8 +89,8 @@ class User < AORM::Entity
   @[AORMA::Column]
   property alive : Bool = true
 
-  @[AORMA::OneToOne(mapped_by: "user")]
-  property! setting : Setting
+  # @[AORMA::OneToOne(mapped_by: "user")]
+  # property! setting : Setting
 end
 
 require "pg"
@@ -110,7 +110,7 @@ end
 em = AORM::EntityManager.new "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres"
 
 pp em.class_metadata User
-pp em.class_metadata Setting
+# pp em.class_metadata Setting
 # u = em.find User, 10
 # s = em.find Setting, 1
 

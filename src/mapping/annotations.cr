@@ -1,8 +1,19 @@
 module Athena::ORM::Mapping::Annotations
   protected record Column,
     name : String? = nil,
-    type_class : AORM::Types::Type.class | Nil = nil,
-    nilable : Bool = false
+    type : String? = nil,
+    length : Int32? = nil,
+    precision : Int32? = nil,
+    scale : Int32? = nil,
+    unique : Bool = false,
+    nullable : Bool = false,
+    insertable : Bool = true,
+    updatable : Bool = true,
+    enum_type : String? = nil,
+    column_definition : String? = nil,
+    generated : String? = nil,
+    index : Bool = false
+  # options : Hash(String, String)
 
   protected record ID
   protected record MappedSuperclass, entity_class : AORM::Entity.class
