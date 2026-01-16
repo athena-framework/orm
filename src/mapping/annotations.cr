@@ -18,15 +18,7 @@ module Athena::ORM::Mapping::Annotations
   protected record ID
   protected record MappedSuperclass, entity_class : AORM::Entity.class
   protected record Embeddable
-  protected record GeneratedValue, strategy : Strategy = :auto do
-    enum Strategy
-      AUTO
-      SEQUENCE
-      IDENTITY
-      NONE
-      CUSTOM
-    end
-  end
+  protected record GeneratedValue, strategy : GeneratedValueStrategy = :auto
   protected record SequenceGenerator, name : String, allocation_size : Int64 = 1
   protected record Table, name : String? = nil, schema : String? = nil
   protected record Entity, repository_class : AORM::RepositoryInterface.class | Nil = nil, read_only : Bool = false
@@ -36,11 +28,5 @@ module Athena::ORM::Mapping::Annotations
     mapped_by : String? = nil,
     inversed_by : String? = nil,
     orphan_removal : Bool = false,
-    cascade : Array(String)? = nil do
-    enum FetchMode
-      LAZY
-      EAGER
-      EXTRA_LAZY
-    end
-  end
+    cascade : Array(String)? = nil
 end

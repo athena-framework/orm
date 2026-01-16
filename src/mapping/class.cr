@@ -1,4 +1,4 @@
-# require "./column"
+require "./generated_value_strategy"
 
 module Athena::ORM::Mapping::ClassInterface
   abstract def entity_class : AORM::Entity.class
@@ -77,14 +77,15 @@ class Athena::ORM::Mapping::Class(T)
 
   property custom_repository_class : AORM::RepositoryInterface.class | Nil
   property? read_only : Bool = false
-  property id_generator_type : AORM::Mapping::Annotations::GeneratedValue::Strategy = :none
+  property id_generator_type : AORM::Mapping::GeneratedValueStrategy = :none
   property! id_generator : AORM::ID::AbstractGenerator
 
   property? embedded_class : Bool = false
 
   @table : TableInfo
 
-  getter field_mappings = Hash(String, FieldMapping).new
+  getter field_mappings : Hash(String, Field) = Hash(String, Field).new
+  @association_mappings : Hash(String, OneToOneInverseSide) = Hash(String, OneToOneInverseSide).new
 
   # Maps column name => field name
   @field_names = Hash(String, String).new
@@ -95,13 +96,16 @@ class Athena::ORM::Mapping::Class(T)
   # Fields that make up the primary key
   getter identifier = Set(String).new
 
+  @inheritance_type : InheritanceType = :none
   @is_identifier_composite : Bool = false
 
   def initialize(
     @entity_class : AORM::Entity.class = T,
+    naming_strategy : AORM::Mapping::NamingStrategyInterface? = nil,
   )
     # TODO: Handle naming strategy
     @table = TableInfo.new @entity_class.to_s.split("::").last.underscore
+    @naming_strategy = naming_strategy || DefaultNamingStrategy.new
 
     {% for ivar, idx in T.instance_vars %}
       @field_info[{{ivar.name.id.stringify}}] = FieldInfo({{ivar.type}}, {{idx}}).new({{ivar.has_default_value?}}, {{ivar.default_value}})
@@ -124,6 +128,10 @@ class Athena::ORM::Mapping::Class(T)
     @field_mappings[field_name]?.try(&.column_name) || field_name
   end
 
+  def inheritance_type_single_table? : Bool
+    @inheritance_type.single_table?
+  end
+
   def map_field(mapping : Driver::ColumnMapping) : Nil
     mapping = self.validate_and_complete_field_mapping mapping
     self.assert_field_not_mapped mapping.field_name
@@ -135,7 +143,7 @@ class Athena::ORM::Mapping::Class(T)
     @field_mappings[mapping.field_name] = mapping
   end
 
-  private def validate_and_complete_field_mapping(mapping : Driver::ColumnMapping) : FieldMapping
+  private def validate_and_complete_field_mapping(mapping : Driver::ColumnMapping) : Field
     raise "Missing field name" if mapping.field_name.nil?
 
     # mapping = TypedFieldMapper.new.validate_and_complete(mapping, @field_info[mapping.field_name])
@@ -146,11 +154,10 @@ class Athena::ORM::Mapping::Class(T)
     end
 
     if mapping.column_name.nil?
-      # TODO: Handle naming strategy
-      mapping = mapping.copy_with column_name: mapping.field_name
+      mapping = mapping.copy_with column_name: @naming_strategy.property_to_column_name(mapping.field_name, @entity_class)
     end
 
-    mapping = FieldMapping.from_column_mapping mapping
+    mapping = Field.from_column_mapping mapping
 
     if mapping.column_name.starts_with?('`')
       mapping = mapping.copy_with column_name: mapping.column_name.strip('`'), quoted: true
@@ -184,10 +191,10 @@ class Athena::ORM::Mapping::Class(T)
 
     mapping = self.validate_and_complete_association_mapping mapping
 
-    # self.store_association_mapping mapping
+    self.store_association_mapping mapping
   end
 
-  def validate_and_complete_association_mapping(mapping : Driver::ColumnMapping) : AssociationMapping
+  def validate_and_complete_association_mapping(mapping : Driver::ColumnMapping) : Association
     # TODO: Handle unsetting things?
 
     mapping = mapping.copy_with is_owning_side: true, source_entity: @entity_class
@@ -213,22 +220,29 @@ class Athena::ORM::Mapping::Class(T)
     end
 
     unless mapping.fetch_mode
-      mapping = mapping.copy_with fetch_mode: Annotations::OneToOne::FetchMode::LAZY
+      mapping = mapping.copy_with fetch_mode: FetchMode::LAZY
     end
 
     # TODO: Handle cascades
 
     case mapping.type
     when "one_to_one"
-      # TODO: Raise if join columns but is not owning side
-
-      # mapping.is_owning_side ? raise "todo" : OneToOneInverseSideMapping.new mapping
-      OneToOneInverseSideMapping.new mapping
+      mapping.is_owning_side ? OneToOneOwningSide.new(
+        mapping,
+        @naming_strategy,
+        @entity_class,
+        @table,
+        self.inheritance_type_single_table?
+      ) : OneToOneInverseSide.new mapping
     else
       raise "Invalid association type"
     end
+  end
 
-    AssociationMapping.new "foo", ::User, ::Setting
+  def store_association_mapping(mapping : Association) : Nil
+    self.assert_field_not_mapped source_field_name = mapping.field_name
+
+    @association_mappings[source_field_name] = mapping
   end
 
   private def assert_field_not_mapped(field_name : String)

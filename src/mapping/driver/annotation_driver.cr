@@ -31,7 +31,7 @@ module Athena::ORM::Mapping::Driver
     mapped_by : String? = nil,
     cascade : Array(String)? = nil,
     orphan_removal : Bool? = nil,
-    fetch_mode : Annotations::OneToOne::FetchMode? = nil,
+    fetch_mode : FetchMode? = nil,
     is_owning_side : Bool? = nil,
     join_table : Hash(String, String)? = nil
 

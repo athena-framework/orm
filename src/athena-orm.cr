@@ -99,7 +99,7 @@ em = AORM::EntityManager.new connection
 
 # em.connection.exec %(INSERT INTO users ("name") VALUES ('bob');)
 
-md = em.class_metadata User
+md = em.class_metadata Setting
 
 pp md
 # pp md.id_generator.generate em

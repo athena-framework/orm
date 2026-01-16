@@ -59,14 +59,14 @@ class Athena::ORM::Mapping::ClassFactory < Athena::ORM::Mapping::AbstractClassFa
     end
   end
 
-  private def determine_id_generator_strategy(platform : AORM::Platforms::Platform) : Annotations::GeneratedValue::Strategy
+  private def determine_id_generator_strategy(platform : AORM::Platforms::Platform) : GeneratedValueStrategy
     em = self.entity_manager
 
     # TODO: Something about id generation preferences on the EM configuration?
 
     # TODO: Handle non-identity strategies
 
-    Annotations::GeneratedValue::Strategy::IDENTITY
+    GeneratedValueStrategy::IDENTITY
   end
 
   private def new_class_metadata_instance(entity_class : T.class) : ClassInterface forall T
