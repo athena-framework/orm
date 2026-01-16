@@ -1,0 +1,10 @@
+record Athena::ORM::Mapping::Association::JoinColumn,
+  name : String,
+  referenced_column_name : String,
+  deferrable : Bool? = nil,
+  unique : Bool? = nil,
+  quoted : Bool? = nil,
+  field_name : String? = nil,
+  on_delete : String? = nil,
+  column_definition : String? = nil,
+  nullable : Bool? = nil
