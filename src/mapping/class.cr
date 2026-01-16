@@ -85,7 +85,7 @@ class Athena::ORM::Mapping::Class(T)
   @table : TableInfo
 
   getter field_mappings : Hash(String, Field) = Hash(String, Field).new
-  @association_mappings : Hash(String, OneToOneInverseSide) = Hash(String, OneToOneInverseSide).new
+  @association_mappings : Hash(String, OneToOneInverseSide | OneToOneOwningSide) = Hash(String, OneToOneInverseSide | OneToOneOwningSide).new
 
   # Maps column name => field name
   @field_names = Hash(String, String).new

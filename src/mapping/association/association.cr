@@ -1,6 +1,6 @@
-# Base struct for all association mappings.
+# Base class for all association mappings.
 # Contains common properties shared by all association types.
-abstract struct Athena::ORM::Mapping::Association
+abstract class Athena::ORM::Mapping::Association
   def self.new(mapping : Driver::ColumnMapping) : self
     new(
       mapping.field_name,
@@ -14,25 +14,25 @@ abstract struct Athena::ORM::Mapping::Association
   end
 
   # The name of the field in the entity that holds this association.
-  getter field_name : String
+  property field_name : String
 
   # The fully-qualified class name of the entity that contains this association.
-  getter source_entity : AORM::Entity.class
+  property source_entity : AORM::Entity.class
 
   # The fully-qualified class name of the target entity.
-  getter target_entity : AORM::Entity.class
+  property target_entity : AORM::Entity.class
 
   # The fetch strategy for loading the association.
-  getter fetch_mode : FetchMode?
+  property fetch_mode : FetchMode?
 
   # Whether this association is part of the identifier.
-  getter? id : Bool?
+  property? id : Bool?
 
   # Whether to remove orphaned entities when they are removed from the collection.
-  getter? orphan_removal : Bool
+  property? orphan_removal : Bool
 
   # Whether the association should be unique.
-  getter? unique : Bool?
+  property? unique : Bool?
 
   def initialize(
     @field_name : String,
@@ -43,5 +43,21 @@ abstract struct Athena::ORM::Mapping::Association
     @orphan_removal : Bool? = false,
     @unique : Bool? = nil,
   )
+  end
+
+  def owning_side? : Bool
+    self.is_a? OwningSide
+  end
+
+  def to_one? : Bool
+    self.is_a? ToOne
+  end
+
+  def one_to_one? : Bool
+    self.is_a? OneToOne
+  end
+
+  def to_one_owning_side? : Bool
+    self.to_one? && self.owning_side?
   end
 end

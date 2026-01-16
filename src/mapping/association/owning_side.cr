@@ -1,4 +1,4 @@
-abstract struct Athena::ORM::Mapping::OwningSide < Athena::ORM::Mapping::Association
+abstract class Athena::ORM::Mapping::OwningSide < Athena::ORM::Mapping::Association
   def self.new(mapping : Driver::ColumnMapping) : self
     new(
       mapping.field_name,
@@ -12,7 +12,7 @@ abstract struct Athena::ORM::Mapping::OwningSide < Athena::ORM::Mapping::Associa
     )
   end
 
-  getter inversed_by : String
+  property inversed_by : String
 
   def initialize(
     field_name : String,

@@ -1,7 +1,7 @@
 # Port of Doctrine's InverseSideMapping.
-# Base struct for associations where the other side contains the foreign key.
+# Base class for associations where the other side contains the foreign key.
 
-abstract struct Athena::ORM::Mapping::InverseSide < Athena::ORM::Mapping::Association
+abstract class Athena::ORM::Mapping::InverseSide < Athena::ORM::Mapping::Association
   def self.new(mapping : Driver::ColumnMapping) : self
     new(
       mapping.field_name,
@@ -16,7 +16,7 @@ abstract struct Athena::ORM::Mapping::InverseSide < Athena::ORM::Mapping::Associ
   end
 
   # The name of the field on the owning side that completes the bidirectional association.
-  getter mapped_by : String
+  property mapped_by : String
 
   def initialize(
     field_name : String,
