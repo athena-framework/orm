@@ -110,15 +110,21 @@ em = AORM::EntityManager.new connection
 # pp md.id_generator.generate em
 
 # pp em.class_metadata Setting
-u = em.find User, 1
+u = em.find! User, 1
 # u = User.new "Bob"
 
 pp typeof(u)
 pp u
 
-pp em.unit_of_work.entity_state u.not_nil!
+# pp em.unit_of_work.entity_state u
 
-pp AORM::Types::Type.type_map
+# pp AORM::Types::Type.type_map
+
+u.name = "Bob"
+
+em.unit_of_work.compute_changesets
+
+pp em.unit_of_work.entity_changeset u
 
 # nu = User.new "Bob"
 

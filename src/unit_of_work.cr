@@ -424,65 +424,74 @@ class Athena::ORM::UnitOfWork
   end
 
   def add_to_identity_map(entity : AORM::Entity) : Bool
-    # class_metadata = @em.class_metadata entity.class
-    # identifier = @entity_identifiers[entity]?
+    class_metadata = @em.class_metadata entity.class
+    id_hash = self.id_hash_of_entity entity
+    entity_class = class_metadata.entity_class
 
-    # if identifier.nil? || identifier.empty?
-    #   # TODO: Use a property exception
-    #   raise "Entity without an identifier"
-    # end
+    if @identity_map.has_key?(entity_class) && @identity_map[entity_class].has_key?(id_hash)
+      if @identity_map[entity_class][id_hash] != entity
+        raise "entity identity collision"
+      end
 
-    # id_hash = identifier_flattener.flatten_identifier(class_metadata, identifier)
-    # class_name = class_metadata.entity_class
+      return false
+    end
 
-    # if @identity_map.has_key?(class_name) && @identity_map[class_name].has_key?(id_hash)
-    #   return false
-    # end
-
-    # unless @identity_map.has_key? class_name
-    #   @identity_map[class_name] = Hash(String, AORM::Entity).new
-    # end
-
-    # @identity_map[class_name][id_hash] = entity
+    (@identity_map[entity_class] ||= Hash(String, AORM::Entity).new)[id_hash] = entity
 
     true
+  end
+
+  def id_hash_of_entity(entity : AORM::Entity) : String
+    identifier = @entity_identifiers[entity]?
+
+    if !identifier || identifier.empty? || identifier.none?
+      raise "entity without identity"
+    end
+
+    self.class.id_hash_by_identifier identifier
   end
 
   def is_in_identity_map(entity : AORM::Entity) : Bool
     return false if !@entity_identifiers.has_key?(entity) || @entity_identifiers[entity].empty?
 
     class_metadata = @em.class_metadata entity.class
-    id_hash = identifier_flattener.flatten_identifier(class_metadata, @entity_identifiers[entity])
+    id_hash = self.id_hash_of_entity entity
 
     @identity_map.has_key?(class_metadata.entity_class) && @identity_map[class_metadata.entity_class].has_key?(id_hash)
   end
 
   def remove_from_identity_map(entity : AORM::Entity) : Bool
     class_metadata = @em.class_metadata entity.class
-    id_hash = identifier_flattener.flatten_identifier(class_metadata, @entity_identifiers[entity])
+    id_hash = self.id_hash_of_entity entity
 
     # TODO: Use proper exception type
-    raise "Entity has no identity" if id_hash.blank?
+    raise "Entity has no identity" if id_hash.empty?
 
-    class_name = class_metadata.entity_class
-
-    return true if @identity_map.has_key?(class_name) && @identity_map.has_key?(id_hash)
+    return true if @identity_map.delete class_metadata.entity_class
 
     false
   end
 
-  private def compute_changesets : Nil
+  def entity_changeset(entity : AORM::Entity) : Hash
+    unless cs = @entity_change_sets[entity]?
+      return {} of String => NoReturn
+    end
+
+    cs
+  end
+
+  def compute_changesets : Nil
     self.compute_scheduled_inserts_change_sets
 
     @identity_map.each do |entity_class, entity_hash|
       class_metadata = @em.class_metadata entity_class
 
-      # TODO: Skip readonly classes
+      next if class_metadata.read_only?
+
       # TODO: Handle change tracking policies
 
       entity_hash.each_value do |entity|
-        # TODO: Skip ghosts/proxies
-
+        # Only MANAGED entities that are NOT SCHEDULED FOR INSERTION OR DELETION are processed here.
         if !@entity_insertions.includes?(entity) && !@entity_deletions.includes?(entity) && @entity_states.has_key?(entity)
           self.compute_change_set class_metadata, entity
         end
@@ -498,93 +507,68 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def compute_change_set(class_metadata : AORM::Mapping::ClassBase, entity : AORM::Entity) : Nil
-    # TODO: Handle read only objects
-    # TODO: Handle inheritence types
-    # TODO: Handle eventing (preFlush) & ~ListenersInvoker::INVOKE_MANAGER???
+  private def compute_change_set(class_metadata : AORM::Mapping::ClassInterface, entity : AORM::Entity) : Nil
+    # TODO: Handle readonly objects
 
-    actual_data = Hash(String, AORM::Mapping::Value).new
-
-    class_metadata.each do |property|
-      column_value = property.get_value entity
-      name = property.name
-
-      if (
-           !class_metadata.is_identifier?(name) ||
-           !property.is_a?(AORM::Mapping::FieldMetadata) ||
-           !property.as(AORM::Mapping::FieldMetadata).value_generator.try(&.type.identity?)
-         ) # TODO: Handle versioned columns
-        actual_data[name] = column_value
-      end
+    unless class_metadata.inheritance_type.none?
+      class_metadata = @em.class_metadata entity.class
     end
 
-    if !@original_entity_data.has_key? entity
-      # entity is new or managed but not fully persisted yet
+    # TODO: Invoke listeners
+    actual_data = class_metadata.field_info.to_h do |name, prop|
+      value = prop.get_value entity
 
-      @original_entity_data[entity] = actual_data
-      changeset = Hash(String, Change).new
+      # TODO: Handle collection valued associations
 
-      actual_data.each do |name, v|
-        property = class_metadata.property(name)
-
-        # TODO: Handle non ToOne associations
-        if property.is_a?(AORM::Mapping::FieldMetadata) || (property.is_a?(AORM::Mapping::ToOneAssociationMetadata) && property.is_owning_side?)
-          changeset[name] = Change.new nil, v
-        end
+      # TODO: Handle versioning
+      if (!class_metadata.is_identifier(name) || !class_metadata.identifier_identity?) && true
+        {name, value}
+      else
+        {name, nil}
       end
+    end.compact!
 
-      @entity_change_sets[entity] = changeset
-    else
-      # entity is fully managed
-      original_data = @original_entity_data[entity]
-      # TODO: Handle different change tracking policies
-      changeset = Hash(String, Change).new
+    if original_data = @original_entity_data[entity]?
+      change_set = Hash(String, Change).new
 
-      actual_data.each do |name, actual_value|
-        next if !original_data.has_key? name
+      actual_data.each do |prop_name, actual_value|
+        # Skip partially omitted fields
+        next unless original_data.has_key? prop_name
 
-        original_value = original_data[name]
+        original_value = original_data[prop_name].value
+
+        # TODO: Handle enum types
 
         # Skip if value hasn't changed
-        next if original_value.value == actual_value.value
+        next if original_value == actual_value
 
-        property = class_metadata.property(name).not_nil!
+        # Regular field
+        unless class_metadata.association_mappings.has_key? prop_name
+          fi = class_metadata.field_info[prop_name]
 
-        # TODO: Handle collections
+          p({fi: fi, original_value: original_value, actual_value: actual_value})
 
-        case property
-        when AORM::Mapping::FieldMetadata
-          # TODO: Handle notify change tracking policy
-          changeset[name] = Change.new original_value, actual_value
-        when AORM::Mapping::ToOneAssociationMetadata
-          changeset[property.name] = Change.new original_value, actual_value if property.is_owning_side?
-          # self.schedule_orphan_removal original_value.value if !original_data.nil? && property.is_orphan_removal?
+          change_set[prop_name] = fi.create_change original_value, actual_value
 
-          # TODO: Handle non ToOne associations
-        else
-          # noop
+          next
         end
+
+        # TODO: Handle collections and associations
       end
 
-      unless changeset.empty?
-        @entity_change_sets[entity] = changeset
-        @original_entity_data[entity] = actual_data
-        @entity_updates.add entity
+      unless change_set.empty?
+        @entity_change_sets[entity] = change_set
+        @original_entity_data[entity] = actual_data.transform_values { |v, k| class_metadata.field_info[k].create_column_value v }
+        @entity_updates << entity
       end
+    else
+      # Entity is NEW or MANAGED but not yet fully persisted (only has an id).
+      # These result in an INSERT
+
+      # TODO: Implement this
     end
 
-    # Look for changes in associations
-    class_metadata.each do |property|
-      # TODO: Handle non ToOne associations
-      next unless property.is_a? AORM::Mapping::AssociationMetadata
-
-      value = property.get_value entity
-
-      next if value.value.nil?
-
-      # Compute association changeset
-      self.compute_change_set property, value.value.as AORM::Entity
-    end
+    # TODO: Handle changes in associated data
   end
 
   # Compute association changeset
@@ -613,19 +597,6 @@ class Athena::ORM::UnitOfWork
 
   def schedule_orphan_removal(entity : AORM::Entity) : Nil
     @orphan_removals.add entity
-  end
-
-  protected def manage_entity(entity : AORM::Entity) : AORM::Entity
-    class_metadata = @em.class_metadata entity.class
-    persister = self.entity_persister class_metadata.entity_class
-
-    @entity_identifiers[entity] = index_identifiers_by_name persister.identifier entity
-    @entity_states[entity] = :managed
-    self.compute_change_set class_metadata, entity
-
-    self.add_to_identity_map entity
-
-    entity
   end
 
   # Creates or retrieves an entity from hydrated data.

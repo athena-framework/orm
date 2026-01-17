@@ -81,6 +81,17 @@ class Athena::ORM::Mapping::Class(T)
       mapping
     end
 
+    def create_change(old_value : IVarType?, new_value : IVarType) : Athena::ORM::UnitOfWork::Change
+      Athena::ORM::UnitOfWork::Change.new(
+        self.create_column_value(old_value),
+        self.create_column_value(new_value),
+      )
+    end
+
+    def create_change(old_value : _, new_value : _) : Athena::ORM::UnitOfWork::Change
+      raise "BUG: Invoked wrong overload"
+    end
+
     def get_value(entity : OwningEntity) : IVarType
       {% begin %}
         entity.@{{OwningEntity.instance_vars[Idx].name.id}}
@@ -166,6 +177,14 @@ class Athena::ORM::Mapping::Class(T)
     self.column_name(self.single_identifier_field_name)
   end
 
+  def is_identifier(field_name : String) : Bool
+    return false if @identifier.empty?
+
+    return field_name == @identifier.first if !@is_identifier_composite
+
+    @identifier.includes? field_name
+  end
+
   def identifier_values(entity : T) : Hash
     if @is_identifier_composite
       return @identifier.to_h do |k|
@@ -192,6 +211,10 @@ class Athena::ORM::Mapping::Class(T)
 
   def identifier_natural? : Bool
     @id_generator_type.none?
+  end
+
+  def identifier_identity? : Bool
+    @id_generator_type.identity?
   end
 
   def column_name(field_name : String) : String
