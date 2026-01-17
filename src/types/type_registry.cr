@@ -1,6 +1,6 @@
 # Holds the map of all known ORM types, keyed by name.
 struct Athena::ORM::Types::TypeRegistry
-  @instances = Hash(::String, AORM::Types::Type).new
+  getter instances = Hash(::String, AORM::Types::Type).new
 
   def initialize(instances : Hash(::String, AORM::Types::Type) = {} of ::String => AORM::Types::Type)
     instances.each do |name, type|

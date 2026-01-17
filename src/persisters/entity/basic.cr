@@ -212,7 +212,7 @@ struct Athena::ORM::Persisters::Entity::Basic
 
       if fm = @class_metadata.field_mappings[field]?
         type = Types::Type.get_type fm.type
-        placeholder = type.to_database_value_sql placeholder, @platform
+        placeholder = type.to_db_sql placeholder, @platform
       end
 
       # Nil value handling
@@ -251,7 +251,7 @@ struct Athena::ORM::Persisters::Entity::Basic
     # TODO: Handle enum type columns
 
     type = Types::Type.get_type field_mapping.type
-    sql = type.to_database_value_sql sql, @platform
+    sql = type.to_db_sql sql, @platform
 
     "#{sql} AS #{column_alias}"
   end

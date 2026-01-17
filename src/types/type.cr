@@ -1,42 +1,65 @@
-abstract struct Athena::ORM::Types::Type
-  private BUILTIN_TYPES_MAP = {
-    "string"  => AORM::Types::String,
-    "text"    => AORM::Types::String,
-    "integer" => AORM::Types::BigInt,
-    "bigint"  => AORM::Types::BigInt,
-    "boolean" => AORM::Types::Boolean,
-  }
+module Athena::ORM::Types
+  BIGINT     = "bigint"
+  BOOLEAN    = "boolean"
+  FLOAT      = "float"
+  INTEGER    = "integer"
+  SMALLFLOAT = "smallfloat"
+  SMALLINT   = "smallint"
+  STRING     = "string"
+  TEXT       = "text"
 
-  class_getter type_registry : Athena::ORM::Types::TypeRegistry do
-    instances = BUILTIN_TYPES_MAP.transform_values(&.new.as(AORM::Types::Type))
-    AORM::Types::TypeRegistry.new(instances)
-  end
+  abstract struct Type
+    private BUILTIN_TYPES_MAP = {
+      Types::STRING  => AORM::Types::String,
+      Types::TEXT    => AORM::Types::String,
+      Types::INTEGER => AORM::Types::BigInt,
+      Types::BIGINT  => AORM::Types::BigInt,
+      Types::BOOLEAN => AORM::Types::Boolean,
+    }
 
-  def self.get_type(name : ::String) : self
-    self.type_registry.get(name)
-  end
+    class_getter type_registry : Athena::ORM::Types::TypeRegistry do
+      AORM::Types::TypeRegistry.new(BUILTIN_TYPES_MAP.transform_values(&.new.as(AORM::Types::Type)))
+    end
 
-  def self.add_type(name : ::String, type : AORM::Types::Type) : Nil
-    self.type_registry.register(name, type)
-  end
+    def self.get_type(name : ::String) : self
+      self.type_registry.get(name)
+    end
 
-  def self.has_type?(name : ::String) : Bool
-    self.type_registry.has?(name)
-  end
+    def self.add_type(name : ::String, type : AORM::Types::Type) : Nil
+      self.type_registry.register(name, type)
+    end
 
-  def can_require_sql_conversion? : Bool
-    false
-  end
+    def self.has_type?(name : ::String) : Bool
+      self.type_registry.has?(name)
+    end
 
-  def to_database_value_sql(sql_expression : ::String, platform : AORM::Platforms::Platform) : ::String
-    sql_expression
-  end
+    def self.override_type(name : ::String, type : AORM::Types::Type) : Nil
+      self.type_registry.override name, type
+    end
 
-  abstract def sql_declaration(platform : AORM::Platforms::Platform) : ::String
+    def self.type_map : Hash(::String, AORM::Types::Type.class)
+      self.type_registry.instances.transform_values(&.class)
+    end
 
-  abstract def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform)
+    # Modifies the SQL expression (identifier, parameter) to convert to a Crystal value
+    def from_db_sql(sql_expression : ::String, platform : AORM::Platforms::Platform) : ::String
+      sql_expression
+    end
 
-  def to_db(value : _, platform : AORM::Platforms::Platform)
-    value
+    # Modifies the SQL expression (identifier, parameter) to convert to a database value
+    def to_db_sql(sql_expression : ::String, platform : AORM::Platforms::Platform) : ::String
+      sql_expression
+    end
+
+    # The SQL used to declare a column of this type
+    abstract def sql_declaration(platform : AORM::Platforms::Platform) : ::String
+
+    # Extracts/converts a value from *rs* into a Crystal value
+    abstract def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform)
+
+    # Crystal value to its DB representation
+    def to_db(value : _, platform : AORM::Platforms::Platform)
+      value
+    end
   end
 end

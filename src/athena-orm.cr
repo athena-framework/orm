@@ -118,6 +118,8 @@ pp u
 
 pp em.unit_of_work.entity_state u.not_nil!
 
+pp AORM::Types::Type.type_map
+
 # nu = User.new "Bob"
 
 # ns = Setting.new "blue"

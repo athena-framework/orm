@@ -6,7 +6,7 @@ struct Athena::ORM::Types::BigInt < Athena::ORM::Types::Type
   end
 
   def to_db(value : _, platform : AORM::Platforms::Platform)
-    1_i64
+    value
   end
 
   def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform) : Int64?
