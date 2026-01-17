@@ -31,7 +31,10 @@ class Athena::ORM::UnitOfWork
 
   @non_cascaded_new_detected_entities = Hash(AORM::Entity, Tuple(AORM::Mapping::Association, AORM::Entity)).new.compare_by_identity
 
-  def initialize(@em : AORM::EntityManagerInterface); end
+  getter identifier_flattener : AORM::Utility::IdentifierFlattener { AORM::Utility::IdentifierFlattener.new(self, @em.metadata_factory) }
+
+  def initialize(@em : AORM::EntityManagerInterface)
+  end
 
   def commit : Nil
     # TODO: Handle eventing (preFlush)
@@ -103,7 +106,7 @@ class Athena::ORM::UnitOfWork
       if (generator = class_metadata.id_generator) && generator.post_insert?
         id = persister.identifier entity
 
-        @entity_identifiers[entity] = self.flatten_id id
+        @entity_identifiers[entity] = self.index_identifiers_by_name id
         @entity_states[entity] = :managed
 
         id.each do |i|
@@ -231,7 +234,7 @@ class Athena::ORM::UnitOfWork
       id = persister.identifier entity
 
       unless self.has_missing_ids_which_are_foreign_keys? class_metadata, id
-        @entity_identifiers[entity] = self.flatten_id id
+        @entity_identifiers[entity] = self.index_identifiers_by_name id
       end
     end
 
@@ -316,7 +319,7 @@ class Athena::ORM::UnitOfWork
 
     return EntityState::New if id.empty?
 
-    flat_id = self.flatten_id id
+    flat_id = self.index_identifiers_by_name id
 
     property = class_metadata.property(class_metadata.single_identifier_field_name)
 
@@ -328,7 +331,7 @@ class Athena::ORM::UnitOfWork
        )
       # TODO: Handle versioned fields
 
-      self.try_get flat_id, class_metadata.root_class do
+      self.try_get flat_id, class_metadata.entity_class do
         return EntityState::Detached
       end
 
@@ -374,7 +377,7 @@ class Athena::ORM::UnitOfWork
   end
 
   protected def try_get_by_id(id : Hash(String, Int | String), entity_class : AORM::Entity.class, &) : AORM::Entity?
-    id_hash = id.values.join " "
+    id_hash = identifier_flattener.flatten_identifier(id)
 
     if (klass = @identity_map[entity_class]?) && (entity = klass[id_hash]?)
       yield entity
@@ -390,8 +393,8 @@ class Athena::ORM::UnitOfWork
       raise "Entity without an identifier"
     end
 
-    id_hash = identifier.values.join " " { |v| v.value }
-    class_name = class_metadata.root_class
+    id_hash = identifier_flattener.flatten_identifier(class_metadata, identifier)
+    class_name = class_metadata.entity_class
 
     if @identity_map.has_key?(class_name) && @identity_map[class_name].has_key?(id_hash)
       return false
@@ -410,19 +413,19 @@ class Athena::ORM::UnitOfWork
     return false if !@entity_identifiers.has_key?(entity) || @entity_identifiers[entity].empty?
 
     class_metadata = @em.class_metadata entity.class
-    id_hash = @entity_identifiers[entity].values.join " "
+    id_hash = identifier_flattener.flatten_identifier(class_metadata, @entity_identifiers[entity])
 
-    @identity_map.has_key?(class_metadata.root_class) && @identity_map[class_metadata.root_class].has_key?(id_hash)
+    @identity_map.has_key?(class_metadata.entity_class) && @identity_map[class_metadata.entity_class].has_key?(id_hash)
   end
 
   def remove_from_identity_map(entity : AORM::Entity) : Bool
     class_metadata = @em.class_metadata entity.class
-    id_hash = @entity_identifiers[entity].values.join " "
+    id_hash = identifier_flattener.flatten_identifier(class_metadata, @entity_identifiers[entity])
 
     # TODO: Use proper exception type
     raise "Entity has no identity" if id_hash.blank?
 
-    class_name = class_metadata.root_class
+    class_name = class_metadata.entity_class
 
     return true if @identity_map.has_key?(class_name) && @identity_map.has_key?(id_hash)
 
@@ -577,7 +580,7 @@ class Athena::ORM::UnitOfWork
     class_metadata = @em.class_metadata entity.class
     persister = self.entity_persister class_metadata.entity_class
 
-    @entity_identifiers[entity] = flatten_id persister.identifier entity
+    @entity_identifiers[entity] = index_identifiers_by_name persister.identifier entity
     @entity_states[entity] = :managed
     self.compute_change_set class_metadata, entity
 
@@ -586,8 +589,70 @@ class Athena::ORM::UnitOfWork
     entity
   end
 
+  # Creates or retrieves an entity from hydrated data.
+  # Mirrors Doctrine's UnitOfWork::createEntity.
+  def create_entity(
+    class_metadata : AORM::Mapping::ClassInterface,
+    data : Hash(String, DB::Any?),
+    hints : Hash(String, String) = {} of String => String,
+  ) : AORM::Entity
+    # Extract and flatten identifier from data (like Doctrine)
+    id = identifier_flattener.flatten_identifier(class_metadata, data)
+    id_hash = AORM::Utility::IdentifierFlattener.get_id_hash(id)
+
+    # Check identity map for existing entity
+    entity_class = class_metadata.entity_class
+    if (class_map = @identity_map[entity_class]?) && (existing = class_map[id_hash]?)
+      # Return existing unless refresh hint is set
+      return existing unless hints["refresh"]?
+      # TODO: Refresh entity data if HINT_REFRESH is set
+    end
+
+    # Create new entity instance
+    entity = class_metadata.new_instance(data)
+
+    # Register as managed
+    register_managed(entity, id, data)
+
+    entity
+  end
+
+  # Registers an entity as managed in the UnitOfWork.
+  def register_managed(entity : AORM::Entity, id : Hash(String, DB::Any?), data : Hash(String, DB::Any?)) : Nil
+    class_metadata = @em.class_metadata(entity.class)
+
+    @entity_identifiers[entity] = id_to_mapping_values(id)
+    @entity_states[entity] = :managed
+    @original_entity_data[entity] = data_to_mapping_values(class_metadata, data)
+    add_to_identity_map(entity)
+  end
+
+  # Converts flattened identifier hash to Mapping::Value hash.
+  private def id_to_mapping_values(id : Hash(String, DB::Any?)) : Hash(String, AORM::Mapping::Value)
+    result = Hash(String, AORM::Mapping::Value).new
+    id.each do |field_name, value|
+      result[field_name] = AORM::Mapping::ColumnValue.new(field_name, value)
+    end
+    result
+  end
+
+  # Converts hydrated data hash to Mapping::Value hash for original_entity_data.
+  private def data_to_mapping_values(
+    class_metadata : AORM::Mapping::ClassInterface,
+    data : Hash(String, DB::Any?),
+  ) : Hash(String, AORM::Mapping::Value)
+    result = Hash(String, AORM::Mapping::Value).new
+
+    data.each do |field_name, value|
+      result[field_name] = AORM::Mapping::ColumnValue.new(field_name, value)
+    end
+
+    result
+  end
+
   private def try_get(id : Hash(String, AORM::Mapping::Value), entity_class : AORM::Entity.class, & : AORM::Entity ->) : Nil
-    id_hash = id.values.join " "
+    class_metadata = @em.class_metadata(entity_class)
+    id_hash = identifier_flattener.flatten_identifier(class_metadata, id)
 
     if (klass = @identity_map[entity_class]?) && (entity = klass[id_hash]?)
       yield entity
@@ -598,8 +663,7 @@ class Athena::ORM::UnitOfWork
     id_arr.any? { |value| value.value.nil? && class_metadata.property(value.name).is_a?(AORM::Mapping::AssociationMetadata) }
   end
 
-  # TODO: Abstract the id flattening I guess
-  private def flatten_id(id_arr : Array(AORM::Mapping::Value)) : Hash(String, AORM::Mapping::Value)
+  private def index_identifiers_by_name(id_arr : Array(AORM::Mapping::Value)) : Hash(String, AORM::Mapping::Value)
     id_arr.each_with_object(Hash(String, AORM::Mapping::Value).new) do |id, id_hash|
       id_hash[id.name] = id
     end

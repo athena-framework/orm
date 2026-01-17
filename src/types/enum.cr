@@ -10,7 +10,7 @@ abstract struct Athena::ORM::Types::Enum(T) < Athena::ORM::Types::Type
   end
 
   def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform) : T?
-    return unless value = rs.read ::String?
-    T.parse value
+    # TODO: Enum parsing will need special handling in new_instance
+    rs.read ::String?
   end
 end

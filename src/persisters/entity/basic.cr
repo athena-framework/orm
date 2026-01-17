@@ -40,15 +40,42 @@ struct Athena::ORM::Persisters::Entity::Basic
     criteria : Hash(String, _),
     entity : AORM::Entity? = nil,
     association : Mapping::Association? = nil,
-    hints : Array(String) = [] of String,
+    hints : Hash(String, String) = {} of String => String,
     lock_mode : LockMode? = nil,
     limit : Int? = nil,
     order_by : Array(String)? = nil,
   ) : AORM::Entity?
     self.switch_persister_context nil, limit
-    sql = self.select_sql criteria, association, lock_mode, limit, nil, order_by
+    sql = @platform.modify_sql_placeholders self.select_sql criteria, association, lock_mode, limit, nil, order_by
+    params, types = self.expand_parameters criteria
 
-    nil
+    hydrator = @em.hydrator(!@current_persister_context.select_join_sql.empty? ? AORM::HydrationMode::Object : AORM::HydrationMode::SimpleObject)
+
+    entities = [] of AORM::Entity
+
+    @connection.query sql, args: params do |rs|
+      entities = hydrator.hydrate_all(rs, @class_metadata, hints)
+    end
+
+    entities.first?
+  end
+
+  def expand_parameters(criteria : Hash(String, _)) : Tuple
+    params = [] of DB::Any
+    types = [] of ParameterType | ArrayParameterType | String
+
+    criteria.each do |k, v|
+      next if v.nil?
+
+      if v.is_a?(Enumerable)
+        # TODO: Handle array values
+      end
+
+      types.concat PersisterHelper.infer_parameter_types k, v, @class_metadata, @em
+      params.concat PersisterHelper.convert_to_parameter_value v, @em
+    end
+
+    {params, types}
   end
 
   # def load_all(
@@ -114,7 +141,7 @@ struct Athena::ORM::Persisters::Entity::Basic
 
     query = String.build do |io|
       io << "SELECT " << column_list
-      io << " FROM " << table_name << table_alias
+      io << " FROM " << table_name << " " << table_alias
       io << @current_persister_context.select_join_sql << join_sql
       io << (condition_sql.empty? ? "" : " WHERE ") << condition_sql
       # TODO: Handle lock
@@ -213,7 +240,7 @@ struct Athena::ORM::Persisters::Entity::Basic
     # TODO: Handle enum type columns
 
     type = Types::Type.get_type field_mapping.type
-    sql = type.to_db sql, @platform
+    sql = type.to_database_value_sql sql, @platform
 
     "#{sql} AS #{column_alias}"
   end

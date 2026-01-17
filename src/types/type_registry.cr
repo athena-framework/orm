@@ -1,28 +1,28 @@
+# Holds the map of all known ORM types, keyed by name.
 struct Athena::ORM::Types::TypeRegistry
-  @types = Hash(AORM::Types::Type.class, AORM::Types::Type).new
+  @instances = Hash(::String, AORM::Types::Type).new
 
-  def get(type_class : AORM::Types::Type.class) : AORM::Types::Type
-    @types[type_class]
-  end
-
-  def get(type_class) : AORM::Types::Type
-    @types[crystal_to_orm_type type_class]
-  end
-
-  def add(type_class : AORM::Types::Type.class, type : AORM::Types::Type) : Nil
-    @types[type_class] = type
-  end
-
-  def add(type_class, type : AORM::Types::Type) : Nil
-    @types[crystal_to_orm_type type_class] = type
-  end
-
-  private def crystal_to_orm_type(crystal_type) : AORM::Types::Type.class
-    case crystal_type
-    when ::Bool.class   then AORM::Types::Boolean
-    when ::Int64.class  then AORM::Types::BigInt
-    when ::String.class then AORM::Types::String
-    else                     AORM::Types::String
+  def initialize(instances : Hash(::String, AORM::Types::Type) = {} of ::String => AORM::Types::Type)
+    instances.each do |name, type|
+      register(name, type)
     end
+  end
+
+  def get(name : ::String) : AORM::Types::Type
+    @instances[name]? || raise "Unknown type: #{name}"
+  end
+
+  def has?(name : ::String) : Bool
+    @instances.has_key?(name)
+  end
+
+  def register(name : ::String, type : AORM::Types::Type) : Nil
+    raise "Type '#{name}' already exists" if @instances.has_key?(name)
+    @instances[name] = type
+  end
+
+  def override(name : ::String, type : AORM::Types::Type) : Nil
+    raise "Type '#{name}' not found" unless @instances.has_key?(name)
+    @instances[name] = type
   end
 end

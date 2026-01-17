@@ -10,11 +10,13 @@ require "./persisters/entity/*"
 require "./platforms/keywords/*"
 require "./platforms/*"
 require "./types/*"
+require "./utility/*"
 
 require "./default_repository_factory"
 require "./entity"
 require "./entity_manager"
 require "./entity_repository"
+require "./persister_helper"
 require "./unit_of_work"
 
 require "./ext/db"
@@ -106,7 +108,6 @@ em = AORM::EntityManager.new connection
 
 # pp em.class_metadata Setting
 u = em.find User, 1
-# s = em.find Setting, 1
 
 pp typeof(u)
 pp u

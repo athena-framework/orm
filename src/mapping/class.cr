@@ -3,6 +3,9 @@ require "./generated_value_strategy"
 module Athena::ORM::Mapping::ClassInterface
   abstract def entity_class : AORM::Entity.class
   abstract def field_names : Hash(String, String)
+  abstract def field_mappings : Hash(String, Field)
+  abstract def identifier : Set(String)
+  abstract def new_instance(data : Hash(String, DB::Any?)) : AORM::Entity
 end
 
 private struct Athena::ORM::Mapping::TypedFieldMapper
@@ -86,7 +89,7 @@ class Athena::ORM::Mapping::Class(T)
   getter table : TableInfo
 
   getter field_mappings : Hash(String, Field) = Hash(String, Field).new
-  @association_mappings : Hash(String, OneToOneInverseSide | OneToOneOwningSide) = Hash(String, OneToOneInverseSide | OneToOneOwningSide).new
+  getter association_mappings : Hash(String, OneToOneInverseSide | OneToOneOwningSide) = Hash(String, OneToOneInverseSide | OneToOneOwningSide).new
 
   # Maps column name => field name
   getter field_names : Hash(String, String) = Hash(String, String).new
@@ -95,7 +98,7 @@ class Athena::ORM::Mapping::Class(T)
   @field_info = Hash(String, FieldInfoBase).new
 
   # Fields that make up the primary key
-  getter identifier = Set(String).new
+  getter identifier : Set(String) = Set(String).new
 
   getter inheritance_type : InheritanceType = :none
   @is_identifier_composite : Bool = false
@@ -110,6 +113,27 @@ class Athena::ORM::Mapping::Class(T)
 
     {% for ivar, idx in T.instance_vars %}
       @field_info[{{ivar.name.id.stringify}}] = FieldInfo({{ivar.type}}, {{idx}}).new({{ivar.has_default_value?}}, {{ivar.default_value}})
+    {% end %}
+  end
+
+  def new_instance(data : Hash(String, DB::Any?)) : AORM::Entity
+    {% begin %}
+      {% if T.abstract? %}
+        raise "Cannot instantiate abstract entity {{T}}"
+      {% else %}
+        instance = T.allocate
+        {% for ivar in T.instance_vars %}
+          if data.has_key?({{ ivar.name.stringify }})
+            raw = data[{{ ivar.name.stringify }}]
+            {% if ivar.type.nilable? %}
+              pointerof(instance.@{{ ivar.id }}).value = raw.as({{ ivar.type }})
+            {% else %}
+              pointerof(instance.@{{ ivar.id }}).value = raw.not_nil!.as({{ ivar.type }})
+            {% end %}
+          end
+        {% end %}
+        instance
+      {% end %}
     {% end %}
   end
 
@@ -254,6 +278,8 @@ class Athena::ORM::Mapping::Class(T)
 
       if name.starts_with?('`')
         @table = @table.copy_with name: name.strip('`'), quoted: true
+      else
+        @table = @table.copy_with name: name
       end
     end
 
