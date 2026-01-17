@@ -27,10 +27,6 @@ end
 class PG::Connection
   def database_platform : AORM::Platforms::Platform
     case self.version
-    when .>=(SemanticVersion.new 10, 0, 0)
-      AORM::Platforms::Postgres100.new
-    when .>=(SemanticVersion.new 9, 4, 0)
-      AORM::Platforms::Postgres94.new
     else
       # Otherwise return default version.
       AORM::Platforms::Postgres.new
