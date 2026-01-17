@@ -15,7 +15,7 @@ module Athena::ORM::EntityManagerInterface
   # abstract def filter_state_clean? : Bool
   # abstract def has_filters? : Bool
 
-  abstract def connection : DB::Connection
+  abstract def connection : AORM::Connection
   abstract def transaction(& : DB::Transaction ->) : Nil
 
   abstract def unit_of_work # : AORM::UnitOfWork

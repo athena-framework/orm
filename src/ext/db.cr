@@ -1,11 +1,17 @@
 require "semantic_version"
 
+# :nodoc:
 abstract class DB::Connection
   def database_platform : AORM::Platforms::Platform
     raise NotImplementedError.new "#{self.class} is not yet supported."
   end
+
+  def prepare(query : String) : DB::Statement
+    self.build query
+  end
 end
 
+# :nodoc:
 class DB::Database
   getter database_platform : AORM::Platforms::Platform do
     # Use an actual connection to the underlying DB to determine self's platform.
@@ -15,6 +21,9 @@ class DB::Database
   end
 end
 
+# PG Extensions
+
+# :nodoc:
 class PG::Connection
   def database_platform : AORM::Platforms::Platform
     case self.version
@@ -30,6 +39,13 @@ class PG::Connection
 
   def last_insert_id : Int64
     self.scalar("SELECT LASTVAL()").as Int64
+  end
+
+  def prepare(query : String) : DB::Statement
+    visitor = Athena::ORM::SQL::ConvertParameters.new
+    Athena::ORM::SQL::Parser.new(false).parse(query, visitor)
+
+    self.build visitor.sql
   end
 
   private def version : SemanticVersion

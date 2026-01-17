@@ -11,7 +11,7 @@ struct Athena::ORM::Persisters::Entity::Basic
 
   private record Parameter(T) < ParameterBase, name : String, value : T, type : AORM::Types::Type
 
-  @connection : DB::Connection
+  @connection : AORM::Connection
   @platform : AORM::Platforms::Platform
   @quote_strategy : AORM::Mapping::QuoteStrategyInterface
 
@@ -25,7 +25,7 @@ struct Athena::ORM::Persisters::Entity::Basic
 
   def initialize(@em : AORM::EntityManagerInterface, @class_metadata : AORM::Mapping::ClassInterface)
     @connection = @em.connection
-    @platform = @connection.database_platform
+    @platform = @connection.platform
     @quote_strategy = AORM::Mapping::DefaultQuoteStrategy.new
 
     @no_limits_context = @current_persister_context = AORM::Persisters::Entity::CachedPersisterContext.new @class_metadata, false
@@ -46,7 +46,7 @@ struct Athena::ORM::Persisters::Entity::Basic
     order_by : Array(String)? = nil,
   ) : AORM::Entity?
     self.switch_persister_context nil, limit
-    sql = @platform.modify_sql_placeholders self.select_sql criteria, association, lock_mode, limit, nil, order_by
+    sql = self.select_sql criteria, association, lock_mode, limit, nil, order_by
     params, types = self.expand_parameters criteria
 
     hydrator = @em.hydrator(!@current_persister_context.select_join_sql.empty? ? AORM::HydrationMode::Object : AORM::HydrationMode::SimpleObject)
@@ -74,11 +74,11 @@ struct Athena::ORM::Persisters::Entity::Basic
 
     table_alias = self.sql_table_alias @class_metadata.entity_class
 
-    sql = @platform.modify_sql_placeholders(String.build do |io|
+    sql = String.build do |io|
       io << "SELECT 1 "
       io << self.lock_tables_sql :none
       io << " WHERE " << self.select_condition_sql criteria
-    end)
+    end
 
     params, types = self.expand_parameters criteria
 

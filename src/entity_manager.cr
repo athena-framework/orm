@@ -3,14 +3,15 @@ require "./entity_manager_interface"
 class Athena::ORM::EntityManager
   include Athena::ORM::EntityManagerInterface
 
-  getter connection : DB::Connection
+  getter connection : AORM::Connection
   getter? closed : Bool = false
   getter unit_of_work : AORM::UnitOfWork { AORM::UnitOfWork.new self }
   getter! metadata_factory : AORM::Mapping::ClassFactory
 
   @repository_factory : AORM::RepositoryFactoryInterface
 
-  def initialize(@connection : DB::Connection)
+  def initialize(connection : DB::Connection)
+    @connection = AORM::Connection.new(connection)
     @repository_factory = AORM::DefaultRepositoryFactory.new
 
     metadata_factory = AORM::Mapping::ClassFactory.new

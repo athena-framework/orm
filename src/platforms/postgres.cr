@@ -36,16 +36,6 @@ class Athena::ORM::Platforms::Postgres < Athena::ORM::Platforms::Platform
     column.downcase
   end
 
-  # :inherit:
-  #
-  # Replaces `?` placeholders with indexed `$n placeholders.
-  def modify_sql_placeholders(sql : String) : String
-    return sql unless sql.includes? '?'
-
-    idx = 1
-    sql.gsub(/\?/) { "$#{idx}".tap { idx += 1 } }
-  end
-
   # FEATURE SUPPORT
 
   def prefers_sequences? : Bool
