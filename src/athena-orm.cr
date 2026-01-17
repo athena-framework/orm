@@ -99,6 +99,8 @@ connection = DB.connect "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postg
 
 em = AORM::EntityManager.new connection
 
+# pp em.connection.query_one? "SELECT 1 FROM users t0 WHERE t0.id = $1", 2_i64, as: Int32
+
 # em.connection.exec %(INSERT INTO users ("name") VALUES ('bob');)
 
 # md = em.class_metadata User
@@ -108,9 +110,12 @@ em = AORM::EntityManager.new connection
 
 # pp em.class_metadata Setting
 u = em.find User, 1
+# u = User.new "Bob"
 
 pp typeof(u)
 pp u
+
+pp em.unit_of_work.entity_state u.not_nil!
 
 # nu = User.new "Bob"
 

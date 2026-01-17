@@ -39,23 +39,22 @@ module Athena::ORM
       self.convert_individual_value value, em
     end
 
-    private def self.convert_individual_value(value : _, em : AORM::EntityManagerInterface)
-      if value.is_a?(String | Number::Primitive | Bool)
-        return [value]
+    private def self.convert_individual_value(value : ::Enum, em : AORM::EntityManagerInterface)
+      [value.value]
+    end
+
+    private def self.convert_individual_value(value : AORM::Entity, em : AORM::EntityManagerInterface) : Array(DB::Any)
+      class_metadata = em.class_metadata value.class
+
+      if class_metadata.is_identifier_composite
+        # TODO: Handle composite PKs
       end
 
-      if value.is_a? Enum
-        return [value.value]
-      end
+      [em.unit_of_work.single_identifier_value value] of DB::Any
+    end
 
-      if value.is_a? AORM::Entity
-        return [value]
-      end
-
-      # TODO: Handle composite identifiers
-
-      # TODO: What to do here?
-      [nil]
+    private def self.convert_individual_value(value : DB::Any, em : AORM::EntityManagerInterface) : Array(DB::Any)
+      [value] of DB::Any
     end
   end
 end

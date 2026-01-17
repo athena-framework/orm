@@ -92,6 +92,10 @@ abstract class Athena::ORM::Platforms::Platform
     name
   end
 
+  def append_lock_hint(from_clause : String, lock_mode : LockMode) : String
+    from_clause
+  end
+
   protected def modify_limit_query(sql : String, limit : Int?, offset : Int?) : String
     sql += " LIMIT #{limit}" if limit
     sql += " OFFSET #{offset}" if offset && offset > 0

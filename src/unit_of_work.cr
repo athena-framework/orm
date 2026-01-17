@@ -8,8 +8,19 @@ class Athena::ORM::UnitOfWork
     Removed
   end
 
+  def self.id_hash_by_identifier(identifier : Hash(String | Number, _)) : String
+    identifier.each do |k, v|
+      if v.is_a?(::Enum)
+        identifier[k] = v.value
+      end
+    end
+
+    identifier.each_value.join ' '
+  end
+
   @identity_map = Hash(AORM::Entity.class, Hash(String, AORM::Entity)).new.compare_by_identity
 
+  # Stores the value of each of an entity's PK
   @entity_identifiers = Hash(AORM::Entity, Hash(String, AORM::Mapping::Value)).new.compare_by_identity
 
   @entity_states = Hash(AORM::Entity, EntityState).new.compare_by_identity
@@ -27,7 +38,7 @@ class Athena::ORM::UnitOfWork
 
   @original_entity_data = Hash(AORM::Entity, Hash(String, AORM::Mapping::Value)).new.compare_by_identity
   @entity_change_sets = Hash(AORM::Entity, Hash(String, Change)).new.compare_by_identity
-  @orphan_removals = Set(AORM::Entity).new
+  @orphan_removals = Set(AORM::Entity).new.compare_by_identity
 
   @non_cascaded_new_detected_entities = Hash(AORM::Entity, Tuple(AORM::Mapping::Association, AORM::Entity)).new.compare_by_identity
 
@@ -211,18 +222,6 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def generate_and_set_id(class_metadata : AORM::Mapping::ClassBase, entity : AORM::Entity) : Nil
-    generator = class_metadata.id_generator.not_nil!
-    id_field = class_metadata.single_identifier_field_name
-    column = class_metadata.property(id_field).as(AORM::Mapping::ColumnMetadata)
-
-    value = generator.generate @em, entity
-    platform = @em.connection.database_platform
-    converted_value = column.type.from_db value, platform
-
-    column.set_value entity, converted_value
-  end
-
   private def persist_new(class_metadata : AORM::Mapping::ClassBase, entity : AORM::Entity) : Nil
     persister = self.entity_persister class_metadata.entity_class
 
@@ -306,6 +305,28 @@ class Athena::ORM::UnitOfWork
     @non_cascaded_new_detected_entities.clear
   end
 
+  def single_identifier_value(entity : AORM::Entity)
+    class_metadata = @em.class_metadata entity.class
+
+    if class_metadata.is_identifier_composite
+      raise "illegal composite identifier"
+    end
+
+    values = self.is_in_identity_map(entity) ? self.entity_identifier(entity) : class_metadata.identifier_values(entity)
+
+    id = values[class_metadata.identifier.first]?
+    return nil if id.nil?
+
+    raw_id = id.is_a?(Mapping::Value) ? id.value : id
+
+    # Identifiers should always be DB-compatible primitive types
+    unless raw_id.is_a?(DB::Any)
+      raise "BUG: invalid entity identifier value"
+    end
+
+    raw_id
+  end
+
   def entity_state(entity : AORM::Entity, assume : EntityState? = nil) : EntityState
     if state = @entity_states[entity]?
       return state
@@ -313,34 +334,52 @@ class Athena::ORM::UnitOfWork
 
     return assume if assume
 
+    # State can only be NEW or DETACHED, because MANAGED/REMOVED states are known.
+    # Note that you can not remember the NEW or DETACHED state in _entityStates since
+    # the UoW does not hold references to such objects and the object hash can be reused.
+    # More generally because the state may "change" between NEW/DETACHED without the UoW being aware of it.
     class_metadata = @em.class_metadata entity.class
-    persister = self.entity_persister class_metadata.entity_class
-    id = persister.identifier entity
+    id = class_metadata.identifier_values entity
 
-    return EntityState::New if id.empty?
-
-    flat_id = self.index_identifiers_by_name id
-
-    property = class_metadata.property(class_metadata.single_identifier_field_name)
-
-    # TODO: Handle AssociationMetadata
-    if (
-         class_metadata.is_identifier_composite? ||
-         !property.is_a?(AORM::Mapping::FieldMetadata) ||
-         !property.as(AORM::Mapping::FieldMetadata).has_value_generator?
-       )
-      # TODO: Handle versioned fields
-
-      self.try_get flat_id, class_metadata.entity_class do
-        return EntityState::Detached
-      end
-
-      # TODO: Handle DB exists lookup
-
+    if id.empty?
       return EntityState::New
     end
 
-    # TODO: Handle deferred value generation plans
+    if class_metadata.contains_foreign_identifier || class_metadata.contains_enum_identifier
+      id = self.identifier_flattener.flatten_identifier class_metadata, id
+    end
+
+    if class_metadata.identifier_natural?
+      # TODO: Handle versioning
+
+      # Last try before DB lookup; check identity map
+      self.try_get_by_id id, class_metadata.entity_class do
+        return EntityState::Detached
+      end
+
+      # Lookup via DB
+      if self.entity_persister(class_metadata.entity_class).exists(entity)
+        return EntityState::Detached
+      end
+
+      return EntityState::New
+    elsif !class_metadata.id_generator.post_insert?
+      # if we have a pre insert generator we can't be sure that having an id
+      # really means that the entity exists. We have to verify this through
+      # the last resort: a db lookup
+
+      # Last try before DB lookup; check identity map
+      self.try_get_by_id id, class_metadata.entity_class do
+        return EntityState::Detached
+      end
+
+      # Lookup via DB
+      if self.entity_persister(class_metadata.entity_class).exists(entity)
+        return EntityState::Detached
+      end
+
+      return EntityState::New
+    end
 
     raise NotImplementedError.new "Unhandleable state"
   end
@@ -354,7 +393,7 @@ class Athena::ORM::UnitOfWork
   end
 
   def entity_identifier(entity : AORM::Entity) : Hash(String, AORM::Mapping::Value)
-    @entity_identifiers[entity]
+    @entity_identifiers[entity]? || raise "no identifier found"
   end
 
   protected def entity_persister(entity_class : AORM::Entity.class) : AORM::Persisters::Entity::Interface
@@ -376,8 +415,8 @@ class Athena::ORM::UnitOfWork
     @entity_persisters[entity_class] = persister
   end
 
-  protected def try_get_by_id(id : Hash(String, Int | String), entity_class : AORM::Entity.class, &) : AORM::Entity?
-    id_hash = identifier_flattener.flatten_identifier(id)
+  protected def try_get_by_id(id : Hash(String, _), entity_class : AORM::Entity.class, &) : Nil
+    id_hash = self.class.id_hash_by_identifier(id)
 
     if (klass = @identity_map[entity_class]?) && (entity = klass[id_hash]?)
       yield entity
@@ -385,26 +424,26 @@ class Athena::ORM::UnitOfWork
   end
 
   def add_to_identity_map(entity : AORM::Entity) : Bool
-    class_metadata = @em.class_metadata entity.class
-    identifier = @entity_identifiers[entity]?
+    # class_metadata = @em.class_metadata entity.class
+    # identifier = @entity_identifiers[entity]?
 
-    if identifier.nil? || identifier.empty?
-      # TODO: Use a property exception
-      raise "Entity without an identifier"
-    end
+    # if identifier.nil? || identifier.empty?
+    #   # TODO: Use a property exception
+    #   raise "Entity without an identifier"
+    # end
 
-    id_hash = identifier_flattener.flatten_identifier(class_metadata, identifier)
-    class_name = class_metadata.entity_class
+    # id_hash = identifier_flattener.flatten_identifier(class_metadata, identifier)
+    # class_name = class_metadata.entity_class
 
-    if @identity_map.has_key?(class_name) && @identity_map[class_name].has_key?(id_hash)
-      return false
-    end
+    # if @identity_map.has_key?(class_name) && @identity_map[class_name].has_key?(id_hash)
+    #   return false
+    # end
 
-    unless @identity_map.has_key? class_name
-      @identity_map[class_name] = Hash(String, AORM::Entity).new
-    end
+    # unless @identity_map.has_key? class_name
+    #   @identity_map[class_name] = Hash(String, AORM::Entity).new
+    # end
 
-    @identity_map[class_name][id_hash] = entity
+    # @identity_map[class_name][id_hash] = entity
 
     true
   end
@@ -596,58 +635,35 @@ class Athena::ORM::UnitOfWork
     data : Hash(String, DB::Any?),
     hints : Hash(String, String) = {} of String => String,
   ) : AORM::Entity
-    # Extract and flatten identifier from data (like Doctrine)
     id = identifier_flattener.flatten_identifier(class_metadata, data)
-    id_hash = AORM::Utility::IdentifierFlattener.get_id_hash(id)
+    id_hash = self.class.id_hash_by_identifier id
 
     # Check identity map for existing entity
-    entity_class = class_metadata.entity_class
-    if (class_map = @identity_map[entity_class]?) && (existing = class_map[id_hash]?)
-      # Return existing unless refresh hint is set
-      return existing unless hints["refresh"]?
-      # TODO: Refresh entity data if HINT_REFRESH is set
+    if (class_map = @identity_map[class_metadata.entity_class]?) && (entity = class_map[id_hash]?)
+      # TODO: Handle hints
+
+      # TODO: Know if entity is uninitialized?
+
+      # TODO: Handle hints
+
+      return entity
     end
 
-    # Create new entity instance
     entity = class_metadata.new_instance(data)
-
-    # Register as managed
-    register_managed(entity, id, data)
+    # TODO: Handle hints
+    self.register_managed(entity, id, data)
 
     entity
   end
 
   # Registers an entity as managed in the UnitOfWork.
-  def register_managed(entity : AORM::Entity, id : Hash(String, DB::Any?), data : Hash(String, DB::Any?)) : Nil
+  def register_managed(entity : AORM::Entity, id : Hash(String, _), data : Hash(String, _)) : Nil
     class_metadata = @em.class_metadata(entity.class)
 
-    @entity_identifiers[entity] = id_to_mapping_values(id)
+    @entity_identifiers[entity] = id.transform_values { |v, k| class_metadata.field_info[k].create_column_value v }
     @entity_states[entity] = :managed
-    @original_entity_data[entity] = data_to_mapping_values(class_metadata, data)
-    add_to_identity_map(entity)
-  end
-
-  # Converts flattened identifier hash to Mapping::Value hash.
-  private def id_to_mapping_values(id : Hash(String, DB::Any?)) : Hash(String, AORM::Mapping::Value)
-    result = Hash(String, AORM::Mapping::Value).new
-    id.each do |field_name, value|
-      result[field_name] = AORM::Mapping::ColumnValue.new(field_name, value)
-    end
-    result
-  end
-
-  # Converts hydrated data hash to Mapping::Value hash for original_entity_data.
-  private def data_to_mapping_values(
-    class_metadata : AORM::Mapping::ClassInterface,
-    data : Hash(String, DB::Any?),
-  ) : Hash(String, AORM::Mapping::Value)
-    result = Hash(String, AORM::Mapping::Value).new
-
-    data.each do |field_name, value|
-      result[field_name] = AORM::Mapping::ColumnValue.new(field_name, value)
-    end
-
-    result
+    @original_entity_data[entity] = data.transform_values { |v, k| class_metadata.field_info[k].create_column_value v }
+    self.add_to_identity_map(entity)
   end
 
   private def try_get(id : Hash(String, AORM::Mapping::Value), entity_class : AORM::Entity.class, & : AORM::Entity ->) : Nil

@@ -60,6 +60,35 @@ struct Athena::ORM::Persisters::Entity::Basic
     entities.first?
   end
 
+  def exists(
+    entity : AORM::Entity,
+
+    # TODO: Handle Criteria type
+    extra_conditions = nil,
+  ) : Bool
+    criteria = @class_metadata.identifier_values entity
+
+    if criteria.empty?
+      return false
+    end
+
+    table_alias = self.sql_table_alias @class_metadata.entity_class
+
+    sql = @platform.modify_sql_placeholders(String.build do |io|
+      io << "SELECT 1 "
+      io << self.lock_tables_sql :none
+      io << " WHERE " << self.select_condition_sql criteria
+    end)
+
+    params, types = self.expand_parameters criteria
+
+    # TODO: Handle extra_conditions
+
+    # TODO: Handle filters
+
+    !!@connection.query_one?(sql, args: params, as: ::Int32)
+  end
+
   def expand_parameters(criteria : Hash(String, _)) : Tuple
     params = [] of DB::Any
     types = [] of ParameterType | ArrayParameterType | String
@@ -78,30 +107,12 @@ struct Athena::ORM::Persisters::Entity::Basic
     {params, types}
   end
 
-  # def load_all(
-  #   criteria : Hash(String, _),
-  #   order_by : Array(String)? = nil,
-  #   limit : Int? = nil,
-  #   offset : Int? = nil,
-  # ) : Array(AORM::Entity)
-  #   self.switch_persister_context offset, limit
-
-  #   sql = @platform.modify_sql_placeholders self.select_sql criteria, limit: limit, offset: offset, order_by: order_by
-  #   params = self.expand_parameters criteria
-
-  #   puts sql
-  #   pp params
-
-  #   entities = [] of AORM::Entity
-
-  #   # TODO: Handle hints?
-
-  #   @connection.query_each sql, args: params do |rs|
-  #     entities << @class_metadata.entity_class.from_rs @em, @class_metadata, rs, @platform
-  #   end
-
-  #   entities.map { |e| @em.unit_of_work.manage_entity e }
-  # end
+  protected def lock_tables_sql(lock_mode : LockMode) : String
+    @platform.append_lock_hint(
+      "FROM #{@quote_strategy.table_name @class_metadata, @platform} #{self.sql_table_alias @class_metadata.entity_class}",
+      lock_mode
+    )
+  end
 
   protected def select_sql(
     criteria : Hash(String, _), # TODO: Handle `Criteria` obj
@@ -125,7 +136,7 @@ struct Athena::ORM::Persisters::Entity::Basic
     end
 
     # TODO: Handle Criteria
-    condition_sql = self.get_select_condition_sql criteria, association
+    condition_sql = self.select_condition_sql criteria, association
 
     # TODO: Handle locking
     lock_sql = ""
@@ -171,7 +182,7 @@ struct Athena::ORM::Persisters::Entity::Basic
 
     # Add regular columns
     @class_metadata.field_names.each_value do |field|
-      column_list << self.get_select_column_sql field, @class_metadata
+      column_list << self.select_column_sql field, @class_metadata
     end
 
     @current_persister_context.select_join_sql = ""
@@ -223,7 +234,7 @@ struct Athena::ORM::Persisters::Entity::Basic
     selected_columns.join " AND "
   end
 
-  protected def get_select_column_sql(field : String, metadata : Mapping::ClassInterface, col_alias : String = "r") : String
+  protected def select_column_sql(field : String, metadata : Mapping::ClassInterface, col_alias : String = "r") : String
     root = col_alias == "r" ? "" : col_alias
     table_alias = self.sql_table_alias metadata.entity_class, root
     field_mapping = metadata.field_mappings[field]
@@ -245,7 +256,7 @@ struct Athena::ORM::Persisters::Entity::Basic
     "#{sql} AS #{column_alias}"
   end
 
-  protected def get_select_condition_sql(criteria : Hash(String, _), association : Mapping::Association? = nil) : String
+  protected def select_condition_sql(criteria : Hash(String, _), association : Mapping::Association? = nil) : String
     conditions = [] of String
 
     criteria.each do |k, v|
