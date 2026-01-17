@@ -1,3 +1,5 @@
+require "./owning_side"
+
 abstract class Athena::ORM::Mapping::ToOneOwningSide < Athena::ORM::Mapping::OwningSide
   include Athena::ORM::Mapping::ToOne
 

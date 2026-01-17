@@ -2,6 +2,7 @@ require "./generated_value_strategy"
 
 module Athena::ORM::Mapping::ClassInterface
   abstract def entity_class : AORM::Entity.class
+  abstract def field_names : Hash(String, String)
 end
 
 private struct Athena::ORM::Mapping::TypedFieldMapper
@@ -82,13 +83,13 @@ class Athena::ORM::Mapping::Class(T)
 
   property? embedded_class : Bool = false
 
-  @table : TableInfo
+  getter table : TableInfo
 
   getter field_mappings : Hash(String, Field) = Hash(String, Field).new
   @association_mappings : Hash(String, OneToOneInverseSide | OneToOneOwningSide) = Hash(String, OneToOneInverseSide | OneToOneOwningSide).new
 
   # Maps column name => field name
-  @field_names = Hash(String, String).new
+  getter field_names : Hash(String, String) = Hash(String, String).new
 
   # This is internal references to each ivar
   @field_info = Hash(String, FieldInfoBase).new
@@ -96,7 +97,7 @@ class Athena::ORM::Mapping::Class(T)
   # Fields that make up the primary key
   getter identifier = Set(String).new
 
-  @inheritance_type : InheritanceType = :none
+  getter inheritance_type : InheritanceType = :none
   @is_identifier_composite : Bool = false
 
   def initialize(
@@ -126,10 +127,6 @@ class Athena::ORM::Mapping::Class(T)
 
   def column_name(field_name : String) : String
     @field_mappings[field_name]?.try(&.column_name) || field_name
-  end
-
-  def inheritance_type_single_table? : Bool
-    @inheritance_type.single_table?
   end
 
   def map_field(mapping : Driver::ColumnMapping) : Nil
@@ -232,7 +229,7 @@ class Athena::ORM::Mapping::Class(T)
         @naming_strategy,
         @entity_class,
         @table,
-        self.inheritance_type_single_table?
+        self.inheritance_type.single_table?
       ) : OneToOneInverseSide.new mapping
     else
       raise "Invalid association type"

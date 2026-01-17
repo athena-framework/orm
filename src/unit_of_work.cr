@@ -8,28 +8,28 @@ class Athena::ORM::UnitOfWork
     Removed
   end
 
-  @identity_map = Hash(AORM::Entity.class, Hash(String, AORM::Entity)).new
+  @identity_map = Hash(AORM::Entity.class, Hash(String, AORM::Entity)).new.compare_by_identity
 
-  @entity_identifiers = Hash(AORM::Entity, Hash(String, AORM::Mapping::Value)).new
+  @entity_identifiers = Hash(AORM::Entity, Hash(String, AORM::Mapping::Value)).new.compare_by_identity
 
-  @entity_states = Hash(AORM::Entity, EntityState).new
+  @entity_states = Hash(AORM::Entity, EntityState).new.compare_by_identity
 
   # Pending entity deletions
-  @entity_deletions = Set(AORM::Entity).new
+  @entity_deletions = Set(AORM::Entity).new.compare_by_identity
 
   # Pending entity insertions
-  @entity_insertions = Set(AORM::Entity).new
+  @entity_insertions = Set(AORM::Entity).new.compare_by_identity
 
   # Pending entity updates
-  @entity_updates = Set(AORM::Entity).new
+  @entity_updates = Set(AORM::Entity).new.compare_by_identity
 
-  @entity_persisters = Hash(AORM::Entity.class, AORM::Persisters::Entity::Interface).new
+  @entity_persisters = Hash(AORM::Entity.class, AORM::Persisters::Entity::Interface).new.compare_by_identity
 
-  @original_entity_data = Hash(AORM::Entity, Hash(String, AORM::Mapping::Value)).new
-  @entity_change_sets = Hash(AORM::Entity, Hash(String, Change)).new
+  @original_entity_data = Hash(AORM::Entity, Hash(String, AORM::Mapping::Value)).new.compare_by_identity
+  @entity_change_sets = Hash(AORM::Entity, Hash(String, Change)).new.compare_by_identity
   @orphan_removals = Set(AORM::Entity).new
 
-  @non_cascaded_new_detected_entities = Hash(AORM::Entity, Tuple(AORM::Mapping::AssociationMetadataBase, AORM::Entity)).new
+  @non_cascaded_new_detected_entities = Hash(AORM::Entity, Tuple(AORM::Mapping::Association, AORM::Entity)).new.compare_by_identity
 
   def initialize(@em : AORM::EntityManagerInterface); end
 
@@ -66,7 +66,7 @@ class Athena::ORM::UnitOfWork
     end
 
     # TODO: Handle cache persisters
-    # TOOD: Take snapshots of collections
+    # TODO: Take snapshots of collections
 
     # TODO: Handle eventing (postFlush)
 
@@ -201,9 +201,9 @@ class Athena::ORM::UnitOfWork
     # TODO: Handle cascade for nested models
 
     case self.entity_state entity
-    in .new?     then return                                  # noop
-    in .removed? then return                                  # noop
-    in .managed? then self.schedule_for_delete entity         # TODO: Handle eventing (preRemove)
+    in .new?      then return                                 # noop
+    in .removed?  then return                                 # noop
+    in .managed?  then self.schedule_for_delete entity        # TODO: Handle eventing (preRemove)
     in .detached? then raise "Cannot removed detached entity" # TODO: Make this an actual exception
     end
   end
@@ -362,12 +362,18 @@ class Athena::ORM::UnitOfWork
     class_metadata = @em.class_metadata entity_class
 
     # TODO: Support other types of persisters
-    # TODO: Handle cacheing
+    persister = case class_metadata.inheritance_type
+                when .none? then AORM::Persisters::Entity::Basic.new @em, class_metadata
+                else
+                  raise "No persister found"
+                end
 
-    @entity_persisters[entity_class] = AORM::Persisters::Entity::Basic.new @em, class_metadata
+    # TODO: Handle caching?
+
+    @entity_persisters[entity_class] = persister
   end
 
-  protected def try_get_by_id(id : Hash(String, Int | String), entity_class : AORM::Entity.class) : AORM::Entity?
+  protected def try_get_by_id(id : Hash(String, Int | String), entity_class : AORM::Entity.class, &) : AORM::Entity?
     id_hash = id.values.join " "
 
     if (klass = @identity_map[entity_class]?) && (entity = klass[id_hash]?)

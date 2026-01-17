@@ -47,7 +47,7 @@ end
 # AORM::Types::Type.add_type TestEnumType, TestEnumType
 
 @[AORMA::Entity]
-@[AORMA::Table(name: "articles")]
+@[AORMA::Table(name: "settings")]
 class Setting < AORM::Entity
   def initialize(@color : String); end
 
@@ -99,17 +99,17 @@ em = AORM::EntityManager.new connection
 
 # em.connection.exec %(INSERT INTO users ("name") VALUES ('bob');)
 
-md = em.class_metadata Setting
+# md = em.class_metadata User
 
-pp md
+# pp md
 # pp md.id_generator.generate em
 
 # pp em.class_metadata Setting
-# u = em.find User, 10
+u = em.find User, 1
 # s = em.find Setting, 1
 
-# pp typeof(u)
-# pp u
+pp typeof(u)
+pp u
 
 # nu = User.new "Bob"
 

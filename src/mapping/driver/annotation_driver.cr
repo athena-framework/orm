@@ -54,7 +54,7 @@ module Athena::ORM::Mapping::Driver
       {% elsif T.annotation AORMA::Embeddable %}
         # TODO: This
       {% else %}
-        {% raise T.raise "Not valid entity or superclass" %}
+        {% raise T.raise "'#{T}' is not a valid entity or superclass" unless T == AORM::Entity %}
       {% end %}
 
       primary_table = nil

@@ -19,10 +19,10 @@ struct Athena::ORM::Types::TypeRegistry
 
   private def crystal_to_orm_type(crystal_type) : AORM::Types::Type.class
     case crystal_type
-    in ::Bool.class              then AORM::Types::Boolean
-    in ::Int64.class             then AORM::Types::BigInt
-    in ::String.class            then AORM::Types::String
-    in ::AORM::Types::Type.class then AORM::Types::String
+    when ::Bool.class   then AORM::Types::Boolean
+    when ::Int64.class  then AORM::Types::BigInt
+    when ::String.class then AORM::Types::String
+    else                     AORM::Types::String
     end
   end
 end
