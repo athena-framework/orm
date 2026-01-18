@@ -307,7 +307,7 @@ class Athena::ORM::Persisters::Entity::Basic
 
     self.delete_join_table_records identifier, types
 
-    values, conditions = self.delete_condition_sql identifier.transform_values &.value
+    values, conditions = self.delete_condition_sql identifier
 
     sql = String.build do |io|
       io << "DELETE FROM " << table_name
@@ -326,13 +326,15 @@ class Athena::ORM::Persisters::Entity::Basic
     conditions = [] of String
 
     criteria.each do |k, v|
-      if v.nil?
+      value = v.is_a?(Mapping::Value) ? v.value : v
+
+      if value.nil?
         conditions << "#{k} IS NULL"
 
         next
       end
 
-      values << v
+      values << value
       conditions << "#{k} = ?"
     end
 

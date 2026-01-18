@@ -415,7 +415,21 @@ class Athena::ORM::UnitOfWork
     unless id_generator.post_insert?
       id_value = id_generator.generate @em, entity
 
-      # TODO: Handle non-post-insert generators
+      unless id_generator.is_a? ID::AssignedGenerator
+        id_key = class_metadata.single_identifier_field_name
+        id_value = {id_key => class_metadata.field_info[id_key].create_column_value id_value}
+
+        class_metadata.set_identifier_values entity, id_value
+      end
+
+      # Some identifiers may be foreign keys to new entities.
+      # In this case, we don't have the value yet and should treat it as if we have a post-insert generator
+      #
+      # TODO: Can we just ignore non-hash IDs?
+      if !self.has_missing_ids_which_are_foreign_keys?(class_metadata, id_value) && id_value.is_a?(Hash)
+        result = id_value.transform_values { |v, k| class_metadata.field_info[k].create_column_value v }
+        @entity_identifiers[entity] = result
+      end
     end
 
     @entity_states[entity] = :managed
@@ -443,10 +457,6 @@ class Athena::ORM::UnitOfWork
     @entity_insertions.includes? entity
   end
 
-  def is_scheduled_for_delete?(entity : AORM::Entity) : Bool
-    @entity_deletions.includes? entity
-  end
-
   # :nodoc:
   def schedule_for_delete(entity : AORM::Entity) : Nil
     if @entity_insertions.includes? entity
@@ -470,6 +480,24 @@ class Athena::ORM::UnitOfWork
       @entity_deletions << entity
       @entity_states[entity] = :removed
     end
+  end
+
+  def is_scheduled_for_delete?(entity : AORM::Entity) : Bool
+    @entity_deletions.includes? entity
+  end
+
+  def schedule_for_update(entity : AORM::Entity) : Nil
+    # TODO: Use proper exception classes for these
+    raise "Entity has no identity" unless @entity_identifiers.has_key? entity
+    raise "Entity scheduled for deletion" if @entity_deletions.includes? entity
+
+    if !@entity_updates.includes?(entity) && !@entity_insertions.includes?(entity)
+      @entity_updates << entity
+    end
+  end
+
+  def is_scheduled_for_update?(entity : AORM::Entity) : Bool
+    @entity_updates.includes? entity
   end
 
   def refresh(entity : AORM::Entity) : Nil
@@ -611,7 +639,13 @@ class Athena::ORM::UnitOfWork
     @entity_persisters[entity_class] = persister
   end
 
-  protected def try_get_by_id(id : Hash(String, _), entity_class : AORM::Entity.class, &) : Nil
+  # :nodoc:
+  def get_by_id_hash(id_hash : String, entity_class : AORM::Entity.class) : AORM::Entity?
+    @identity_map[entity_class]?.try &.[id_hash]?
+  end
+
+  # :nodoc:
+  def try_get_by_id(id : Hash(String, _), entity_class : AORM::Entity.class, &) : Nil
     id_hash = self.class.id_hash_by_identifier(id)
 
     if (klass = @identity_map[entity_class]?) && (entity = klass[id_hash]?)
@@ -640,7 +674,7 @@ class Athena::ORM::UnitOfWork
   def id_hash_of_entity(entity : AORM::Entity) : String
     identifier = @entity_identifiers[entity]?
 
-    if !identifier || identifier.empty? || identifier.none?
+    if !identifier || identifier.empty? || identifier.values.any?(&.value.nil?)
       raise "entity without identity"
     end
 
@@ -722,19 +756,17 @@ class Athena::ORM::UnitOfWork
       class_metadata = @em.class_metadata entity.class
     end
 
-    # TODO: Invoke listeners
-    actual_data = class_metadata.field_info.to_h do |name, prop|
-      value = prop.get_value entity
+    actual_data = Hash(String, Mapping::Value).new
 
+    # TODO: Invoke listeners
+    class_metadata.field_info.each do |name, prop|
       # TODO: Handle collection valued associations
 
       # TODO: Handle versioning
       if (!class_metadata.is_identifier(name) || !class_metadata.identifier_identity?) && true
-        {name, value}
-      else
-        {name, nil}
+        actual_data[name] = prop.create_column_value entity
       end
-    end.compact!
+    end
 
     if original_data = @original_entity_data[entity]?
       change_set = Hash(String, Change).new
@@ -748,11 +780,11 @@ class Athena::ORM::UnitOfWork
         # TODO: Handle enum types
 
         # Skip if value hasn't changed
-        next if original_value == actual_value
+        next if original_value == actual_value.value
 
         # Regular field
         unless class_metadata.association_mappings.has_key? prop_name
-          change_set[prop_name] = class_metadata.field_info[prop_name].create_change original_value, actual_value
+          change_set[prop_name] = class_metadata.field_info[prop_name].create_change original_value, actual_value.value
 
           next
         end
@@ -774,7 +806,7 @@ class Athena::ORM::UnitOfWork
 
       actual_data.each do |prop_name, actual_value|
         unless assoc = class_metadata.association_mappings[prop_name]?
-          change_set[prop_name] = class_metadata.field_info[prop_name].create_change nil, actual_value
+          change_set[prop_name] = class_metadata.field_info[prop_name].create_change nil, actual_value.value
 
           next
         end
@@ -852,7 +884,7 @@ class Athena::ORM::UnitOfWork
     self.add_to_identity_map(entity)
   end
 
-  private def try_get(id : Hash(String, AORM::Mapping::Value), entity_class : AORM::Entity.class, & : AORM::Entity ->) : Nil
+  private def try_get(id : Hash(String, Mapping::Value), entity_class : AORM::Entity.class, & : AORM::Entity ->) : Nil
     class_metadata = @em.class_metadata(entity_class)
     id_hash = identifier_flattener.flatten_identifier(class_metadata, id)
 
@@ -861,12 +893,20 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def has_missing_ids_which_are_foreign_keys?(class_metadata : AORM::Mapping::ClassBase, id_arr : Array(AORM::Mapping::Value)) : Bool
-    id_arr.any? { |value| value.value.nil? && class_metadata.property(value.name).is_a?(AORM::Mapping::AssociationMetadata) }
+  private def has_missing_ids_which_are_foreign_keys?(class_metadata : Mapping::ClassInterface, id : Hash(String, _)) : Bool
+    id.any? do |id_field, id_field_value|
+      value = id_field_value.is_a?(Mapping::Value) ? id_field_value.value : id_field_value
+
+      value.nil? && class_metadata.association_mappings.has_key? id_field
+    end
   end
 
-  private def index_identifiers_by_name(id_arr : Array(AORM::Mapping::Value)) : Hash(String, AORM::Mapping::Value)
-    id_arr.each_with_object(Hash(String, AORM::Mapping::Value).new) do |id, id_hash|
+  private def has_missing_ids_which_are_foreign_keys?(class_metadata : Mapping::ClassInterface, id : _) : Bool
+    false
+  end
+
+  private def index_identifiers_by_name(id_arr : Array(Mapping::Value)) : Hash(String, Mapping::Value)
+    id_arr.each_with_object(Hash(String, Mapping::Value).new) do |id, id_hash|
       id_hash[id.name] = id
     end
   end

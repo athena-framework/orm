@@ -53,9 +53,10 @@ class Athena::ORM::Mapping::ClassFactory < Athena::ORM::Mapping::AbstractClassFa
       generator = field_name && metadata.field_mappings[field_name].type == "bigint" ? AORM::ID::BigIntegerIdentityGenerator.new : AORM::ID::IdentityGenerator.new
 
       metadata.id_generator = generator
+    when .none?
+      metadata.id_generator = AORM::ID::AssignedGenerator.new
     else
-      # TODO: Handle other types
-
+      # TODO: Handle other types (SEQUENCE, CUSTOM)
     end
   end
 

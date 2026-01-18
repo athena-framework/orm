@@ -1,5 +1,48 @@
 require "./spec_helper"
 
+# Inline test entities (like Doctrine's test-only entities)
+@[AORMA::Entity]
+class VersionedAssignedIdentifierEntity < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  property! id : Int32
+  # @[AORMA::Version] not implemented
+  property version : Int32 = 0
+end
+
+@[AORMA::Entity]
+class EntityWithStringIdentifier < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id : String? = nil
+end
+
+@[AORMA::Entity]
+class EntityWithBooleanIdentifier < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id : Bool? = nil
+end
+
+@[AORMA::Entity]
+class EntityWithCompositeStringIdentifier < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id1 : String? = nil
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id2 : String? = nil
+end
+
+# Note: CascadePersistedEntity, EntityWithCascadingAssociation, and
+# EntityWithNonCascadingAssociation entities will be added when cascade
+# support is implemented. They are commented out to avoid compile-time
+# type union issues with the persister.
+
 struct UnitOfWorkTest < ASPEC::TestCase
   @connection : DB::Connection
   @em : MockEntityManager
@@ -44,5 +87,227 @@ struct UnitOfWorkTest < ASPEC::TestCase
     user_persister.deletes.size.should eq 0
 
     user.id.should be_a Int32
+  end
+
+  @[Pending]
+  def test_multiple_inserts_are_batched_in_the_persister : Nil
+    # Crystal ORM batches by entity type, but identity column entities each get
+    # their own batch (since IDs must be generated one at a time). This differs
+    # from Doctrine's behavior.
+  end
+
+  @[Pending]
+  def test_cascaded_identity_column_insert : Nil
+    # Requires: cascade persist, ForumUser.avatar OneToOne association
+  end
+
+  @[Pending]
+  def test_get_entity_state_on_versioned_entity_with_assigned_identifier : Nil
+    # Requires: @[AORMA::Version] annotation support
+  end
+
+  def test_get_entity_state_with_assigned_identity : Nil
+    # Set up mock persister to avoid DB lookup
+    country_persister = MockEntityPersister.new @em, @em.class_metadata Country
+    @uow.set_entity_persister Country, country_persister
+
+    country = Country.new
+    country.country = "de"
+
+    @uow.entity_state(country).should eq AORM::UnitOfWork::EntityState::New
+
+    @uow.persist country
+    @uow.entity_state(country).should eq AORM::UnitOfWork::EntityState::Managed
+  end
+
+  @[Pending]
+  def test_no_undefined_index_notice_on_schedule_for_update_without_changes : Nil
+    # Requires: schedule_for_update behavior verification for entities without changes
+    # The test verifies no index errors occur when scheduling update for unchanged entity
+  end
+
+  @[Pending]
+  def test_rejects_persistence_of_objects_with_invalid_association_value : Nil
+    # Requires: association validation
+  end
+
+  @[Pending]
+  def test_rejects_change_set_computation_for_objects_with_invalid_association_value : Nil
+    # Requires: association validation
+  end
+
+  def test_removed_and_re_persisted_entities_are_in_the_identity_map : Nil
+    phonenumber_persister = MockEntityPersister.new @em, @em.class_metadata CmsPhonenumber
+    @uow.set_entity_persister CmsPhonenumber, phonenumber_persister
+
+    phone = CmsPhonenumber.new
+    phone.phonenumber = "123456"
+
+    @uow.persist phone
+    @uow.commit
+
+    @uow.is_in_identity_map(phone).should be_true
+
+    @uow.schedule_for_delete phone
+    @uow.is_in_identity_map(phone).should be_false
+
+    @uow.persist phone
+    @uow.is_in_identity_map(phone).should be_true
+  end
+
+  @[DataProvider("entities_with_valid_identifiers_provider")]
+  def test_add_to_identity_map_valid_identifiers(entity : AORM::Entity, id_hash : String) : Nil
+    @uow.persist entity
+    @uow.add_to_identity_map entity
+
+    @uow.get_by_id_hash(id_hash, entity.class).should be entity
+  end
+
+  def entities_with_valid_identifiers_provider : Hash
+    empty_string = EntityWithStringIdentifier.new
+    empty_string.id = ""
+
+    non_empty_string = EntityWithStringIdentifier.new
+    non_empty_string.id = "test-id-123"
+
+    bool_true = EntityWithBooleanIdentifier.new
+    bool_true.id = true
+
+    bool_false = EntityWithBooleanIdentifier.new
+    bool_false.id = false
+
+    {
+      "empty string, single field"     => {empty_string, ""},
+      "non-empty string, single field" => {non_empty_string, "test-id-123"},
+      # # two fields
+      "boolean true"  => {bool_true, "true"},
+      "boolean false" => {bool_false, "false"},
+    }
+  end
+
+  def test_registering_a_managed_instance_requires_a_non_empty_identifier : Nil
+    entity = EntityWithStringIdentifier.new
+    entity.id = nil
+
+    expect_raises(Exception, "entity without identity") do
+      @uow.register_managed entity, {} of String => AORM::Mapping::Value, {} of String => AORM::Mapping::Value
+    end
+  end
+
+  @[DataProvider("entities_with_invalid_identifiers_provider")]
+  def test_add_to_identity_map_invalid_identifiers(entity : AORM::Entity, id : Hash(String, AORM::Mapping::Value)) : Nil
+    expect_raises(Exception) do
+      @uow.register_managed entity, id, {} of String => AORM::Mapping::Value
+    end
+  end
+
+  def entities_with_invalid_identifiers_provider : Hash
+    {
+      "nil string" => {
+        EntityWithStringIdentifier.new,
+        {"id" => AORM::Mapping::ColumnValue(String?).new("id", nil).as(AORM::Mapping::Value)},
+      },
+      "composite, both nil" => {
+        EntityWithCompositeStringIdentifier.new,
+        {
+          "id1" => AORM::Mapping::ColumnValue(String?).new("id1", nil).as(AORM::Mapping::Value),
+          "id2" => AORM::Mapping::ColumnValue(String?).new("id2", nil).as(AORM::Mapping::Value),
+        },
+      },
+      "composite, first field nil" => {
+        EntityWithCompositeStringIdentifier.new,
+        {
+          "id1" => AORM::Mapping::ColumnValue(String?).new("id1", nil).as(AORM::Mapping::Value),
+          "id2" => AORM::Mapping::ColumnValue(String?).new("id2", "bar").as(AORM::Mapping::Value),
+        },
+      },
+      "composite, second field nil" => {
+        EntityWithCompositeStringIdentifier.new,
+        {
+          "id1" => AORM::Mapping::ColumnValue(String?).new("id1", "foo").as(AORM::Mapping::Value),
+          "id2" => AORM::Mapping::ColumnValue(String?).new("id2", nil).as(AORM::Mapping::Value),
+        },
+      },
+    }
+  end
+
+  @[Pending]
+  def test_new_associated_entity_persistence_through_cascaded_associations_first : Nil
+    # Requires: cascade + ManyToOne association support
+  end
+
+  @[Pending]
+  def test_new_associated_entity_persistence_through_non_cascaded_associations_first : Nil
+    # Requires: cascade + ManyToOne association support
+  end
+
+  @[Pending]
+  def test_previous_detected_illegal_new_non_cascaded_entities_are_cleaned_up : Nil
+    # Requires: cascade validation
+  end
+
+  @[Pending]
+  def test_commit_throw_optimistic_lock_exception_when_connection_commit_fails : Nil
+    # Requires: OptimisticLockException
+  end
+
+  @[Pending]
+  def test_it_throws_when_looking_up_identifier_for_unknown_entity : Nil
+    # Requires: EntityNotFoundException
+  end
+
+  @[Pending]
+  def test_removed_entity_is_removed_from_many_to_many_collection : Nil
+    # Requires: ManyToMany association support
+  end
+
+  @[Pending]
+  def test_removed_entity_is_removed_from_one_to_many_collection : Nil
+    # Requires: OneToMany association support
+  end
+
+  def test_it_throws_when_application_provided_ids_collide : Nil
+    entity1 = EntityWithStringIdentifier.new
+    entity1.id = "same-id"
+
+    entity2 = EntityWithStringIdentifier.new
+    entity2.id = "same-id"
+
+    @uow.persist entity1
+    # For entities with assigned IDs, persist automatically adds to identity map
+
+    # Persisting entity2 with same ID should throw collision error
+    expect_raises(Exception, "entity identity collision") do
+      @uow.persist entity2
+    end
+  end
+
+  def test_it_preserves_the_original_exception_on_rollback_failure : Nil
+    user_persister = MockEntityPersister.new @em, @em.class_metadata ForumUser
+    @uow.set_entity_persister ForumUser, user_persister
+    user_persister.mock_id_generator = :identity
+
+    user = ForumUser.new
+    user.username = "Fred"
+    @uow.persist user
+
+    # Mock an exception during insert by using a persister that throws
+    failing_persister = FailingEntityPersister.new @em, @em.class_metadata(ForumUser), "Insert failed"
+    @uow.set_entity_persister ForumUser, failing_persister
+
+    expect_raises(Exception, "Insert failed") do
+      @uow.commit
+    end
+  end
+end
+
+# Helper persister that throws an exception during execute_inserts
+class FailingEntityPersister < MockEntityPersister
+  def initialize(@em : AORM::EntityManagerInterface, @class_metadata : AORM::Mapping::ClassInterface, @error_message : String)
+    super(@em, @class_metadata)
+  end
+
+  def execute_inserts : Nil
+    raise @error_message
   end
 end

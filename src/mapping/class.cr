@@ -61,12 +61,20 @@ class Athena::ORM::Mapping::Class(T)
       mapper.validate_and_complete(mapping, self) # self has concrete type here
     end
 
+    def create_column_value(value : Mapping::Value) : Mapping::Value
+      value
+    end
+
     def create_column_value(value : IVarType) : Mapping::Value
       Mapping::ColumnValue(IVarType).new @name, value
     end
 
     def create_column_value(value : _) : NoReturn
       raise "BUG: Invoked wrong overload"
+    end
+
+    def create_column_value(entity : AORM::Entity) : Mapping::ColumnValue(IVarType)
+      Mapping::ColumnValue(IVarType).new @name, self.get_value(entity)
     end
 
     def apply_type_association_mapping(mapper : TypedFieldMapper, mapping : Driver::ColumnMapping) : Driver::ColumnMapping
@@ -192,6 +200,14 @@ class Athena::ORM::Mapping::Class(T)
     self.column_name(self.single_identifier_field_name)
   end
 
+  def field_value(entity : T, field_name : String)
+    @field_info[field_name].get_value entity
+  end
+
+  def field_value(entity : _, field_name : String) : NoReturn
+    raise "BUG: Invoked wrong overload"
+  end
+
   def is_identifier(field_name : String) : Bool
     return false if @identifier.empty?
 
@@ -211,7 +227,7 @@ class Athena::ORM::Mapping::Class(T)
     value = @field_info[id].get_value entity
 
     if value.nil?
-      {} of NoReturn => NoReturn
+      return {} of String => NoReturn
     end
 
     {id => value}
@@ -220,8 +236,21 @@ class Athena::ORM::Mapping::Class(T)
   # :nodoc:
   #
   # TODO: Is there a better way to handle this?
-  def identifier_values(entity : _) : Hash
-    {} of String => NoReturn
+  def identifier_values(entity : _) : NoReturn
+    raise "BUG: Invoked wrong overload"
+  end
+
+  def set_identifier_values(entity : T, id : Hash(String, _)) : Nil
+    id.each do |id_field, id_value|
+      @field_info[id_field].set_value entity, id_value
+    end
+  end
+
+  # :nodoc:
+  #
+  # TODO: Is there a better way to handle this?
+  def set_identifier_values(entity : _, id : Hash(String, _)) : NoReturn
+    raise "BUG: Invoked wrong overload"
   end
 
   def identifier_natural? : Bool
