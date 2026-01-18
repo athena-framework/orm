@@ -1,4 +1,4 @@
-class Athena::ORM::Mapping::Association::JoinColumn
+class Athena::ORM::Mapping::JoinColumn
   property name : String
   property referenced_column_name : String
   property deferrable : Bool?
@@ -18,7 +18,7 @@ class Athena::ORM::Mapping::Association::JoinColumn
     @field_name : String? = nil,
     @on_delete : String? = nil,
     @column_definition : String? = nil,
-    @nullable : Bool? = nil
+    @nullable : Bool? = nil,
   )
   end
 end

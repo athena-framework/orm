@@ -89,6 +89,32 @@ struct Athena::ORM::Persisters::Entity::Basic
     !!@connection.query_one?(sql, args: params, as: ::Int32)
   end
 
+  def add_insert(entity : AORM::Entity) : Nil
+    @queued_inserts << entity
+  end
+
+  def execute_inserts : Nil
+    return if @queued_inserts.empty?
+
+    uow = @em.unit_of_work
+    id_generator = @class_metadata.id_generator
+    is_post_insert_id = id_generator.post_insert?
+
+    statement = @connection.build self.insert_sql
+
+    @queued_inserts.each do |entity|
+      insert_data = self.prepare_insert_data entity
+
+      pp insert_data
+
+      pp insert_data
+    end
+  end
+
+  def owning_table(field_name : String) : String
+    @class_metadata.table_name
+  end
+
   def expand_parameters(criteria : Hash(String, _)) : Tuple
     params = [] of DB::Any
     types = [] of ParameterType | ArrayParameterType | String
@@ -112,6 +138,106 @@ struct Athena::ORM::Persisters::Entity::Basic
       "FROM #{@quote_strategy.table_name @class_metadata, @platform} #{self.sql_table_alias @class_metadata.entity_class}",
       lock_mode
     )
+  end
+
+  def insert_sql : String
+    columns = self.insert_column_list
+    table_name = @quote_strategy.table_name @class_metadata, @platform
+
+    if columns.empty?
+      identity_column = @quote_strategy.column_name @class_metadata.identifier.first, @class_metadata, @platform
+
+      return @platform.empty_identity_insert_sql table_name, identity_column
+    end
+
+    placeholders = [] of String
+    columns.uniq!
+
+    columns.each do |column|
+      placeholder = "?"
+
+      if (field_name = @class_metadata.field_names[column]) && (column_type = @column_types[field_name]) && (field_mapping = @class_metadata.field_mappings[field_name])
+        type = Types::Type.get_type column_type
+        placeholder = type.to_db_sql "?", @platform
+      end
+
+      placeholders << placeholder
+    end
+
+    columns = columns.join ", "
+    placeholders = placeholders.join ", "
+
+    "INSERT INTO #{table_name} (#{columns}) VALUES (#{placeholders})"
+  end
+
+  def insert_column_list : Array(String)
+    columns = [] of String
+
+    @class_metadata.field_info.each do |name, field|
+      # TODO: Handle versioning
+      # TODO: Handle embedded classes
+
+      if assoc = @class_metadata.association_mappings[name]?
+        if assoc.is_a?(Mapping::ToOneOwningSide)
+          assoc.join_columns.each do |join_column|
+            columns << @quote_strategy.join_column_name join_column, @class_metadata, @platform
+          end
+        end
+
+        next
+      end
+
+      if !@class_metadata.id_generator_type.identity? || @class_metadata.identifier.first != name
+        next if @class_metadata.field_mappings[name].not_insertable
+
+        columns << @quote_strategy.column_name name, @class_metadata, @platform
+        @column_types[name] = @class_metadata.field_mappings[name].type
+      end
+    end
+
+    columns
+  end
+
+  protected def prepare_insert_data(entity : AORM::Entity) : Hash(String, Hash(String, DB::Any))
+    self.prepare_update_data entity, true
+  end
+
+  protected def prepare_update_data(entity : AORM::Entity, is_insert : Bool = false) : Hash(String, Hash(String, DB::Any))
+    uow = @em.unit_of_work
+    result = Hash(String, Hash(String, DB::Any)).new do |hash, key|
+      hash[key] = Hash(String, DB::Any).new
+    end
+
+    # TODO: Handle versioning
+
+    uow.entity_changeset(entity).each do |field, change|
+      # TODO: Handle versioning
+      # TODO: Handle embedded classes
+
+      new_val = change.new.value
+
+      unless assoc = @class_metadata.association_mappings[field]?
+        field_mapping = @class_metadata.field_mappings[field]
+        column_name = field_mapping.column_name
+
+        if !is_insert && field_mapping.not_updatable
+          next
+        end
+
+        if is_insert && field_mapping.not_insertable
+          next
+        end
+
+        @column_types[column_name] = field_mapping.type
+        result[self.owning_table field][column_name] = new_val
+
+        next
+      end
+
+      # TODO: Handle associations
+    end
+
+    result
   end
 
   protected def select_sql(

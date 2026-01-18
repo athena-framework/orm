@@ -8,6 +8,36 @@ class Athena::ORM::UnitOfWork
     Removed
   end
 
+  # :nodoc:
+  private class InsertBatch
+    getter class_metadata : Mapping::ClassInterface
+    getter entities : Array(AORM::Entity)
+
+    def initialize(@class_metadata : Mapping::ClassInterface, @entities : Array(AORM::Entity)); end
+
+    def self.batch_by_entity_type(em : AORM::EntityManagerInterface, entities : Array(AORM::Entity)) : Array(self)
+      current_metadata = nil
+      batches = [] of InsertBatch
+      batch_index = -1
+
+      entities.each do |entity|
+        entity_matadata = em.class_metadata entity.class
+
+        if current_metadata.try(&.entity_class) != entity_matadata.entity_class || (!entity_matadata.id_generator.is_a?(ID::AssignedGenerator))
+          current_metadata = entity_matadata
+          batches << new(entity_matadata, [entity])
+          batch_index += 1
+
+          next
+        end
+
+        batches[batch_index].entities << entity
+      end
+
+      batches
+    end
+  end
+
   def self.id_hash_by_identifier(identifier : Hash(String | Number, _)) : String
     identifier.each do |k, v|
       if v.is_a?(::Enum)
@@ -36,7 +66,9 @@ class Athena::ORM::UnitOfWork
 
   @entity_persisters = Hash(AORM::Entity.class, AORM::Persisters::Entity::Interface).new.compare_by_identity
 
-  @original_entity_data = Hash(AORM::Entity, Hash(String, AORM::Mapping::Value)).new.compare_by_identity
+  @original_entity_data = Hash(AORM::Entity, Hash(String, Mapping::Value)).new do |hash, key|
+    hash[key] = Hash(String, Mapping::Value).new
+  end.compare_by_identity
   @entity_change_sets = Hash(AORM::Entity, Hash(String, Change)).new.compare_by_identity
   @orphan_removals = Set(AORM::Entity).new.compare_by_identity
 
@@ -48,30 +80,50 @@ class Athena::ORM::UnitOfWork
   end
 
   def commit : Nil
+    # TODO: Ensure connected to primary
+
     # TODO: Handle eventing (preFlush)
 
     self.compute_changesets
 
     # Nothing to do
-    return if @entity_deletions.empty? && @entity_insertions.empty? && @entity_updates.empty?
+    # TODO: Handle collection updates/deletions
+    if @entity_deletions.empty? && @entity_insertions.empty? && @entity_updates.empty? && @orphan_removals.empty?
+      # TODO: Handle eventing (onFlush/postFlush)
 
+      self.post_commit_cleanup
+
+      return
+    end
+
+    # TODO: Handle associations
     self.assert_that_there_are_no_unintentionally_non_persisted_associations
 
-    # TODO: determine the order of the inserts
-    # so that referential integrity is maintained.
+    @orphan_removals.each do |orphan|
+      self.remove orphan
+    end
+
+    # TODO: Handle eventing (onFlush)
 
     @em.transaction do
+      # TODO: Handle collection deletions
+
       @entity_insertions.each do |entity|
+        # Perform entity insertions first, so that all new entities have their rows in the database
+        # and can be referred to by foreign keys. The commit order only needs to take new entities
+        # into account (new entities referring to other new entities), since all other types (entities
+        # with updates or scheduled deletions) are currently not a problem, since they are already
+        # in the database.
         self.execute_inserts @em.class_metadata entity.class
       end
 
-      @entity_updates.each do |entity|
-        self.execute_updates @em.class_metadata entity.class
-      end
+      # @entity_updates.each do |entity|
+      #   self.execute_updates @em.class_metadata entity.class
+      # end
 
-      @entity_deletions.each do |entity|
-        self.execute_deletions @em.class_metadata entity.class
-      end
+      # @entity_deletions.each do |entity|
+      #   self.execute_deletions @em.class_metadata entity.class
+      # end
     rescue ex : ::Exception
       @em.close
       # TODO: Handle cache persisters
@@ -85,6 +137,10 @@ class Athena::ORM::UnitOfWork
     # TODO: Handle eventing (postFlush)
 
     self.post_commit_cleanup
+  end
+
+  def scheduled_entity_insertions : Set(AORM::Entity)
+    @entity_insertions
   end
 
   private def assert_that_there_are_no_unintentionally_non_persisted_associations : Nil
@@ -105,32 +161,72 @@ class Athena::ORM::UnitOfWork
     @orphan_removals.clear
   end
 
-  private def execute_inserts(class_metadata : AORM::Mapping::ClassBase) : Nil
-    entity_class = class_metadata.entity_class
-    persister = self.entity_persister class_metadata.entity_class
+  private def execute_inserts(class_metadata : AORM::Mapping::ClassInterface) : Nil
+    batched_by_type = InsertBatch.batch_by_entity_type @em, self.compute_insert_execution_order
+    # TODO: Handle eventing
 
-    @entity_insertions.each do |entity|
-      next if entity_class != @em.class_metadata(entity.class).entity_class
+    batched_by_type.each do |batch|
+      class_metadata = batch.class_metadata
+      # TODO: Handle eventing
 
-      persister.insert entity
+      persister = self.entity_persister class_metadata.entity_class
 
-      if (generator = class_metadata.id_generator) && generator.post_insert?
-        id = persister.identifier entity
-
-        @entity_identifiers[entity] = self.index_identifiers_by_name id
-        @entity_states[entity] = :managed
-
-        id.each do |i|
-          @original_entity_data[entity][i.name] = i
-        end
-
-        self.add_to_identity_map entity
+      batch.entities.each do |entity|
+        persister.add_insert entity
+        @entity_insertions.delete entity
       end
 
-      @entity_insertions.delete entity
+      persister.execute_inserts
 
-      # TODO: Handle eventing (postPersist)
+      batch.entities.each do |entity|
+        unless @entity_identifiers.has_key? entity
+          self.add_to_entity_identifier_and_entity_map class_metadata, entity
+        end
+
+        # TODO: Handle eventing
+      end
     end
+
+    # TODO: Handle eventing (postPersist)
+  end
+
+  private def compute_insert_execution_order : Array(AORM::Entity)
+    sort = Internal::TopologicalSort.new
+
+    # Ensure all nodes are added
+    @entity_insertions.each do |entity|
+      sort.add_node entity
+    end
+
+    # Add edges
+    @entity_insertions.each do |entity|
+      class_metadata = @em.class_metadata entity.class
+
+      # TODO: Handle associations
+    end
+
+    sort.sort
+  end
+
+  private def add_to_entity_identifier_and_entity_map(class_metadata : Mapping::ClassInterface, entity : AORM::Entity) : Nil
+    identifier = Hash(String, AORM::Mapping::Value).new
+
+    class_metadata.identifier.each do |id_field|
+      orig_value = class_metadata.field_info[id_field].get_value entity
+
+      value = nil
+      if class_metadata.association_mappings.has_key?(id_field) && orig_value.is_a?(AORM::Entity)
+        value = self.single_identifier_value orig_value
+      end
+
+      identifier[id_field] = Mapping::ColumnValue.new id_field, value || orig_value
+      @original_entity_data[entity][id_field] = Mapping::ColumnValue.new id_field, orig_value
+    end
+
+    @entity_states[entity] = :managed
+    @entity_identifiers[entity] = identifier
+
+    self.add_to_identity_map entity
   end
 
   private def execute_updates(class_metadata : AORM::Mapping::ClassBase) : Nil
@@ -189,6 +285,10 @@ class Athena::ORM::UnitOfWork
 
     class_metadata = @em.class_metadata entity.class
 
+    # We assume NEW, so DETACHED entities result in an exception on flush (constraint violation).
+    # If we would detect DETACHED here we would throw an exception anyway with the same
+    # consequences (not recoverable/programming error), so just assuming NEW here
+    # lets us avoid some database lookups for entities with natural identifiers.
     case self.entity_state(entity, :new)
     in .managed? then return # TODO: Handle change tracking
     in .new?     then self.persist_new class_metadata, entity
@@ -196,15 +296,17 @@ class Athena::ORM::UnitOfWork
       @entity_deletions.delete entity
       self.add_to_identity_map entity
 
+      # TODO: Handle change tracking
+
       @entity_states[entity] = :managed
-    in .detached? then return # noop
+    in .detached? then raise "detached entity cannot be persisted"
     end
 
     # TODO: Handle cascade for nested entities
   end
 
   def remove(entity : AORM::Entity) : Nil
-    visited = Set(UInt64).new
+    visited = Set(AORM::Entity).new
 
     self.remove entity, visited
   end
@@ -212,6 +314,8 @@ class Athena::ORM::UnitOfWork
   private def remove(entity : AORM::Entity, visited : Set(AORM::Entity)) : Nil
     return unless visited.add? entity
 
+    # Cascade first, because schedule_for_delete() removes the entity from the identity map, which
+    # can cause problems when a lazy proxy has to be initialized for the cascade operation.
     # TODO: Handle cascade for nested models
 
     case self.entity_state entity
@@ -222,23 +326,22 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def persist_new(class_metadata : AORM::Mapping::ClassBase, entity : AORM::Entity) : Nil
-    persister = self.entity_persister class_metadata.entity_class
+  private def persist_new(class_metadata : AORM::Mapping::ClassInterface, entity : AORM::Entity) : Nil
+    # TODO: Handle eventing
 
-    if (generator = class_metadata.id_generator) && !generator.post_insert?
-      generate_and_set_id class_metadata, entity
-    end
+    id_generator = class_metadata.id_generator
 
-    if generator.nil? || !generator.post_insert?
-      id = persister.identifier entity
+    unless id_generator.post_insert?
+      id_value = id_generator.generate @em, entity
 
-      unless self.has_missing_ids_which_are_foreign_keys? class_metadata, id
-        @entity_identifiers[entity] = self.index_identifiers_by_name id
-      end
+      # TODO: Handle non-post-insert generators
     end
 
     @entity_states[entity] = :managed
-    self.schedule_for_insert entity
+
+    unless @entity_insertions.includes? entity
+      self.schedule_for_insert entity
+    end
   end
 
   private def schedule_for_insert(entity : AORM::Entity) : Nil
@@ -257,8 +360,11 @@ class Athena::ORM::UnitOfWork
 
   private def schedule_for_delete(entity : AORM::Entity) : Nil
     if @entity_insertions.includes? entity
+      if self.is_in_identity_map entity
+        self.remove_from_identity_map entity
+      end
+
       @entity_insertions.delete entity
-      @entity_identifiers.delete entity
       @entity_states.delete entity
 
       return
@@ -271,7 +377,7 @@ class Athena::ORM::UnitOfWork
     @entity_updates.delete entity
 
     unless @entity_deletions.includes? entity
-      @entity_deletions[entity] = entity
+      @entity_deletions << entity
       @entity_states[entity] = :removed
     end
   end
@@ -544,11 +650,7 @@ class Athena::ORM::UnitOfWork
 
         # Regular field
         unless class_metadata.association_mappings.has_key? prop_name
-          fi = class_metadata.field_info[prop_name]
-
-          p({fi: fi, original_value: original_value, actual_value: actual_value})
-
-          change_set[prop_name] = fi.create_change original_value, actual_value
+          change_set[prop_name] = class_metadata.field_info[prop_name].create_change original_value, actual_value
 
           next
         end

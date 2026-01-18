@@ -2,6 +2,7 @@ require "pg"
 
 require "./annotations/*"
 require "./exceptions/*"
+require "./internal/**"
 require "./id/*"
 require "./mapping/annotations"
 require "./mapping/**"
@@ -82,8 +83,8 @@ class User < AORM::Entity
   # @[AORMA::Column(name: "is_alive")]
   # property alive : Bool = true
 
-  @[AORMA::OneToOne(mapped_by: "user")]
-  property! setting : Setting
+  # @[AORMA::OneToOne(mapped_by: "user")]
+  # property! setting : Setting
 end
 
 class UserRepository < AORM::EntityRepository(User)
@@ -97,7 +98,6 @@ class UserRepository < AORM::EntityRepository(User)
 end
 
 connection = DB.connect "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres"
-
 em = AORM::EntityManager.new connection
 
 # pp em.connection.query_one? "SELECT 1 FROM users t0 WHERE t0.id = $1", 2_i64, as: Int32
@@ -110,29 +110,19 @@ em = AORM::EntityManager.new connection
 # pp md.id_generator.generate em
 
 # pp em.class_metadata Setting
-u = em.find! User, 1
-# u = User.new "Bob"
+# u = em.find! User, 1
 
-pp typeof(u)
-pp u
-
-# pp em.unit_of_work.entity_state u
-
-# pp AORM::Types::Type.type_map
-
-u.name = "Bob"
-
-em.unit_of_work.compute_changesets
-
-pp em.unit_of_work.entity_changeset u
-
-# nu = User.new "Bob"
+nu = User.new "Bob"
 
 # ns = Setting.new "blue"
 # ns.user = nu
 # nu.setting = ns
 
-# em.persist nu
+em.persist nu
+
+pp em.unit_of_work.scheduled_entity_insertions
+
+em.flush
 
 # em.persist ns
 

@@ -22,6 +22,16 @@ abstract class Athena::ORM::Platforms::Platform
     sql
   end
 
+  def sequence_next_value_sql(sequence_name : String) : String
+    raise NotImplementedError.new {{@def.name.stringify}}
+  end
+
+  def empty_identity_insert_sql(quoted_table_name : String, quoted_identifier_column_name) : String
+    "INSERT INTO #{quoted_table_name} (#{quoted_identifier_column_name}) VALUES (null)"
+  end
+
+  # Limits / Constants
+
   # Maximum length of any given database identifier, like tables or column names.
   def max_identifier_length : Int32
     63

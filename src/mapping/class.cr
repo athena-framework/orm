@@ -221,6 +221,10 @@ class Athena::ORM::Mapping::Class(T)
     @field_mappings[field_name]?.try(&.column_name) || field_name
   end
 
+  def table_name : String
+    @table.name.not_nil!
+  end
+
   def map_field(mapping : Driver::ColumnMapping) : Nil
     mapping = self.validate_and_complete_field_mapping mapping
     self.assert_field_not_mapped mapping.field_name
