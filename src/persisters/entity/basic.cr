@@ -118,7 +118,7 @@ struct Athena::ORM::Persisters::Entity::Basic
       end
 
       if @class_metadata.requires_fetch_after_change?
-        raise "TODO"
+        self.assign_default_version_and_upsertable_values entity, id
       end
 
       @queued_inserts.delete entity
@@ -154,6 +154,14 @@ struct Athena::ORM::Persisters::Entity::Basic
     )
   end
 
+  protected def assign_default_version_and_upsertable_values(entity : AORM::Entity, id : Hash(String, _)) : Nil
+    values = self.fetch_version_and_not_uperstable_values @class_metadata, id
+  end
+
+  protected def fetch_version_and_not_uperstable_values(class_metadata : Mapping::ClassInterface, id : Hash(String, _)) : Nil
+    raise "TODO"
+  end
+
   def insert_sql : String
     columns = self.insert_column_list
     table_name = @quote_strategy.table_name @class_metadata, @platform
@@ -170,7 +178,7 @@ struct Athena::ORM::Persisters::Entity::Basic
     columns.each do |column|
       placeholder = "?"
 
-      if (field_name = @class_metadata.field_names[column]) && (column_type = @column_types[field_name]) && (field_mapping = @class_metadata.field_mappings[field_name])
+      if (field_name = @class_metadata.field_names[column]?) && (column_type = @column_types[field_name]?) && (@class_metadata.field_mappings.has_key? field_name)
         type = Types::Type.get_type column_type
         placeholder = type.to_db_sql "?", @platform
       end
@@ -210,6 +218,84 @@ struct Athena::ORM::Persisters::Entity::Basic
     end
 
     columns
+  end
+
+  def update(entity : AORM::Entity) : Nil
+    table_name = @quote_strategy.table_name @class_metadata, @platform
+    update_data = self.prepare_update_data entity
+
+    return unless data = update_data[table_name]?
+    return if data.empty?
+
+    # TODO: Handle versioning
+    quoted_table_name = @quote_strategy.table_name @class_metadata, @platform
+
+    self.update_table entity, quoted_table_name, data
+
+    if @class_metadata.requires_fetch_after_change?
+      id = @class_metadata.identifier_values entity
+
+      self.assign_default_version_and_upsertable_values entity, id
+    end
+  end
+
+  protected def update_table(
+    entity : AORM::Entity,
+    quoted_table_name : String,
+    update_data : Hash(String, _),
+  ) : Nil
+    set = [] of String
+    params = [] of DB::Any
+
+    update_data.each do |column_name, value|
+      placeholder = "?"
+      column = column_name
+
+      if (field_name = @class_metadata.field_names[column_name]?)
+        column = @quote_strategy.column_name field_name, @class_metadata, @platform
+
+        if @class_metadata.field_mappings.has_key? field_name
+          type = Types::Type.get_type @column_types[column_name]
+          placeholder = type.to_db_sql "?", @platform
+        end
+      elsif quoted_column_name = @quoted_columns[column_name]?
+        column = quoted_column_name
+      end
+
+      params << value
+      set << "#{column} = #{placeholder}"
+    end
+
+    where = [] of String
+    identifier = @em.unit_of_work.entity_identifier entity
+
+    @class_metadata.identifier.each do |id_field|
+      unless assoc = @class_metadata.association_mappings[id_field]?
+        params << identifier[id_field].value
+        where << @quote_strategy.column_name id_field, @class_metadata, @platform
+
+        next
+      end
+
+      # TODO: Handle associations
+    end
+
+    # TODO: Handle versioning
+
+    sql = String.build do |io|
+      io << "UPDATE " << quoted_table_name
+      io << " SET "
+      set.join io, ", "
+      io << " WHERE "
+      where.join io, " = ? AND "
+      io << " = ?"
+    end
+
+    result = @connection.exec sql, args: params
+
+    if false && result.rows_affected.zero?
+      raise "lock filed"
+    end
   end
 
   def delete(entity : AORM::Entity) : Bool
@@ -284,18 +370,18 @@ struct Athena::ORM::Persisters::Entity::Basic
       new_val = change.new.value
 
       unless assoc = @class_metadata.association_mappings[field]?
-        field_mapping = @class_metadata.field_mappings[field]
-        column_name = field_mapping.column_name
+        fm = @class_metadata.field_mappings[field]
+        column_name = fm.column_name
 
-        if !is_insert && field_mapping.not_updatable
+        if !is_insert && fm.not_updatable
           next
         end
 
-        if is_insert && field_mapping.not_insertable
+        if is_insert && fm.not_insertable
           next
         end
 
-        @column_types[column_name] = field_mapping.type
+        @column_types[column_name] = fm.type
         result[self.owning_table field][column_name] = new_val
 
         next
@@ -430,20 +516,20 @@ struct Athena::ORM::Persisters::Entity::Basic
   protected def select_column_sql(field : String, metadata : Mapping::ClassInterface, col_alias : String = "r") : String
     root = col_alias == "r" ? "" : col_alias
     table_alias = self.sql_table_alias metadata.entity_class, root
-    field_mapping = metadata.field_mappings[field]
+    fm = metadata.field_mappings[field]
     sql = "#{table_alias}.#{@quote_strategy.column_name field, metadata, @platform}"
 
     column_alias = nil
     # TODO: ResultSetMapping?
 
     unless column_alias
-      column_alias = self.sql_column_alias field_mapping.column_name
+      column_alias = self.sql_column_alias fm.column_name
     end
 
     # TODO: ResultSetMapping?
     # TODO: Handle enum type columns
 
-    type = Types::Type.get_type field_mapping.type
+    type = Types::Type.get_type fm.type
     sql = type.to_db_sql sql, @platform
 
     "#{sql} AS #{column_alias}"

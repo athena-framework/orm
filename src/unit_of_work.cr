@@ -117,26 +117,38 @@ class Athena::ORM::UnitOfWork
         self.execute_inserts @em.class_metadata entity.class
       end
 
-      # @entity_updates.each do |entity|
-      #   self.execute_updates @em.class_metadata entity.class
-      # end
+      unless @entity_updates.empty?
+        self.execute_updates
+      end
 
-      @entity_deletions.each do |entity|
-        self.execute_deletions @em.class_metadata entity.class
+      # TODO: Handle extra updates
+
+      # TODO: Handle collection updates
+
+      unless @entity_deletions.empty?
+        self.execute_deletions
       end
     rescue ex : ::Exception
       @em.close
-      # TODO: Handle cache persisters
-
+      self.after_transaction_rolled_back
       raise ex
     end
 
-    # TODO: Handle cache persisters
+    self.after_transaction_complete
+
     # TODO: Take snapshots of collections
 
     # TODO: Handle eventing (postFlush)
 
     self.post_commit_cleanup
+  end
+
+  private def after_transaction_rolled_back : Nil
+    # TODO: CachedPersisters?
+  end
+
+  private def after_transaction_complete : Nil
+    # TODO: CachedPersisters?
   end
 
   def scheduled_entity_insertions : Set(AORM::Entity)
@@ -256,13 +268,10 @@ class Athena::ORM::UnitOfWork
     self.add_to_identity_map entity
   end
 
-  private def execute_updates(class_metadata : AORM::Mapping::ClassBase) : Nil
-    entity_class = class_metadata.entity_class
-    persister = self.entity_persister class_metadata.entity_class
-
+  private def execute_updates : Nil
     @entity_updates.each do |entity|
-      next if entity_class != @em.class_metadata(entity.class).entity_class
-
+      class_metadata = @em.class_metadata entity.class
+      persister = self.entity_persister class_metadata.entity_class
       # TODO: Handle eventing (preUpdate)
 
       unless @entity_change_sets[entity].empty?
@@ -275,7 +284,7 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def execute_deletions(class_metadata : AORM::Mapping::ClassInterface) : Nil
+  private def execute_deletions : Nil
     entities = self.compute_delete_execution_order
     # TODO: Handle eventing
 
