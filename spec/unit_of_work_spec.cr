@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "uuid"
 
 # Inline test entities (like Doctrine's test-only entities)
 @[AORMA::Entity]
@@ -38,10 +39,49 @@ class EntityWithCompositeStringIdentifier < AORM::Entity
   property id2 : String? = nil
 end
 
-# Note: CascadePersistedEntity, EntityWithCascadingAssociation, and
-# EntityWithNonCascadingAssociation entities will be added when cascade
-# support is implemented. They are commented out to avoid compile-time
-# type union issues with the persister.
+@[AORMA::Entity]
+class CascadePersistedEntity < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id : String? = nil
+
+  def initialize
+    @id = "#{self.class.name}-#{UUID.random}"
+  end
+end
+
+@[AORMA::Entity]
+class EntityWithCascadingAssociation < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id : String? = nil
+
+  @[AORMA::OneToOne(target_entity: CascadePersistedEntity, cascade: ["persist"])]
+  @[AORMA::JoinColumn(name: "cascaded_id", referenced_column_id: "id")]
+  property cascaded : CascadePersistedEntity? = nil
+
+  def initialize
+    @id = "#{self.class.name}-#{UUID.random}"
+  end
+end
+
+@[AORMA::Entity]
+class EntityWithNonCascadingAssociation < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id : String? = nil
+
+  @[AORMA::OneToOne(target_entity: CascadePersistedEntity)]
+  @[AORMA::JoinColumn(name: "non_cascaded_id", referenced_column_id: "id")]
+  property non_cascaded : CascadePersistedEntity? = nil
+
+  def initialize
+    @id = "#{self.class.name}-#{UUID.random}"
+  end
+end
 
 struct UnitOfWorkTest < ASPEC::TestCase
   @connection : DB::Connection
@@ -179,16 +219,6 @@ struct UnitOfWorkTest < ASPEC::TestCase
     @uow.scheduled_entity_updates.should be_empty
   end
 
-  @[Pending]
-  def test_rejects_persistence_of_objects_with_invalid_association_value : Nil
-    # Requires: association validation
-  end
-
-  @[Pending]
-  def test_rejects_change_set_computation_for_objects_with_invalid_association_value : Nil
-    # Requires: association validation
-  end
-
   def test_removed_and_re_persisted_entities_are_in_the_identity_map : Nil
     phonenumber_persister = MockEntityPersister.new @em, @em.class_metadata CmsPhonenumber
     @uow.set_entity_persister CmsPhonenumber, phonenumber_persister
@@ -284,14 +314,77 @@ struct UnitOfWorkTest < ASPEC::TestCase
     }
   end
 
-  @[Pending]
   def test_new_associated_entity_persistence_through_cascaded_associations_first : Nil
-    # Requires: cascade + ManyToOne association support
+    persister1 = MockEntityPersister.new @em, @em.class_metadata CascadePersistedEntity
+    persister2 = MockEntityPersister.new @em, @em.class_metadata EntityWithCascadingAssociation
+    persister3 = MockEntityPersister.new @em, @em.class_metadata EntityWithNonCascadingAssociation
+    @uow.set_entity_persister CascadePersistedEntity, persister1
+    @uow.set_entity_persister EntityWithCascadingAssociation, persister2
+    @uow.set_entity_persister EntityWithNonCascadingAssociation, persister3
+
+    cascade_persisted = CascadePersistedEntity.new
+    cascading = EntityWithCascadingAssociation.new
+    non_cascading = EntityWithNonCascadingAssociation.new
+
+    # Both entities reference the same CascadePersistedEntity.
+    # EntityWithCascadingAssociation has cascade: ["persist"], so persisting it
+    # will also persist CascadePersistedEntity. EntityWithNonCascadingAssociation
+    # does not have cascade, but since CascadePersistedEntity gets persisted
+    # through the other path, no error should occur.
+    cascading.cascaded = cascade_persisted
+    non_cascading.non_cascaded = cascade_persisted
+
+    @uow.persist cascading
+    @uow.persist non_cascading
+
+    @uow.commit
+
+    persister1.inserts.size.should eq 1
+    persister2.inserts.size.should eq 1
+    persister3.inserts.size.should eq 1
   end
 
-  @[Pending]
   def test_new_associated_entity_persistence_through_non_cascaded_associations_first : Nil
-    # Requires: cascade + ManyToOne association support
+    persister1 = MockEntityPersister.new @em, @em.class_metadata CascadePersistedEntity
+    persister2 = MockEntityPersister.new @em, @em.class_metadata EntityWithCascadingAssociation
+    persister3 = MockEntityPersister.new @em, @em.class_metadata EntityWithNonCascadingAssociation
+    @uow.set_entity_persister CascadePersistedEntity, persister1
+    @uow.set_entity_persister EntityWithCascadingAssociation, persister2
+    @uow.set_entity_persister EntityWithNonCascadingAssociation, persister3
+
+    cascade_persisted = CascadePersistedEntity.new
+    cascading = EntityWithCascadingAssociation.new
+    non_cascading = EntityWithNonCascadingAssociation.new
+
+    # First persist and flush EntityWithCascadingAssociation with the cascading
+    # association not set. Having the "cascading path" involve a non-new object
+    # is important to show that the ORM should be considering cascades across
+    # entity changesets in subsequent flushes.
+    cascading.cascaded = nil
+
+    @uow.persist cascading
+    @uow.commit
+
+    persister1.inserts.size.should eq 0
+    persister2.inserts.size.should eq 1
+    persister3.inserts.size.should eq 0
+
+    # Note that we have NOT directly persisted the CascadePersistedEntity,
+    # and EntityWithNonCascadingAssociation does NOT have a configured
+    # cascade-persist.
+    non_cascading.non_cascaded = cascade_persisted
+
+    # However, EntityWithCascadingAssociation *does* have a cascade-persist
+    # association, which ought to allow us to save the CascadePersistedEntity
+    # anyway through that connection.
+    cascading.cascaded = cascade_persisted
+
+    @uow.persist non_cascading
+    @uow.commit
+
+    persister1.inserts.size.should eq 1
+    persister2.inserts.size.should eq 1
+    persister3.inserts.size.should eq 1
   end
 
   @[Pending]

@@ -185,13 +185,17 @@ class Athena::ORM::UnitOfWork
   end
 
   private def assert_that_there_are_no_unintentionally_non_persisted_associations : Nil
-    # @non_cascaded_new_detected_entities contains entities discovered via association
-    # traversal that were NEW at the time. If cascade were enabled, these would be
-    # auto-persisted. Without cascade, we should error if they weren't explicitly persisted.
-    #
-    # For now, since cascade isn't implemented, we allow all explicitly persisted entities.
-    # TODO: Implement cascade and properly validate non-cascaded associations
+    # Find entities that were detected as NEW through non-cascading associations
+    # but were never scheduled for insertion (either explicitly or via cascade)
+    entities_needing_cascade_persist = @non_cascaded_new_detected_entities.reject do |entity, _|
+      @entity_insertions.includes?(entity)
+    end
+
     @non_cascaded_new_detected_entities.clear
+
+    return if entities_needing_cascade_persist.empty?
+
+    raise "new entities found through relationships"
   end
 
   private def post_commit_cleanup : Nil
@@ -808,13 +812,23 @@ class Athena::ORM::UnitOfWork
         next if original_value == actual_value.value
 
         # Regular field
-        unless class_metadata.association_mappings.has_key? prop_name
+        unless assoc = class_metadata.association_mappings[prop_name]?
           change_set[prop_name] = class_metadata.field_info[prop_name].create_change original_value, actual_value.value
 
           next
         end
 
-        # TODO: Handle collections and associations
+        # TODO: Handle collections
+
+        if assoc.is_a? Mapping::ToOne
+          if assoc.is_a? Mapping::OwningSide
+            change_set[prop_name] = class_metadata.field_info[prop_name].create_change original_value, actual_value.value
+          end
+
+          if !original_value.nil? && assoc.orphan_removal?
+            self.schedule_orphan_removal original_value.as AORM::Entity
+          end
+        end
       end
 
       unless change_set.empty?
@@ -835,32 +849,47 @@ class Athena::ORM::UnitOfWork
 
           next
         end
+
+        if assoc.is_a? Mapping::ToOneOwningSide
+          change_set[prop_name] = class_metadata.field_info[prop_name].create_change nil, actual_value.value
+        end
       end
 
       @entity_change_sets[entity] = change_set
     end
 
-    # TODO: Handle changes in associated data
+    class_metadata.association_mappings.each do |field, assoc|
+      value = class_metadata.field_info[field].get_value entity
+      next if value.nil?
+      raise "BUG: Non AORM::Entity assoc value" unless value.is_a? AORM::Entity
+
+      self.compute_association_changes assoc, value
+    end
   end
 
   # Compute association changeset
-  private def compute_change_set(property : AORM::Mapping::AssociationMetadata, value : AORM::Entity) : Nil
+  private def compute_association_changes(assoc : AORM::Mapping::Association, value : AORM::Entity) : Nil
     # TODO: Handle proxies
-    # TODO: Handle non ToOne associations
-    unwrapped_value = [value]
-    target_entity = property.target_entity
-    target_class_metadata = @em.class_metadata target_entity
+    # TODO: Handle PersistentCollections
+
+    unwrapped_value = [value] # TODO: Unwrap collections
+    target_class_metadata = @em.class_metadata assoc.target_entity
 
     unwrapped_value.each_with_index do |entity, idx|
       case self.entity_state(entity, EntityState::New)
       when .new?
-        # TODO: Allow providing cascade option on column
-        @non_cascaded_new_detected_entities[entity] = {property, entity}
+        unless assoc.cascade_persist?
+          # For now just record the details, because this may not be an issue if we later discover another pathway
+          # through the object-graph where cascade-persistence is enabled for this object.
+          #
+          @non_cascaded_new_detected_entities[entity] = {assoc, entity}
+        end
 
         self.persist_new target_class_metadata, entity
         self.compute_change_set target_class_metadata, entity
       when .removed?
-        # TODO: Handle non ToOne associations
+        # TODO: Handle ToMany associations
+        next
       else
         # noop
       end
