@@ -387,9 +387,35 @@ struct UnitOfWorkTest < ASPEC::TestCase
     persister3.inserts.size.should eq 1
   end
 
-  @[Pending]
   def test_previous_detected_illegal_new_non_cascaded_entities_are_cleaned_up : Nil
-    # Requires: cascade validation
+    persister1 = MockEntityPersister.new @em, @em.class_metadata CascadePersistedEntity
+    persister2 = MockEntityPersister.new @em, @em.class_metadata EntityWithNonCascadingAssociation
+    @uow.set_entity_persister CascadePersistedEntity, persister1
+    @uow.set_entity_persister EntityWithNonCascadingAssociation, persister2
+
+    cascade_persisted = CascadePersistedEntity.new
+    non_cascading = EntityWithNonCascadingAssociation.new
+
+    # We explicitly cause the ORM to detect a non-persisted new entity in the
+    # association graph (non_cascaded has no cascade: ["persist"])
+    non_cascading.non_cascaded = cascade_persisted
+
+    @uow.persist non_cascading
+
+    expect_raises(Exception, "new entities found through relationships") do
+      @uow.commit
+    end
+
+    persister1.inserts.should be_empty
+    persister2.inserts.should be_empty
+
+    @uow.clear
+    @uow.persist CascadePersistedEntity.new
+    @uow.commit
+
+    # Persistence operations should just recover normally
+    persister1.inserts.size.should eq 1
+    persister2.inserts.size.should eq 0
   end
 
   @[Pending]
@@ -397,9 +423,14 @@ struct UnitOfWorkTest < ASPEC::TestCase
     # Requires: OptimisticLockException
   end
 
-  @[Pending]
   def test_it_throws_when_looking_up_identifier_for_unknown_entity : Nil
-    # Requires: EntityNotFoundException
+    # Use an entity that hasn't been tracked by the UnitOfWork
+    unknown_entity = EntityWithStringIdentifier.new
+    unknown_entity.id = "test"
+
+    expect_raises(Exception, /Unable to find.*entity identifier associated with the UnitOfWork/) do
+      @uow.entity_identifier unknown_entity
+    end
   end
 
   @[Pending]

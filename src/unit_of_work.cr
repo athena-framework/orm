@@ -646,7 +646,7 @@ class Athena::ORM::UnitOfWork
   end
 
   def entity_identifier(entity : AORM::Entity) : Hash(String, AORM::Mapping::Value)
-    @entity_identifiers[entity]? || raise "no identifier found"
+    @entity_identifiers[entity]? || raise "Unable to find \"#{entity.class.name}\" entity identifier associated with the UnitOfWork"
   end
 
   protected def entity_persister(entity_class : AORM::Entity.class) : AORM::Persisters::Entity::Interface
@@ -881,8 +881,8 @@ class Athena::ORM::UnitOfWork
         unless assoc.cascade_persist?
           # For now just record the details, because this may not be an issue if we later discover another pathway
           # through the object-graph where cascade-persistence is enabled for this object.
-          #
           @non_cascaded_new_detected_entities[entity] = {assoc, entity}
+          next
         end
 
         self.persist_new target_class_metadata, entity
