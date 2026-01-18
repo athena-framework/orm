@@ -121,9 +121,9 @@ class Athena::ORM::UnitOfWork
       #   self.execute_updates @em.class_metadata entity.class
       # end
 
-      # @entity_deletions.each do |entity|
-      #   self.execute_deletions @em.class_metadata entity.class
-      # end
+      @entity_deletions.each do |entity|
+        self.execute_deletions @em.class_metadata entity.class
+      end
     rescue ex : ::Exception
       @em.close
       # TODO: Handle cache persisters
@@ -143,6 +143,10 @@ class Athena::ORM::UnitOfWork
     @entity_insertions
   end
 
+  def scheduled_entity_deletions : Set(AORM::Entity)
+    @entity_deletions
+  end
+
   def assign_post_insert_id(entity : AORM::Entity, id) : Nil
     class_metadata = @em.class_metadata entity.class
     id_field = class_metadata.single_identifier_field_name
@@ -153,6 +157,8 @@ class Athena::ORM::UnitOfWork
     @entity_identifiers[entity] = {id_field => class_metadata.field_info[id_field].create_column_value(id_value).as Mapping::Value}
     @entity_states[entity] = :managed
     @original_entity_data[entity][id_field] = class_metadata.field_info[id_field].create_column_value id_value
+
+    self.add_to_identity_map entity
   end
 
   private def convert_single_field_identifier_to_crystal_value(class_metadata : Mapping::ClassInterface, value : _)
@@ -199,6 +205,8 @@ class Athena::ORM::UnitOfWork
 
       batch.entities.each do |entity|
         unless @entity_identifiers.has_key? entity
+          pp "adding: #{entity}"
+
           self.add_to_entity_identifier_and_entity_map class_metadata, entity
         end
 
@@ -267,30 +275,78 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def execute_deletions(class_metadata : AORM::Mapping::ClassBase) : Nil
-    entity_class = class_metadata.entity_class
-    persister = self.entity_persister class_metadata.entity_class
+  private def execute_deletions(class_metadata : AORM::Mapping::ClassInterface) : Nil
+    entities = self.compute_delete_execution_order
+    # TODO: Handle eventing
 
-    @entity_deletions.each do |entity|
-      next if entity_class != @em.class_metadata(entity.class).entity_class
+    entities.each do |entity|
+      self.remove_from_identity_map entity
+
+      class_metadata = @em.class_metadata entity.class
+      persister = self.entity_persister class_metadata.entity_class
+      # TODO: Handle eventing
 
       persister.delete entity
 
       @entity_deletions.delete entity
       @entity_identifiers.delete entity
-      @entity_states.delete entity
       @original_entity_data.delete entity
+      @entity_states.delete entity
 
-      unless class_metadata.is_identifier_composite?
-        property = class_metadata.property(class_metadata.single_identifier_field_name).not_nil!
-
-        if property.is_a?(AORM::Mapping::FieldMetadata) && property.has_value_generator?
-          property.set_value entity, nil
-        end
+      # This entity after deletion treated as NEW, even if the obtained by a new entity because the old one went out of scope.
+      # @entityStates[entity] = :new
+      unless class_metadata.identifier_natural?
+        class_metadata.field_info[class_metadata.identifier.first].set_value entity, nil
       end
 
-      # TODO: Handle eventing (postRemove)
+      # TODO: Handle eventing
     end
+
+    # TODO: Handle eventing
+  end
+
+  private def compute_delete_execution_order : Array(AORM::Entity)
+    strongly_connected_components = Internal::StronglyConnectedComponents.new
+    sort = Internal::TopologicalSort.new
+
+    @entity_deletions.each do |entity|
+      strongly_connected_components.add_node entity
+      sort.add_node entity
+    end
+
+    # First, consider only "on delete cascade" associations between entities
+    # and find strongly connected groups. Once we delete any one of the entities
+    # in such a group, _all_ of the other entities will be removed as well. So,
+    # we need to treat those groups like a single entity when performing delete
+    # order topological sorting.
+    @entity_deletions.each do |entity|
+      class_metadata = @em.class_metadata entity.class
+
+      # TODO: Handle associations
+    end
+
+    strongly_connected_components.find_strongly_connected_components
+
+    # Now do the actual topological sorting to find the delete order.
+    @entity_deletions.each do |entity|
+      class_metadata = @em.class_metadata entity.class
+
+      # Get the entities representing the SCC
+      entity_component = strongly_connected_components.node_representing_strongly_connected_component entity
+
+      # When $entity is part of a non-trivial strongly connected component group
+      # (a group containing not only those entities alone), make sure we process it _after_ the
+      # entity representing the group.
+      # The dependency direction implies that "$entity depends on $entityComponent
+      # being deleted first". The topological sort will output the depended-upon nodes first.
+      if entity_component != entity
+        sort.add_edge entity, entity_component, false
+      end
+
+      # TODO: Handle associations
+    end
+
+    sort.sort
   end
 
   def persist(entity : AORM::Entity) : Nil
@@ -338,10 +394,9 @@ class Athena::ORM::UnitOfWork
     # TODO: Handle cascade for nested models
 
     case self.entity_state entity
-    in .new?      then return                                 # noop
-    in .removed?  then return                                 # noop
-    in .managed?  then self.schedule_for_delete entity        # TODO: Handle eventing (preRemove)
-    in .detached? then raise "Cannot removed detached entity" # TODO: Make this an actual exception
+    in .new?, .removed? then return                                 # noop
+    in .managed?        then self.schedule_for_delete entity        # TODO: Handle eventing (preRemove)
+    in .detached?       then raise "Cannot removed detached entity" # TODO: Make this an actual exception
     end
   end
 
@@ -586,6 +641,14 @@ class Athena::ORM::UnitOfWork
     class_metadata = @em.class_metadata entity.class
     id_hash = self.id_hash_of_entity entity
 
+    # p({
+    #   entity:          entity,
+    #   in_identity_map: @identity_map.has_key?(class_metadata.entity_class) && @identity_map[class_metadata.entity_class].has_key?(id_hash),
+    #   identity_map:    @identity_map,
+    #   id_hash:         id_hash,
+    #   entity_class:    class_metadata.entity_class,
+    # })
+
     @identity_map.has_key?(class_metadata.entity_class) && @identity_map[class_metadata.entity_class].has_key?(id_hash)
   end
 
@@ -596,7 +659,11 @@ class Athena::ORM::UnitOfWork
     # TODO: Use proper exception type
     raise "Entity has no identity" if id_hash.empty?
 
-    return true if @identity_map.delete class_metadata.entity_class
+    if (identity = @identity_map[class_metadata.entity_class]?) && identity.has_key?(id_hash)
+      identity.delete id_hash
+
+      return true
+    end
 
     false
   end

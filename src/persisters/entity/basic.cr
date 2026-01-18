@@ -212,6 +212,59 @@ struct Athena::ORM::Persisters::Entity::Basic
     columns
   end
 
+  def delete(entity : AORM::Entity) : Bool
+    identifier = @em.unit_of_work.entity_identifier entity
+    table_name = @quote_strategy.table_name @class_metadata, @platform
+    id_columns = @quote_strategy.identifier_column_names @class_metadata, @platform
+    id = Hash.zip id_columns, identifier.values
+    types = self.class_identifier_types @class_metadata
+
+    self.delete_join_table_records identifier, types
+
+    values, conditions = self.delete_condition_sql identifier.transform_values &.value
+
+    sql = String.build do |io|
+      io << "DELETE FROM " << table_name
+
+      unless conditions.empty?
+        io << " WHERE "
+        conditions.join io, " AND "
+      end
+    end
+
+    !@connection.exec(sql, args: values).rows_affected.zero?
+  end
+
+  private def delete_condition_sql(criteria : Hash)
+    values = [] of DB::Any
+    conditions = [] of String
+
+    criteria.each do |k, v|
+      if v.nil?
+        conditions << "#{k} IS NULL"
+
+        next
+      end
+
+      values << v
+      conditions << "#{k} = ?"
+    end
+
+    {values, conditions}
+  end
+
+  protected def delete_join_table_records(identifier : Hash, types : Array(String)) : Nil
+    # TODO: Handle associations
+  end
+
+  protected def class_identifier_types(class_metadata : Mapping::ClassInterface) : Array(String)
+    class_metadata.identifier.map do |field_name|
+      types = PersisterHelper.type_of_field field_name, class_metadata, @em
+
+      types[0]
+    end
+  end
+
   protected def prepare_insert_data(entity : AORM::Entity) : Hash(String, Hash(String, DB::Any))
     self.prepare_update_data entity, true
   end

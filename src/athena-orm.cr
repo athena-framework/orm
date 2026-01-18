@@ -112,40 +112,28 @@ em = AORM::EntityManager.new connection
 # pp em.class_metadata Setting
 # u = em.find! User, 1
 
-nu = User.new "Bob"
-
 # ns = Setting.new "blue"
 # ns.user = nu
 # nu.setting = ns
 
-em.persist nu
+# em.persist bob = User.new "Bob"
+# em.persist bill = User.new "Bill"
+# em.persist jill = User.new "Jill"
 
-pp nu
-em.flush
-pp nu
-
-# em.persist ns
-
-# em.flush
-
-# pp nu
-
-# pp typeof(s)
-
-# u = em.find! User, 2
-# s = em.find! Setting, 1
-
-# pp typeof(u)
-# pp typeof(s)
-
-# u.not_nil!.alive = false
+# bob = em.find! User, 31
+# em.remove bob
 
 # em.flush
 
-# pp u
-# pp em.find User, 1load
-# pp em.find User, 1
-# pp em.find User, 1
+# pp em.unit_of_work
+
+# em.remove bob
+# em.remove bill
+# em.remove jill
+
+# pp em.unit_of_work.scheduled_entity_deletions
+
+# em.flush
 
 # repo = em.repository User
 

@@ -3,20 +3,36 @@ require "./quote_strategy_interface"
 struct Athena::ORM::Mapping::DefaultQuoteStrategy
   include Athena::ORM::Mapping::QuoteStrategyInterface
 
-  def table_name(metadata : Mapping::ClassInterface, platform : Platforms::Platform) : String
-    table_name = metadata.table.name.not_nil!
+  def identifier_column_names(class_metadata : Mapping::ClassInterface, platform : Platforms::Platform) : Array(String)
+    quoted_column_names = [] of String
+
+    class_metadata.identifier.each do |field_name|
+      if class_metadata.field_mappings.has_key?(field_name)
+        quoted_column_names << self.column_name field_name, class_metadata, platform
+
+        next
+      end
+
+      # TODO: Handle associations
+    end
+
+    quoted_column_names
+  end
+
+  def table_name(class_metadata : Mapping::ClassInterface, platform : Platforms::Platform) : String
+    table_name = class_metadata.table.name.not_nil!
 
     # TODO: Handle schema
 
-    metadata.table.quoted ? platform.quote_single_identifier(table_name) : table_name
+    class_metadata.table.quoted ? platform.quote_single_identifier(table_name) : table_name
   end
 
   def join_column_name(join_column : Mapping::JoinColumn, class_metadata : Mapping::ClassInterface, platform : Platforms::Platform) : String
     join_column.quoted ? platform.quote_single_identifier(join_column.name) : join_column.name
   end
 
-  def column_name(field_name : String, metadata : Mapping::ClassInterface, platform : Platforms::Platform) : String
-    fm = metadata.field_mappings[field_name]
+  def column_name(field_name : String, class_metadata : Mapping::ClassInterface, platform : Platforms::Platform) : String
+    fm = class_metadata.field_mappings[field_name]
 
     fm.quoted ? platform.quote_single_identifier(fm.column_name) : fm.column_name
   end
