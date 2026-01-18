@@ -90,6 +90,23 @@ struct UnitOfWorkTest < ASPEC::TestCase
   end
 
   def test_multiple_inserts_are_batched_in_the_persister : Nil
+    user_persister = MockEntityPersister.new @em, @em.class_metadata Country
+    @uow.set_entity_persister Country, user_persister
+
+    country1 = Country.new
+    country1.country = "Italy"
+    country2 = Country.new
+    country2.country = "Germany"
+
+    @uow.persist country1
+    @uow.persist country2
+    @uow.commit
+
+    user_persister.inserts.size.should eq 2
+    user_persister.execute_insert_call_count.should eq 1
+  end
+
+  def test_cascaded_identity_column_insert : Nil
     user_persister = MockEntityPersister.new @em, @em.class_metadata ForumUser
     @uow.set_entity_persister ForumUser, user_persister
     user_persister.mock_id_generator = :identity
@@ -118,27 +135,31 @@ struct UnitOfWorkTest < ASPEC::TestCase
   end
 
   @[Pending]
-  def test_cascaded_identity_column_insert : Nil
-    # Requires: cascade persist, ForumUser.avatar OneToOne association
-  end
-
-  @[Pending]
   def test_get_entity_state_on_versioned_entity_with_assigned_identifier : Nil
     # Requires: @[AORMA::Version] annotation support
   end
 
   def test_get_entity_state_with_assigned_identity : Nil
-    # Set up mock persister to avoid DB lookup
-    country_persister = MockEntityPersister.new @em, @em.class_metadata Country
-    @uow.set_entity_persister Country, country_persister
+    persister = MockEntityPersister.new @em, @em.class_metadata CmsPhonenumber
+    @uow.set_entity_persister CmsPhonenumber, persister
 
-    country = Country.new
-    country.country = "de"
+    ph = CmsPhonenumber.new
+    ph.phonenumber = "12345"
 
-    @uow.entity_state(country).should eq AORM::UnitOfWork::EntityState::New
+    @uow.entity_state(ph).should eq AORM::UnitOfWork::EntityState::New
+    persister.exists_called?.should be_true
 
-    @uow.persist country
-    @uow.entity_state(country).should eq AORM::UnitOfWork::EntityState::Managed
+    persister.reset
+
+    # exists check should be skipped if entity is already managed
+    @uow.register_managed ph, {"phonenumber" => "12345"}, {} of String => NoReturn
+    @uow.entity_state(ph).should eq AORM::UnitOfWork::EntityState::Managed
+    persister.exists_called?.should be_false
+
+    ph2 = CmsPhonenumber.new
+    ph2.phonenumber = "12345"
+    @uow.entity_state(ph2).should eq AORM::UnitOfWork::EntityState::Detached
+    persister.exists_called?.should be_false
   end
 
   @[Pending]

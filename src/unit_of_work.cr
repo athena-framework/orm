@@ -899,9 +899,14 @@ class Athena::ORM::UnitOfWork
   def register_managed(entity : AORM::Entity, id : Hash(String, _), data : Hash(String, _)) : Nil
     class_metadata = @em.class_metadata(entity.class)
 
-    @entity_identifiers[entity] = id.transform_values { |v, k| class_metadata.field_info[k].create_column_value v }
+    @entity_identifiers[entity] = id.transform_values { |v, k| class_metadata.field_info[k].create_column_value(v).as Mapping::Value }
     @entity_states[entity] = :managed
-    @original_entity_data[entity] = data.transform_values { |v, k| class_metadata.field_info[k].create_column_value v }
+
+    @original_entity_data[entity] = if data.empty?
+                                      Hash(String, Mapping::Value).new
+                                    else
+                                      data.transform_values { |v, k| class_metadata.field_info[k].create_column_value(v).as Mapping::Value }
+                                    end
     self.add_to_identity_map(entity)
   end
 

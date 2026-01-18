@@ -73,7 +73,7 @@ class Athena::ORM::Mapping::Class(T)
       raise "BUG: Invoked wrong overload"
     end
 
-    def create_column_value(entity : AORM::Entity) : Mapping::ColumnValue(IVarType)
+    def create_column_value(entity : AORM::Entity) : Mapping::Value
       Mapping::ColumnValue(IVarType).new @name, self.get_value(entity)
     end
 

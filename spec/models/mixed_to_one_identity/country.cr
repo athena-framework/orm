@@ -1,7 +1,6 @@
 @[AORMA::Entity]
-@[AORMA::Table(name: "countries")]
 class Country < AORM::Entity
-  @[AORMA::Column]
+  @[AORMA::Column(length: 255)]
   @[AORMA::ID]
   @[AORMA::GeneratedValue(strategy: :none)]
   property! country : String
