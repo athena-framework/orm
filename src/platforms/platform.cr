@@ -7,7 +7,7 @@ abstract class Athena::ORM::Platforms::Platform
     from_clause
   end
 
-  protected def modify_limit_query(sql : String, limit : Int?, offset : Int = 0) : String
+  def modify_limit_query(sql : String, limit : Int?, offset : Int = 0) : String
     if offset < 0
       raise "Offset must be a positive integer or zero, #{offset} given."
     end

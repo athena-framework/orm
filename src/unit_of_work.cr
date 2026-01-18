@@ -217,8 +217,6 @@ class Athena::ORM::UnitOfWork
 
       batch.entities.each do |entity|
         unless @entity_identifiers.has_key? entity
-          pp "adding: #{entity}"
-
           self.add_to_entity_identifier_and_entity_map class_metadata, entity
         end
 
@@ -445,7 +443,12 @@ class Athena::ORM::UnitOfWork
     @entity_insertions.includes? entity
   end
 
-  private def schedule_for_delete(entity : AORM::Entity) : Nil
+  def is_scheduled_for_delete?(entity : AORM::Entity) : Bool
+    @entity_deletions.includes? entity
+  end
+
+  # :nodoc:
+  def schedule_for_delete(entity : AORM::Entity) : Nil
     if @entity_insertions.includes? entity
       if self.is_in_identity_map entity
         self.remove_from_identity_map entity

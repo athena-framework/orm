@@ -1,6 +1,6 @@
 require "./interface"
 
-struct Athena::ORM::Persisters::Entity::Basic
+class Athena::ORM::Persisters::Entity::Basic
   include Athena::ORM::Persisters::Entity::Interface
 
   COMPARISON_MAP = {

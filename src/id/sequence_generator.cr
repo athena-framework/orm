@@ -11,7 +11,11 @@ struct Athena::ORM::ID::SequenceGenerator < Athena::ORM::ID::AbstractGenerator
       connection = em.connection
       sql = connection.database_platform.sequence_next_value_sql @sequence_name
 
-      @next_value = connection.scalar(sql).as(Int64)
+      @next_value = case id = connection.scalar(sql)
+                    when Int then id.to_i64
+                    else
+                      raise "BUG: Invalid number"
+                    end
       @max_value = @next_value + @allocation_size
     end
 
