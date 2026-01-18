@@ -143,6 +143,25 @@ class Athena::ORM::UnitOfWork
     @entity_insertions
   end
 
+  def assign_post_insert_id(entity : AORM::Entity, id) : Nil
+    class_metadata = @em.class_metadata entity.class
+    id_field = class_metadata.single_identifier_field_name
+    id_value = self.convert_single_field_identifier_to_crystal_value class_metadata, id
+
+    class_metadata.field_info[id_field].set_value entity, id_value
+
+    @entity_identifiers[entity] = {id_field => class_metadata.field_info[id_field].create_column_value(id_value).as Mapping::Value}
+    @entity_states[entity] = :managed
+    @original_entity_data[entity][id_field] = class_metadata.field_info[id_field].create_column_value id_value
+  end
+
+  private def convert_single_field_identifier_to_crystal_value(class_metadata : Mapping::ClassInterface, value : _)
+    @em.connection.convert_to_crystal_value(
+      value,
+      class_metadata.type_of_field class_metadata.single_identifier_field_name
+    )
+  end
+
   private def assert_that_there_are_no_unintentionally_non_persisted_associations : Nil
     # @non_cascaded_new_detected_entities contains entities discovered via association
     # traversal that were NEW at the time. If cascade were enabled, these would be
@@ -346,8 +365,12 @@ class Athena::ORM::UnitOfWork
 
   private def schedule_for_insert(entity : AORM::Entity) : Nil
     # TODO: Use proper exception classes for these
+    raise "Dirty entity cannot be scheduled for insertion" if @entity_updates.includes? entity
     raise "Entity scheduled for deletion" if @entity_deletions.includes? entity
+    raise "scheduled insert for managed entity" if @original_entity_data.has_key?(entity) && !@entity_insertions.includes?(entity)
     raise "Entity already scheduled for insertion" unless @entity_insertions.add? entity
+
+    @entity_insertions << entity
 
     if @entity_identifiers.has_key? entity
       self.add_to_identity_map entity
@@ -667,7 +690,18 @@ class Athena::ORM::UnitOfWork
       # Entity is NEW or MANAGED but not yet fully persisted (only has an id).
       # These result in an INSERT
 
-      # TODO: Implement this
+      @original_entity_data[entity] = actual_data.transform_values { |v, k| class_metadata.field_info[k].create_column_value v }
+      change_set = Hash(String, Change).new
+
+      actual_data.each do |prop_name, actual_value|
+        unless assoc = class_metadata.association_mappings[prop_name]?
+          change_set[prop_name] = class_metadata.field_info[prop_name].create_change nil, actual_value
+
+          next
+        end
+      end
+
+      @entity_change_sets[entity] = change_set
     end
 
     # TODO: Handle changes in associated data

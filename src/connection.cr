@@ -11,6 +11,10 @@ module Athena::ORM
       @platform
     end
 
+    def convert_to_crystal_value(value : _, type : String?)
+      Types::Type.get_type(type.not_nil!).to_crystal_value(value, self.database_platform)
+    end
+
     def initialize(@wrapped : DB::Connection)
       @platform = @wrapped.database_platform
     end

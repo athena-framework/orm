@@ -120,9 +120,9 @@ nu = User.new "Bob"
 
 em.persist nu
 
-pp em.unit_of_work.scheduled_entity_insertions
-
+pp nu
 em.flush
+pp nu
 
 # em.persist ns
 

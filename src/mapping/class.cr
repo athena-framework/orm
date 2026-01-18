@@ -83,7 +83,7 @@ class Athena::ORM::Mapping::Class(T)
 
     def create_change(old_value : IVarType?, new_value : IVarType) : Athena::ORM::UnitOfWork::Change
       Athena::ORM::UnitOfWork::Change.new(
-        self.create_column_value(old_value),
+        old_value ? self.create_column_value(old_value) : nil,
         self.create_column_value(new_value),
       )
     end
@@ -99,6 +99,16 @@ class Athena::ORM::Mapping::Class(T)
     end
 
     def get_value(entity : _) : NoReturn
+      raise "BUG: Invoked wrong overload"
+    end
+
+    def set_value(entity : OwningEntity, value : IVarType) : Nil
+      {% begin %}
+        pointerof(entity.@{{OwningEntity.instance_vars[Idx].name.id}}).value = value
+      {% end %}
+    end
+
+    def set_value(entity : _, value : _) : Nil
       raise "BUG: Invoked wrong overload"
     end
   end
@@ -130,6 +140,7 @@ class Athena::ORM::Mapping::Class(T)
   getter contains_foreign_identifier : Bool = false
   getter contains_enum_identifier : Bool = false
   getter is_identifier_composite : Bool = false
+  getter? requires_fetch_after_change : Bool = false
 
   def initialize(
     @entity_class : AORM::Entity.class = T,
@@ -163,6 +174,10 @@ class Athena::ORM::Mapping::Class(T)
         instance
       {% end %}
     {% end %}
+  end
+
+  def type_of_field(field_name : String) : String?
+    (fm = @field_mappings[field_name]?) ? fm.type : nil
   end
 
   def single_identifier_field_name : String

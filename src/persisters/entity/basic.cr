@@ -101,13 +101,27 @@ struct Athena::ORM::Persisters::Entity::Basic
     is_post_insert_id = id_generator.post_insert?
 
     statement = @connection.build self.insert_sql
+    table_name = @class_metadata.table_name
 
     @queued_inserts.each do |entity|
       insert_data = self.prepare_insert_data entity
 
-      pp insert_data
+      statement.exec args: insert_data[table_name].values
 
-      pp insert_data
+      if is_post_insert_id
+        generated_id = id_generator.generate @em, entity
+        id = {@class_metadata.identifier.first => generated_id}
+
+        uow.assign_post_insert_id entity, generated_id
+      else
+        id = @class_metadata.identifier_values entity
+      end
+
+      if @class_metadata.requires_fetch_after_change?
+        raise "TODO"
+      end
+
+      @queued_inserts.delete entity
     end
   end
 

@@ -55,7 +55,13 @@ module Athena::ORM::Types
     abstract def sql_declaration(platform : AORM::Platforms::Platform) : ::String
 
     # Extracts/converts a value from *rs* into a Crystal value
-    abstract def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform)
+    def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform)
+      self.to_crystal_value rs.read
+    end
+
+    def to_crystal_value(value : _, platform : Platforms::Platform)
+      value
+    end
 
     # Crystal value to its DB representation
     def to_db(value : _, platform : AORM::Platforms::Platform)
