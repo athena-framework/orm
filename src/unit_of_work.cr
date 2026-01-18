@@ -159,6 +159,10 @@ class Athena::ORM::UnitOfWork
     @entity_deletions
   end
 
+  def scheduled_entity_updates : Set(AORM::Entity)
+    @entity_updates
+  end
+
   def assign_post_insert_id(entity : AORM::Entity, id) : Nil
     class_metadata = @em.class_metadata entity.class
     id_field = class_metadata.single_identifier_field_name
@@ -272,7 +276,7 @@ class Athena::ORM::UnitOfWork
       persister = self.entity_persister class_metadata.entity_class
       # TODO: Handle eventing (preUpdate)
 
-      unless @entity_change_sets[entity].empty?
+      unless @entity_change_sets[entity]?.try &.empty?
         persister.update entity
       end
 

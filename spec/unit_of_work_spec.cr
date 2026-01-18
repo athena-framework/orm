@@ -162,10 +162,21 @@ struct UnitOfWorkTest < ASPEC::TestCase
     persister.exists_called?.should be_false
   end
 
-  @[Pending]
   def test_no_undefined_index_notice_on_schedule_for_update_without_changes : Nil
-    # Requires: schedule_for_update behavior verification for entities without changes
-    # The test verifies no index errors occur when scheduling update for unchanged entity
+    user_persister = MockEntityPersister.new @em, @em.class_metadata ForumUser
+    @uow.set_entity_persister ForumUser, user_persister
+    user_persister.mock_id_generator = :identity
+
+    user = ForumUser.new
+    user.username = "Fred"
+    @uow.persist user
+    @uow.commit
+
+    # Schedule for update without changes
+    @uow.schedule_for_update user
+    @uow.scheduled_entity_updates.should_not be_empty
+    @uow.commit
+    @uow.scheduled_entity_updates.should be_empty
   end
 
   @[Pending]
