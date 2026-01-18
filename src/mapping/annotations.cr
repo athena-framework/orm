@@ -15,6 +15,17 @@ module Athena::ORM::Mapping::Annotations
     index : Bool = false
   # options : Hash(String, String)
 
+  protected record JoinColumn,
+    name : String? = nil,
+    referenced_column_name : String? = nil,
+    deferable : Bool = false,
+    unique : Bool = false,
+    nullable : Bool = false,
+    column_definition : String? = nil,
+    field_name : String? = nil
+  # on_delete : Any
+  # options : Hash(String, String)
+
   protected record ID
   protected record MappedSuperclass, entity_class : AORM::Entity.class
   protected record Embeddable

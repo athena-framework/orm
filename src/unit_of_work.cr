@@ -21,11 +21,11 @@ class Athena::ORM::UnitOfWork
       batch_index = -1
 
       entities.each do |entity|
-        entity_matadata = em.class_metadata entity.class
+        entity_metadata = em.class_metadata entity.class
 
-        if current_metadata.try(&.entity_class) != entity_matadata.entity_class || (!entity_matadata.id_generator.is_a?(ID::AssignedGenerator))
-          current_metadata = entity_matadata
-          batches << new(entity_matadata, [entity])
+        if current_metadata.try(&.entity_class) != entity_metadata.entity_class || (!entity_metadata.id_generator.is_a?(ID::AssignedGenerator))
+          current_metadata = entity_metadata
+          batches << new(entity_metadata, [entity])
           batch_index += 1
 
           next
@@ -384,7 +384,7 @@ class Athena::ORM::UnitOfWork
     in .detached? then raise "detached entity cannot be persisted"
     end
 
-    # TODO: Handle cascade for nested entities
+    self.cascade_persist entity, visited
   end
 
   def remove(entity : AORM::Entity) : Nil
@@ -436,6 +436,27 @@ class Athena::ORM::UnitOfWork
 
     unless @entity_insertions.includes? entity
       self.schedule_for_insert entity
+    end
+  end
+
+  private def cascade_persist(entity : AORM::Entity, visited : Set(AORM::Entity)) : Nil
+    # TODO: Need to know how to skip uninitialized objects?
+    # Maybe when we introduce `Ghost`
+
+    class_metadata = @em.class_metadata entity.class
+
+    class_metadata.association_mappings.select { |_, v| v.cascade_persist? }.each_value do |assoc|
+      related_entities = class_metadata.field_info[assoc.field_name].get_value entity
+
+      # TODO: Handle Collection/PersistentCollection
+      if related_entities.is_a? Enumerable
+      elsif !related_entities.nil?
+        if related_entities.is_a? AORM::Entity
+          self.persist related_entities, visited
+        else
+          raise "BUG: invalid association"
+        end
+      end
     end
   end
 

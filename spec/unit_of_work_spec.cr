@@ -89,11 +89,32 @@ struct UnitOfWorkTest < ASPEC::TestCase
     user.id.should be_a Int32
   end
 
-  @[Pending]
   def test_multiple_inserts_are_batched_in_the_persister : Nil
-    # Crystal ORM batches by entity type, but identity column entities each get
-    # their own batch (since IDs must be generated one at a time). This differs
-    # from Doctrine's behavior.
+    user_persister = MockEntityPersister.new @em, @em.class_metadata ForumUser
+    @uow.set_entity_persister ForumUser, user_persister
+    user_persister.mock_id_generator = :identity
+
+    avatar_persister = MockEntityPersister.new @em, @em.class_metadata ForumUser
+    @uow.set_entity_persister ForumAvatar, avatar_persister
+    avatar_persister.mock_id_generator = :identity
+
+    user = ForumUser.new
+    user.username = "Fred"
+    avatar = ForumAvatar.new
+    user.avatar = avatar
+    @uow.persist user
+    @uow.commit
+
+    user.id.is_a? Number
+    avatar.id.is_a? Number
+
+    user_persister.inserts.size.should eq 1
+    user_persister.updates.size.should eq 0
+    user_persister.deletes.size.should eq 0
+
+    avatar_persister.inserts.size.should eq 1
+    avatar_persister.updates.size.should eq 0
+    avatar_persister.deletes.size.should eq 0
   end
 
   @[Pending]

@@ -271,7 +271,14 @@ class Athena::ORM::Persisters::Entity::Basic
 
     @class_metadata.identifier.each do |id_field|
       unless assoc = @class_metadata.association_mappings[id_field]?
-        params << identifier[id_field].value
+        id_value = identifier[id_field].value
+
+        params << if !id_value.is_a?(AORM::Entity)
+          id_value
+        else
+          raise "BUG: non-association AORM::Entity value"
+        end
+
         where << @quote_strategy.column_name id_field, @class_metadata, @platform
 
         next
@@ -334,6 +341,10 @@ class Athena::ORM::Persisters::Entity::Basic
         next
       end
 
+      if value.is_a? AORM::Entity
+        raise "BUG: non-association AORM::Entity value"
+      end
+
       values << value
       conditions << "#{k} = ?"
     end
@@ -384,7 +395,11 @@ class Athena::ORM::Persisters::Entity::Basic
         end
 
         @column_types[column_name] = fm.type
-        result[self.owning_table field][column_name] = new_val
+        if !new_val.is_a?(AORM::Entity)
+          result[self.owning_table field][column_name] = new_val
+        else
+          raise "BUG: non-association AORM::Entity value"
+        end
 
         next
       end

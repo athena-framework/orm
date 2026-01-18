@@ -12,6 +12,7 @@ abstract class Athena::ORM::Mapping::InverseSide < Athena::ORM::Mapping::Associa
       mapping.id,
       mapping.orphan_removal,
       mapping.unique,
+      mapping.cascade,
     )
   end
 
@@ -27,7 +28,8 @@ abstract class Athena::ORM::Mapping::InverseSide < Athena::ORM::Mapping::Associa
     id : Bool? = nil,
     orphan_removal : Bool? = false,
     unique : Bool? = nil,
+    cascade : Array(String)? = nil,
   )
-    super field_name, source_entity, target_entity, fetch_mode, id, orphan_removal || false, unique
+    super field_name, source_entity, target_entity, fetch_mode, id, orphan_removal || false, unique, cascade
   end
 end

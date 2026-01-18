@@ -8,4 +8,5 @@ module Athena::ORM::Annotations
   annotation OneToOne; end
   annotation MappedSuperclass; end
   annotation Embeddable; end
+  annotation JoinColumn; end
 end

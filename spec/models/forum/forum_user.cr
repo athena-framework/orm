@@ -8,4 +8,8 @@ class ForumUser < AORM::Entity
 
   @[AORMA::Column(length: 50)]
   property! username : String
+
+  @[AORMA::OneToOne(target_entity: ForumAvatar, cascade: ["persist"])]
+  @[AORMA::JoinColumn(name: "avatar_id", referenced_column_id: "id")]
+  property! avatar : ForumAvatar
 end

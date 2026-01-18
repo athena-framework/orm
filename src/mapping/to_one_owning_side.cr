@@ -82,17 +82,20 @@ abstract class Athena::ORM::Mapping::ToOneOwningSide < Athena::ORM::Mapping::Own
       mapping.field_name,
       mapping.source_entity.not_nil!,
       mapping.target_entity.not_nil!,
-      mapping.inversed_by.not_nil!,
+      mapping.inversed_by,
       mapping.fetch_mode,
       mapping.id,
       mapping.orphan_removal,
       mapping.unique,
+      mapping.cascade,
     )
 
     # TODO: Handle mapping.join_columns
 
     if instance.orphan_removal?
-      # TODO: Handle cascade remove
+      unless instance.cascade_remove?
+        instance.cascade << "remove"
+      end
 
       instance.unique = nil
     end
@@ -110,12 +113,13 @@ abstract class Athena::ORM::Mapping::ToOneOwningSide < Athena::ORM::Mapping::Own
     field_name : String,
     source_entity : AORM::Entity.class,
     target_entity : AORM::Entity.class,
-    inversed_by : String,
+    inversed_by : String? = nil,
     fetch_mode : FetchMode? = nil,
     id : Bool? = nil,
     orphan_removal : Bool? = false,
     unique : Bool? = nil,
+    cascade : Array(String)? = nil,
   )
-    super field_name, source_entity, target_entity, inversed_by, fetch_mode, id, orphan_removal || false, unique
+    super field_name, source_entity, target_entity, inversed_by, fetch_mode, id, orphan_removal || false, unique, cascade
   end
 end

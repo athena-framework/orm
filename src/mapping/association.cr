@@ -10,6 +10,7 @@ abstract class Athena::ORM::Mapping::Association
       mapping.id,
       mapping.orphan_removal,
       mapping.unique,
+      mapping.cascade,
     )
   end
 
@@ -34,6 +35,8 @@ abstract class Athena::ORM::Mapping::Association
   # Whether the association should be unique.
   property? unique : Bool?
 
+  getter cascade : Array(String)
+
   def initialize(
     @field_name : String,
     @source_entity : AORM::Entity.class,
@@ -42,7 +45,9 @@ abstract class Athena::ORM::Mapping::Association
     @id : Bool? = nil,
     @orphan_removal : Bool? = false,
     @unique : Bool? = nil,
+    cascade : Array(String)? = nil,
   )
+    @cascade = cascade || [] of String
   end
 
   def owning_side? : Bool
@@ -59,5 +64,13 @@ abstract class Athena::ORM::Mapping::Association
 
   def to_one_owning_side? : Bool
     self.to_one? && self.owning_side?
+  end
+
+  def cascade_persist? : Bool
+    @cascade.includes? "persist"
+  end
+
+  def cascade_remove? : Bool
+    @cascade.includes? "remove"
   end
 end
