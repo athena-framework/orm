@@ -5,14 +5,11 @@ class Athena::ORM::Mapping::ClassFactory < Athena::ORM::Mapping::AbstractClassFa
     self.entity_manager.connection.database_platform
   end
 
-  def initialize
-    @driver = Driver::Annotation.new
-  end
+  private getter driver : Driver::Annotation { Driver::Annotation.new }
 
   private def load(metadata : ClassInterface, parent_metadata : ClassInterface?, root_entity_found : Bool, non_superclass_parents : Array(String)) : Nil
     # TODO: Handle parent
-
-    @driver.load_metadata_for_entity metadata
+    # Note: Annotation loading is done in Entity.create_class_metadata
 
     if parent_metadata && root_entity_found
       # TODO: Inherit ID generator
@@ -68,9 +65,5 @@ class Athena::ORM::Mapping::ClassFactory < Athena::ORM::Mapping::AbstractClassFa
     # TODO: Handle non-identity strategies
 
     GeneratedValueStrategy::IDENTITY
-  end
-
-  private def new_class_metadata_instance(entity_class : T.class) : ClassInterface forall T
-    Class(T).new entity_class
   end
 end

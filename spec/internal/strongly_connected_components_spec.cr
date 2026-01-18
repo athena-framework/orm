@@ -1,6 +1,11 @@
 require "../spec_helper"
 
-private class TestEntity < AORM::Entity
+@[AORMA::Entity]
+class TestEntity < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id : Int32 = 0
 end
 
 describe Athena::ORM::Internal::StronglyConnectedComponents do

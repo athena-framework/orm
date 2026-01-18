@@ -15,13 +15,15 @@ abstract class Athena::ORM::Mapping::AbstractClassFactory
     @@loaded_metadata[entity_class]
   end
 
-  private abstract def new_class_metadata_instance(entity_class : AORM::Entity.class) : ClassInterface
+  private abstract def driver : Driver::Annotation
   private abstract def load(metadata : ClassInterface, parent_metadata : ClassInterface?, root_entity_found : Bool, non_superclass_parents : Array(String)) : Nil
 
   private def load(entity_class : AORM::Entity.class) : Nil
     # TODO: Handle loading parent types
 
-    metadata = self.new_class_metadata_instance entity_class
+    # Each entity subclass defines create_class_metadata via macro inherited,
+    # which preserves the specific type T for annotation processing
+    metadata = entity_class.create_class_metadata(self.driver)
 
     self.load metadata, nil, false, [] of String
 
