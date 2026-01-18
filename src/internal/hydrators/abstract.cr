@@ -1,4 +1,4 @@
-abstract class Athena::ORM::Hydrators::Abstract
+abstract class Athena::ORM::Internal::Hydrators::Abstract
   # Column info cache structure
   private record ColumnInfo, type : AORM::Types::Type, field_name : String, identifier : Bool
 

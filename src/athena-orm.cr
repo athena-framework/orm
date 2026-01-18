@@ -6,7 +6,6 @@ require "./internal/**"
 require "./id/*"
 require "./mapping/annotations"
 require "./mapping/**"
-require "./hydrators/*"
 require "./persisters/entity/*"
 require "./platforms/*"
 require "./sql/parser"
@@ -110,7 +109,13 @@ em = AORM::EntityManager.new connection
 # pp md.id_generator.generate em
 
 # pp em.class_metadata Setting
-# u = em.find! User, 1
+u = em.find! User, 1
+pp u
+
+u.name = "Fred 2"
+
+em.flush
+pp u
 
 # ns = Setting.new "blue"
 # ns.user = nu

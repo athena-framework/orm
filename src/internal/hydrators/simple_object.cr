@@ -1,4 +1,4 @@
-class Athena::ORM::Hydrators::SimpleObject < Athena::ORM::Hydrators::Abstract
+class Athena::ORM::Internal::Hydrators::SimpleObject < Athena::ORM::Internal::Hydrators::Abstract
   protected def hydrate_all_data : Array(AORM::Entity)
     result = [] of AORM::Entity
 

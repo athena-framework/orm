@@ -135,10 +135,10 @@ class Athena::ORM::EntityManager
     @closed = true
   end
 
-  def hydrator(mode : HydrationMode) : AORM::Hydrators::Abstract
+  def hydrator(mode : HydrationMode) : AORM::Internal::Hydrators::Abstract
     case mode
-    in .object?        then AORM::Hydrators::Object.new self
-    in .simple_object? then AORM::Hydrators::SimpleObject.new self
+    in .object?        then AORM::Internal::Hydrators::Object.new self
+    in .simple_object? then AORM::Internal::Hydrators::SimpleObject.new self
     end
   end
 
