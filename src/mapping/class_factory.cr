@@ -30,6 +30,14 @@ class Athena::ORM::Mapping::ClassFactory < Athena::ORM::Mapping::AbstractClassFa
     self.validate_runtime_metadata metadata, parent_metadata
   end
 
+  def owning_side(assoc : Mapping::OwningSide) : Mapping::OwningSide
+    assoc
+  end
+
+  def owning_side(assoc : Mapping::InverseSide) : Mapping::OwningSide
+    self.metadata(assoc.target_entity).association_mappings[assoc.mapped_by].as Mapping::OwningSide
+  end
+
   private def validate_runtime_metadata(metadata : ClassInterface, parent_metadata : ClassInterface?) : Nil
     # TODO: Validate stuff
   end

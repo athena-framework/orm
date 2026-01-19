@@ -63,6 +63,24 @@ class Athena::ORM::Mapping::Class(T)
       mapper.validate_and_complete(mapping, self) # self has concrete type here
     end
 
+    def inject_collection(entity : OwningEntity, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
+      {% if IVarType <= Athena::ORM::Collection %}
+        {% collection_element_type = OwningEntity.instance_vars[Idx].default_value.receiver.type_vars.first %}
+        p_coll = AORM::PersistentCollection({{collection_element_type}}).new em, metadata, AORM::ArrayCollection({{collection_element_type}}).new
+        p_coll.set_owner entity, assoc
+        p_coll.initialized = false
+
+        self.set_value entity, p_coll
+        p_coll
+      {% else %}
+        raise "BUG: Didn't set collection"
+      {% end %}
+    end
+
+    def inject_collection(entity : _, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
+      raise "BUG: Invoked wrong overload"
+    end
+
     def create_column_value(value : Mapping::Value) : Mapping::Value
       value
     end
@@ -165,26 +183,23 @@ class Athena::ORM::Mapping::Class(T)
     {% end %}
   end
 
-  def new_instance(data : Hash(String, DB::Any?)) : AORM::Entity
+  def new_instance(data : Hash(String, _)) : AORM::Entity
     {% begin %}
       {% if T.abstract? %}
         raise "Cannot instantiate abstract entity {{T}}"
       {% else %}
         instance = T.allocate
         {% for ivar in T.instance_vars %}
+          # Extracts the first non-nilable type from a union. `String?` => `String`
           {% ivar_base_type = ivar.type.nilable? ? ivar.type.union_types.reject(&.nilable?).first : ivar.type %}
-          {% is_collection = ivar_base_type.name.starts_with?("Athena::ORM::PersistentCollection") || ivar_base_type.name.starts_with?("Athena::ORM::ArrayCollection") %}
-          {% is_entity = ivar_base_type < AORM::Entity %}
-          {% unless is_collection || is_entity %}
-            if data.has_key?({{ ivar.name.stringify }})
-              raw = data[{{ ivar.name.stringify }}]
-              {% if ivar.type.nilable? %}
-                pointerof(instance.@{{ ivar.id }}).value = raw.as({{ ivar.type }})
-              {% else %}
-                pointerof(instance.@{{ ivar.id }}).value = raw.not_nil!.as({{ ivar.type }})
-              {% end %}
-            end
-          {% end %}
+
+          # {% is_collection = ivar_base_type.name.starts_with?("Athena::ORM::PersistentCollection") || ivar_base_type.name.starts_with?("Athena::ORM::ArrayCollection") %}
+          # {% is_entity = ivar_base_type < AORM::Entity %}
+          # {% unless is_collection || is_entity %}
+          if data.has_key?({{ ivar.name.stringify }}) && (raw = data[{{ivar.name.stringify}}]).is_a?({{ivar.type}})
+            pointerof(instance.@{{ ivar.id }}).value = raw.not_nil!.as({{ ivar.type }})
+          end
+          # {% end %}
         {% end %}
         instance
       {% end %}

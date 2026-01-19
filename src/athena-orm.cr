@@ -82,7 +82,7 @@ class User < AORM::Entity
 
   # Owning side: has inversed_by pointing to the inverse side's field
   @[AORMA::ManyToMany(target_entity: Group, inversed_by: "users", cascade: ["persist"])]
-  property groups : AORM::PersistentCollection(Group) = AORM::PersistentCollection(Group).new
+  property groups : AORM::Collection(Group) = AORM::ArrayCollection(Group).new
 end
 
 # The Group entity - inverse side of the relationship
@@ -99,7 +99,7 @@ class Group < AORM::Entity
 
   # Inverse side: has mapped_by pointing to the owning side's field
   @[AORMA::ManyToMany(target_entity: User, mapped_by: "groups")]
-  property users : AORM::PersistentCollection(User) = AORM::PersistentCollection(User).new
+  property users : AORM::Collection(User) = AORM::ArrayCollection(User).new
 end
 
 # # ## Custom Join Table and Column Names
@@ -154,10 +154,10 @@ em = AORM::EntityManager.new connection
 
 # Later: load user with groups
 loaded_user = em.find!(User, 1)
-pp loaded_user
-# loaded_user.groups.each do |group|
-#   puts group.name
-# end
+loaded_user.groups.each do |group|
+  puts group.name
+end
+# pp loaded_user
 
 em.flush
 # # Remove a group from the relationship

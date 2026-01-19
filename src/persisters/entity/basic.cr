@@ -434,7 +434,9 @@ class Athena::ORM::Persisters::Entity::Basic
     join_sql = ""
     order_by_sql = ""
 
-    # TODO: Many many to many assoc
+    if association.is_a?(Mapping::ManyToMany)
+      join_sql = self.select_many_to_many_join_sql association
+    end
 
     # TODO: Handle ordered assoc
 
@@ -466,6 +468,25 @@ class Athena::ORM::Persisters::Entity::Basic
     end
 
     @platform.modify_limit_query query, limit, offset || 0 # TODO: Append lock SQL
+  end
+
+  protected def select_many_to_many_join_sql(many_to_many : Mapping::ManyToMany) : String
+    conditions = [] of String
+    source_table_alias = self.sql_table_alias @class_metadata.entity_class
+
+    association = @em.metadata_factory.owning_side(many_to_many).as Mapping::ManyToManyOwningSide
+    join_table_name = @quote_strategy.join_table_name association, @class_metadata, @platform
+
+    raise "BUG: Nil JoinTable" unless join_table = association.join_table
+    join_columns = association.is_a?(Mapping::OwningSide) ? join_table.inverse_join_columns : join_table.join_columns
+
+    join_columns.each do |join_column|
+      quoted_source_column = @quote_strategy.join_column_name join_column, @class_metadata, @platform
+      quoted_target_column = @quote_strategy.referenced_join_column_name join_column, @class_metadata, @platform
+      conditions << "#{source_table_alias}.#{quoted_target_column} = #{join_table_name}.#{quoted_source_column}"
+    end
+
+    " INNER JOIN #{join_table_name} ON #{conditions.join " AND "}"
   end
 
   protected def generate_filter_condition_sql(metadata : Mapping::ClassInterface, target_table_alias : String) : String
@@ -504,6 +525,7 @@ class Athena::ORM::Persisters::Entity::Basic
   end
 
   def select_condition_statement_sql(field : String, value : _, association : Mapping::Association? = nil, comparison : String? = nil) : String
+    value = value.is_a?(Mapping::Value) ? value.value : value
     comparison ||= value.is_a?(Enumerable) ? "IN" : "="
 
     selected_columns = [] of String
@@ -594,7 +616,7 @@ class Athena::ORM::Persisters::Entity::Basic
   end
 
   private def select_condition_statement_column_sql(field : String, association : Mapping::Association? = nil) : Array(String)
-    if fm = @class_metadata.field_mappings[field]?
+    if @class_metadata.field_mappings.has_key? field
       # TODO: Handle inherited fields
       entity_class = @class_metadata.entity_class
 
@@ -603,9 +625,26 @@ class Athena::ORM::Persisters::Entity::Basic
       ]
     end
 
-    # TODO: Handle associations
+    if assoc = @class_metadata.association_mappings[field]?
+      # ManyToMany requires join table check for join_column
+      columns = [] of String
 
-    [] of String
+      if association.is_a? Mapping::ManyToMany
+        raise "TODO"
+      else
+        raise "TODO"
+        # TODO: Handle non-ManyToMany
+      end
+
+      return columns
+    end
+
+    pp assoc.nil?
+    if assoc && !field.includes?(' ') && !field.includes?('(')
+      return [field]
+    end
+
+    raise "unrecognized field"
   end
 
   private def switch_persister_context(offset : Int?, limit : Int?) : Nil
@@ -616,5 +655,86 @@ class Athena::ORM::Persisters::Entity::Basic
     end
 
     @current_persister_context = @limits_handling_context
+  end
+
+  # Loads entities for a ManyToMany collection.
+  # Mirrors Doctrine's BasicEntityPersister::loadManyToManyCollection.
+  def load_many_to_many_collection(
+    assoc : Mapping::ManyToMany,
+    source_entity : AORM::Entity,
+    collection : AORM::PersistentCollection,
+  ) : Array(AORM::Entity)
+    stmt = self.many_to_many_statement assoc, source_entity
+
+    [] of AORM::Entity
+  end
+
+  record CollectionParameter, value : Mapping::Value, source_class_metadata : Mapping::ClassInterface
+
+  private def many_to_many_statement(
+    assoc : Mapping::ManyToMany,
+    source_entity : AORM::Entity,
+    offset : Int32? = nil,
+    limit : Int32? = nil,
+  ) : ::DB::ResultSet
+    self.switch_persister_context offset, limit
+
+    source_class_metadata = @em.class_metadata(assoc.source_entity)
+
+    class_metadata = source_class_metadata
+    criteria = Hash(String, Mapping::Value).new
+    parameters = [] of CollectionParameter
+
+    unless assoc.is_a? Mapping::OwningSide
+      class_metadata = @em.class_metadata assoc.target_entity
+    end
+
+    association = @em.metadata_factory.owning_side(assoc).as Mapping::ManyToManyOwningSide
+    raise "BUG: Nil JoinTable" unless join_table = association.join_table
+
+    join_columns = assoc.is_a?(Mapping::OwningSide) ? join_table.join_columns : join_table.inverse_join_columns
+
+    quoted_join_table = @quote_strategy.join_table_name association, class_metadata, @platform
+
+    join_columns.each do |join_column|
+      source_key_column = join_column.referenced_column_name
+      quoted_key_column = @quote_strategy.join_column_name join_column, class_metadata, @platform
+
+      # TODO: Handle foreign identifiers
+
+      value = if field_name = source_class_metadata.field_names[source_key_column]?
+                fi = source_class_metadata.field_info[field_name]
+                fi.create_column_value fi.get_value source_entity
+              else
+                raise "Join column doesn't point to mapped field"
+              end
+
+      criteria["#{quoted_join_table}.#{quoted_key_column}"] = value
+      parameters << CollectionParameter.new value, source_class_metadata
+    end
+
+    sql = self.select_sql criteria, assoc, nil, limit, offset
+
+    pp sql
+
+    # TODO: Do we need to return types?
+    params = self.expand_to_many_parameters parameters
+
+    @connection.query sql, args: params
+  end
+
+  private def expand_to_many_parameters(parameters : Array(CollectionParameter)) : Array
+    params = [] of DB::Any
+
+    parameters.each do |param|
+      value = param.value
+      value = value.is_a?(Mapping::Value) ? value.value : value
+
+      next if value.nil?
+
+      params.concat PersisterHelper.convert_to_parameter_value value, @em
+    end
+
+    params
   end
 end

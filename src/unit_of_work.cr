@@ -76,13 +76,13 @@ class Athena::ORM::UnitOfWork
   @non_cascaded_new_detected_entities = Hash(AORM::Entity, Tuple(AORM::Mapping::Association, AORM::Entity)).new.compare_by_identity
 
   # Collections scheduled for deletion (cleared or owner removed)
-  @collection_deletions = Set(AORM::Collection).new.compare_by_identity
+  @collection_deletions = Set(AORM::PersistentCollectionInterface).new.compare_by_identity
 
   # Collections scheduled for update (elements added or removed)
-  @collection_updates = Set(AORM::Collection).new.compare_by_identity
+  @collection_updates = Set(AORM::PersistentCollectionInterface).new.compare_by_identity
 
   # Collections that have been visited during changeset computation
-  @visited_collections = Set(AORM::Collection).new.compare_by_identity
+  @visited_collections = Set(AORM::PersistentCollectionInterface).new.compare_by_identity
 
   getter identifier_flattener : AORM::Utility::IdentifierFlattener { AORM::Utility::IdentifierFlattener.new(self, @em.metadata_factory) }
 
@@ -1067,18 +1067,49 @@ class Athena::ORM::UnitOfWork
 
     # Check identity map for existing entity
     if (class_map = @identity_map[class_metadata.entity_class]?) && (entity = class_map[id_hash]?)
-      # TODO: Handle hints
+      # TODO: Handle refresh hints
 
       # TODO: Know if entity is uninitialized?
 
-      # TODO: Handle hints
+      # TODO: Handle refresh hints
 
       return entity
     end
 
+    # This also handles setting ivars based on the data
     entity = class_metadata.new_instance(data)
-    # TODO: Handle hints
     self.register_managed(entity, id, data)
+    # TODO: Handle readonly hints
+
+    # TODO: Handle eager loading entities
+
+    # Initialize collections with owner and association metadata for lazy loading.
+    # Mirrors Doctrine's collection injection in createEntity.
+    class_metadata.association_mappings.each do |field_name, assoc|
+      # TODO: Handle fetchAlias/fetchMode hints
+
+      target_class_metadata = @em.class_metadata assoc.target_entity
+
+      if assoc.is_a? Mapping::ToOne
+        # TODO: Handle ToOne relationships
+      else
+        raise "BUG: Assoc is not ToMany" unless assoc.is_a? Mapping::ToMany
+
+        # TODO: Handle PersistentCollection in `data`
+
+        # Do this here so `T` can be properly resolved
+        # pp entity.class, target_class_metadata.class, assoc.class
+        # pp class_metadata.field_info[field_name]
+        fi = class_metadata.field_info[field_name]
+        p_coll = fi.inject_collection entity, @em, target_class_metadata, assoc
+
+        # TODO: Handle eager fetching hints
+
+        @original_entity_data[entity][field_name] = fi.create_column_value p_coll
+      end
+    end
+
+    # TODO: Handle deferring postLoad event
 
     entity
   end
@@ -1096,6 +1127,18 @@ class Athena::ORM::UnitOfWork
                                       data.transform_values { |v, k| class_metadata.field_info[k].create_column_value(v).as Mapping::Value }
                                     end
     self.add_to_identity_map(entity)
+  end
+
+  def load_collection(collection : AORM::PersistentCollection) : Nil
+    assoc = collection.association
+    persister = self.entity_persister(assoc.target_entity)
+
+    case assoc
+    when Mapping::ManyToMany
+      persister.load_many_to_many_collection(assoc, collection.owner.not_nil!, collection)
+    end
+
+    collection.initialized = true
   end
 
   private def try_get(id : Hash(String, Mapping::Value), entity_class : AORM::Entity.class, & : AORM::Entity ->) : Nil

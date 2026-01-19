@@ -27,6 +27,29 @@ struct Athena::ORM::Mapping::DefaultQuoteStrategy
     class_metadata.table.quoted ? platform.quote_single_identifier(table_name) : table_name
   end
 
+  def join_table_name(association : Mapping::ManyToManyOwningSide, class_metadata : Mapping::ClassInterface, platform : Platforms::Platform) : String
+    # TODO: Handle schema
+    join_table = association.join_table.not_nil!
+
+    schema = ""
+
+    if sch = join_table.schema.presence
+      schema = sch
+    end
+
+    table_name = join_table.name
+
+    if join_table.quoted?
+      table_name = platform.quote_single_identifier table_name
+    end
+
+    "#{schema}#{table_name}"
+  end
+
+  def referenced_join_column_name(join_column : Mapping::JoinColumn, class_metadata : Mapping::ClassInterface, platform : Platforms::Platform) : String
+    join_column.quoted ? platform.quote_single_identifier(join_column.referenced_column_name) : join_column.referenced_column_name
+  end
+
   def join_column_name(join_column : Mapping::JoinColumn, class_metadata : Mapping::ClassInterface, platform : Platforms::Platform) : String
     join_column.quoted ? platform.quote_single_identifier(join_column.name) : join_column.name
   end
