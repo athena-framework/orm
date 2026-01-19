@@ -65,6 +65,7 @@ class Athena::ORM::UnitOfWork
   @entity_updates = Set(AORM::Entity).new.compare_by_identity
 
   @entity_persisters = Hash(AORM::Entity.class, AORM::Persisters::Entity::Interface).new.compare_by_identity
+  @collection_persisters = Hash(String, Athena::ORM::Persisters::Collection::Interface).new
 
   @original_entity_data = Hash(AORM::Entity, Hash(String, Mapping::Value)).new do |hash, key|
     hash[key] = Hash(String, Mapping::Value).new
@@ -73,6 +74,15 @@ class Athena::ORM::UnitOfWork
   @orphan_removals = Set(AORM::Entity).new.compare_by_identity
 
   @non_cascaded_new_detected_entities = Hash(AORM::Entity, Tuple(AORM::Mapping::Association, AORM::Entity)).new.compare_by_identity
+
+  # Collections scheduled for deletion (cleared or owner removed)
+  @collection_deletions = Set(AORM::Collection).new.compare_by_identity
+
+  # Collections scheduled for update (elements added or removed)
+  @collection_updates = Set(AORM::Collection).new.compare_by_identity
+
+  # Collections that have been visited during changeset computation
+  @visited_collections = Set(AORM::Collection).new.compare_by_identity
 
   getter identifier_flattener : AORM::Utility::IdentifierFlattener { AORM::Utility::IdentifierFlattener.new(self, @em.metadata_factory) }
 
@@ -87,8 +97,7 @@ class Athena::ORM::UnitOfWork
     self.compute_changesets
 
     # Nothing to do
-    # TODO: Handle collection updates/deletions
-    if @entity_deletions.empty? && @entity_insertions.empty? && @entity_updates.empty? && @orphan_removals.empty?
+    if @entity_deletions.empty? && @entity_insertions.empty? && @entity_updates.empty? && @orphan_removals.empty? && @collection_deletions.empty? && @collection_updates.empty?
       # TODO: Handle eventing (onFlush/postFlush)
 
       self.post_commit_cleanup
@@ -106,7 +115,13 @@ class Athena::ORM::UnitOfWork
     # TODO: Handle eventing (onFlush)
 
     @em.transaction do
-      # TODO: Handle collection deletions
+      # Collection deletions (deletions of complete collections)
+      @collection_deletions.each do |collection|
+        # Deferred explicit tracked collections can be removed only when owning relation was persisted
+        owner = collection.as(AORM::PersistentCollection).owner
+
+        # TODO: Handle change tracking and dirty checks
+      end
 
       @entity_insertions.each do |entity|
         # Perform entity insertions first, so that all new entities have their rows in the database
@@ -123,7 +138,13 @@ class Athena::ORM::UnitOfWork
 
       # TODO: Handle extra updates
 
-      # TODO: Handle collection updates
+      # Handle collection updates after entity inserts
+      @collection_updates.each do |collection|
+        persistent = collection.as(AORM::PersistentCollection)
+        if assoc = persistent.association?
+          self.collection_persister(assoc).update persistent
+        end
+      end
 
       unless @entity_deletions.empty?
         self.execute_deletions
@@ -136,7 +157,12 @@ class Athena::ORM::UnitOfWork
 
     self.after_transaction_complete
 
-    # TODO: Take snapshots of collections
+    # Take snapshots of collections
+    @visited_collections.each do |collection|
+      # TODO: Handle pending collection element removals
+
+      collection.as(AORM::PersistentCollection).take_snapshot
+    end
 
     # TODO: Handle eventing (postFlush)
 
@@ -168,7 +194,7 @@ class Athena::ORM::UnitOfWork
     id_field = class_metadata.single_identifier_field_name
     id_value = self.convert_single_field_identifier_to_crystal_value class_metadata, id
 
-    class_metadata.field_info[id_field].set_value entity, id_value
+    class_metadata.assign_identifier entity, id_field, id_value
 
     @entity_identifiers[entity] = {id_field => class_metadata.field_info[id_field].create_column_value(id_value).as Mapping::Value}
     @entity_states[entity] = :managed
@@ -204,6 +230,9 @@ class Athena::ORM::UnitOfWork
     @entity_deletions.clear
     @entity_change_sets.clear
     @orphan_removals.clear
+    @collection_deletions.clear
+    @collection_updates.clear
+    @visited_collections.clear
   end
 
   private def execute_inserts(class_metadata : AORM::Mapping::ClassInterface) : Nil
@@ -406,13 +435,80 @@ class Athena::ORM::UnitOfWork
 
     # Cascade first, because schedule_for_delete() removes the entity from the identity map, which
     # can cause problems when a lazy proxy has to be initialized for the cascade operation.
-    # TODO: Handle cascade for nested models
+    self.cascade_remove entity, visited
 
     case self.entity_state entity
     in .new?, .removed? then return                                 # noop
     in .managed?        then self.schedule_for_delete entity        # TODO: Handle eventing (preRemove)
     in .detached?       then raise "Cannot removed detached entity" # TODO: Make this an actual exception
     end
+  end
+
+  # Schedules a collection for deletion (all rows in join table).
+  def schedule_collection_deletion(collection : AORM::PersistentCollection(AORM::Entity)) : Nil
+    @collection_deletions << collection
+  end
+
+  # Schedules a collection for update (insert/delete diff).
+  def schedule_collection_update(collection : AORM::PersistentCollection(AORM::Entity)) : Nil
+    @collection_updates << collection
+  end
+
+  # Removes a removed entity from all collections it belongs to.
+  # Iterates through all managed entities to find collections containing the removed entity.
+  private def cascade_remove(entity : AORM::Entity, visited : Set(AORM::Entity)) : Nil
+    class_metadata = @em.class_metadata entity.class
+
+    association_mappings = class_metadata.association_mappings.select { |_, v| v.cascade_remove? }
+
+    unless association_mappings.empty?
+      self.initialize_object entity
+    end
+
+    entities_to_cascade = [] of AORM::Entity
+
+    association_mappings.each_value do |assoc|
+      related_entities = class_metadata.field_info[assoc.field_name].get_value entity
+
+      case related_entities
+      when AORM::Collection, Enumerable(AORM::Entity)
+        related_entities.each do |related_entity|
+          entities_to_cascade << related_entity
+        end
+      when AORM::Entity
+        entities_to_cascade << related_entities
+      end
+    end
+
+    entities_to_cascade.each do |related_entity|
+      self.remove related_entity, visited
+    end
+  end
+
+  def initialize_object(entity : AORM::Entity) : Nil
+    # TODO: initialize `Ghost` type?
+  end
+
+  def initialize_object(entity : AORM::PersistentCollection) : Nil
+    # TODO: Initialize Collection?
+  end
+
+  protected def collection_persister(assoc : Mapping::Association)
+    role = assoc.type
+
+    if persister = @collection_persisters[role]?
+      return persister
+    end
+
+    persister = case role
+                when "many_to_many" then AORM::Persisters::Collection::ManyToManyPersister.new @em
+                else
+                  raise "Unsupported collection persister role #{role}."
+                end
+
+    # TODO: Handle caching?
+
+    @collection_persisters[role] = persister
   end
 
   private def persist_new(class_metadata : AORM::Mapping::ClassInterface, entity : AORM::Entity) : Nil
@@ -456,8 +552,18 @@ class Athena::ORM::UnitOfWork
     class_metadata.association_mappings.select { |_, v| v.cascade_persist? }.each_value do |assoc|
       related_entities = class_metadata.field_info[assoc.field_name].get_value entity
 
-      # TODO: Handle Collection/PersistentCollection
-      if related_entities.is_a? Enumerable
+      if related_entities.is_a? PersistentCollection
+        related_entities = related_entities.unwrap
+      end
+
+      if related_entities.is_a?(AORM::Collection) || related_entities.is_a?(Enumerable(AORM::Entity))
+        unless assoc.is_a? Mapping::ToMany
+          raise "invalid association"
+        end
+
+        related_entities.each do |related_entity|
+          self.persist related_entity, visited
+        end
       elsif !related_entities.nil?
         if related_entities.is_a? AORM::Entity
           self.persist related_entities, visited
@@ -556,6 +662,9 @@ class Athena::ORM::UnitOfWork
     @entity_insertions.clear
     @entity_persisters.clear
     @non_cascaded_new_detected_entities.clear
+    @collection_deletions.clear
+    @collection_updates.clear
+    @visited_collections.clear
   end
 
   def single_identifier_value(entity : AORM::Entity)
@@ -789,7 +898,10 @@ class Athena::ORM::UnitOfWork
 
     # TODO: Invoke listeners
     class_metadata.field_info.each do |name, prop|
-      # TODO: Handle collection valued associations
+      # Skip collection-valued associations - they are handled separately
+      if assoc = class_metadata.association_mappings[name]?
+        next if assoc.is_a?(Mapping::ToMany)
+      end
 
       # TODO: Handle versioning
       if (!class_metadata.is_identifier(name) || !class_metadata.identifier_identity?) && true
@@ -818,15 +930,36 @@ class Athena::ORM::UnitOfWork
           next
         end
 
-        # TODO: Handle collections
+        if actual_value.is_a? AORM::PersistentCollection
+          raise "BUG: Not ToMany assoc" unless assoc.is_a? Mapping::ToMany
+          owner = actual_value.owner
+
+          if owner.nil?
+            actual_value.set_owner entity, assoc
+          elsif owner != entity
+            # TODO: Initialize collection?
+
+            new_value = actual_value.clone
+            new_value.owner entity, assoc
+            class_metadata.field_info[assoc.field_name].set_value entity, new_value
+          end
+        end
+
+        if original_value.is_a? AORM::PersistentCollection
+          unless @collection_deletions.includes? original_value
+            @collection_deletions << original_value
+          end
+
+          next
+        end
 
         if assoc.is_a? Mapping::ToOne
           if assoc.is_a? Mapping::OwningSide
             change_set[prop_name] = class_metadata.field_info[prop_name].create_change original_value, actual_value.value
           end
 
-          if !original_value.nil? && assoc.orphan_removal?
-            self.schedule_orphan_removal original_value.as AORM::Entity
+          if original_value.is_a?(AORM::Entity) && assoc.orphan_removal?
+            self.schedule_orphan_removal original_value
           end
         end
       end
@@ -861,21 +994,39 @@ class Athena::ORM::UnitOfWork
     class_metadata.association_mappings.each do |field, assoc|
       value = class_metadata.field_info[field].get_value entity
       next if value.nil?
-      raise "BUG: Non AORM::Entity assoc value" unless value.is_a? AORM::Entity
 
       self.compute_association_changes assoc, value
+
+      if assoc.is_a?(Mapping::ManyToManyOwningSide) && value.is_a?(AORM::PersistentCollection) && value.dirty?
+        @collection_updates << value
+        @visited_collections << value
+      end
     end
   end
 
   # Compute association changeset
-  private def compute_association_changes(assoc : AORM::Mapping::Association, value : AORM::Entity) : Nil
+  private def compute_association_changes(assoc : AORM::Mapping::Association, value) : Nil
     # TODO: Handle proxies
-    # TODO: Handle PersistentCollections
 
-    unwrapped_value = [value] # TODO: Unwrap collections
+    unwrapped_value = if assoc.is_a?(Mapping::ToMany)
+                        # ToMany: value is a collection, iterate its elements
+                        if value.is_a?(AORM::PersistentCollection)
+                          value.to_a
+                        else
+                          raise "BUG: ToMany value is not iterable"
+                        end
+                      elsif value.is_a?(AORM::Entity)
+                        # ToOne: wrap single entity in array
+                        [value]
+                      else
+                        raise "BUG: ToOne value is not an entity"
+                      end
+
     target_class_metadata = @em.class_metadata assoc.target_entity
 
     unwrapped_value.each_with_index do |entity, idx|
+      raise "BUG: unwrapped_value is not an entity" unless entity.is_a? AORM::Entity
+
       case self.entity_state(entity, EntityState::New)
       when .new?
         unless assoc.cascade_persist?
@@ -888,8 +1039,12 @@ class Athena::ORM::UnitOfWork
         self.persist_new target_class_metadata, entity
         self.compute_change_set target_class_metadata, entity
       when .removed?
-        # TODO: Handle ToMany associations
-        next
+        next unless assoc.is_a? Mapping::ToMany
+        raise "BUG: value for ToMany assoc is not a collection" unless value.is_a? AORM::Collection
+
+        @visited_collections << value
+
+        # TODO: Handle collection element removals
       else
         # noop
       end
