@@ -6,7 +6,7 @@ module Athena::ORM::Mapping::NamingStrategyInterface
 
   abstract def reference_column_name : String
 
-  # abstract def join_table_name(source_entity : AORM::Entity.class, target_entity : AORM::Entity.class, property_name : String) : String
+  abstract def join_table_name(source_entity : String, target_entity : String, property_name : String?) : String
   abstract def join_column_name(property_name : String, entity_class : AORM::Entity.class) : String
-  # abstract def join_key_column_name(entity_class : AORM::Entity.class, referenced_column_name : String?) : String
+  abstract def join_key_column_name(entity_name : String, referenced_column_name : String?) : String
 end

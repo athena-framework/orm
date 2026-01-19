@@ -14,7 +14,7 @@ abstract class Athena::ORM::Mapping::ToOneOwningSide < Athena::ORM::Mapping::Own
 
     instance = new mapping
 
-    raise "not owning" unless instance.to_one_owning_side?
+    raise "not owning" unless instance.is_a? Mapping::ToOneOwningSide
 
     if instance.join_columns.empty?
       instance.join_columns.replace([
@@ -36,7 +36,7 @@ abstract class Athena::ORM::Mapping::ToOneOwningSide < Athena::ORM::Mapping::Own
         jc.nullable = true
       end
 
-      if instance.one_to_one? && !is_inheritance_type_single_table
+      if instance.is_a?(Mapping::OneToOne) && !is_inheritance_type_single_table
         if instance.join_columns.size == 1
           if mapping.id.nil?
             jc.unique = true

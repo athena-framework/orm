@@ -83,8 +83,73 @@ class EntityWithNonCascadingAssociation < AORM::Entity
   end
 end
 
+@[AORMA::Entity]
+class TaggedItem < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+
+  @[AORMA::Column]
+  property! name : String
+end
+
+@[AORMA::Entity]
+class TagOwner < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+
+  @[AORMA::ManyToMany(target_entity: TaggedItem, index_by: "name", cascade: ["persist"])]
+  property tags : AORM::PersistentCollection(TaggedItem) = AORM::PersistentCollection(TaggedItem).new
+end
+
+@[AORMA::Entity]
+class CustomJoinProduct < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+end
+
+@[AORMA::Entity]
+class CustomJoinCategory < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+
+  @[AORMA::ManyToMany(target_entity: CustomJoinProduct, cascade: ["persist"])]
+  @[AORMA::JoinTable(name: "my_custom_join_table")]
+  property products : AORM::PersistentCollection(CustomJoinProduct) = AORM::PersistentCollection(CustomJoinProduct).new
+end
+
+# Test entity with fully custom join columns
+@[AORMA::Entity]
+class CustomColumnProduct < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+end
+
+@[AORMA::Entity]
+class CustomColumnCategory < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+
+  @[AORMA::ManyToMany(target_entity: CustomColumnProduct, cascade: ["persist"])]
+  @[AORMA::JoinTable(name: "category_product_map")]
+  @[AORMA::JoinColumn(name: "cat_id", referenced_column_name: "id")]
+  @[AORMA::InverseJoinColumn(name: "prod_id", referenced_column_name: "id")]
+  property products : AORM::PersistentCollection(CustomColumnProduct) = AORM::PersistentCollection(CustomColumnProduct).new
+end
+
 struct UnitOfWorkTest < ASPEC::TestCase
-  @connection : DB::Connection
+  @connection : MockConnection
   @em : MockEntityManager
   @uow : MockUnitOfWork
 
@@ -433,9 +498,52 @@ struct UnitOfWorkTest < ASPEC::TestCase
     end
   end
 
-  @[Pending]
   def test_removed_entity_is_removed_from_many_to_many_collection : Nil
-    # Requires: ManyToMany association support
+    user_persister = MockEntityPersister.new @em, @em.class_metadata CmsUser
+    @uow.set_entity_persister CmsUser, user_persister
+    user_persister.mock_id_generator = :identity
+
+    group_persister = MockEntityPersister.new @em, @em.class_metadata CmsGroup
+    @uow.set_entity_persister CmsGroup, group_persister
+    group_persister.mock_id_generator = :identity
+
+    user = CmsUser.new
+    user.username = "test_user"
+
+    group1 = CmsGroup.new
+    group1.name = "group1"
+
+    group2 = CmsGroup.new
+    group2.name = "group2"
+
+    user.groups << group1
+    user.groups << group2
+
+    @uow.persist user
+    @uow.commit
+
+    user_persister.inserts.size.should eq 1
+    group_persister.inserts.size.should eq 2
+
+    user.id.should_not be_nil
+    group1.id.should_not be_nil
+    group2.id.should_not be_nil
+
+    # Take a snapshot of the collection state after persist
+    user.groups.take_snapshot
+
+    # Verify both groups are in the collection
+    user.groups.size.should eq 2
+    user.groups.includes?(group1).should be_true
+    user.groups.includes?(group2).should be_true
+
+    # Now remove group1 (using remove, which triggers remove_from_collections)
+    @uow.remove group1
+
+    # The group should be removed from the user's collection
+    user.groups.includes?(group1).should be_false
+    user.groups.size.should eq 1
+    user.groups.includes?(group2).should be_true
   end
 
   @[Pending]
@@ -475,6 +583,89 @@ struct UnitOfWorkTest < ASPEC::TestCase
     expect_raises(Exception, "Insert failed") do
       @uow.commit
     end
+  end
+
+  def test_index_by_annotation_reaches_mapping : Nil
+    class_metadata = @em.class_metadata TagOwner
+
+    assoc = class_metadata.association_mappings["tags"]?
+    assoc.should_not be_nil
+    assoc = assoc.not_nil!
+
+    assoc.should be_a AORM::Mapping::ManyToManyOwningSide
+    if assoc.is_a?(AORM::Mapping::ManyToManyOwningSide)
+      assoc.index_by.should eq "name"
+    end
+  end
+
+  def test_custom_join_table_annotation : Nil
+    class_metadata = @em.class_metadata CustomJoinCategory
+
+    assoc = class_metadata.association_mappings["products"]?
+    assoc.should_not be_nil
+    assoc = assoc.not_nil!
+
+    assoc.should be_a AORM::Mapping::ManyToManyOwningSide
+    if assoc.is_a?(AORM::Mapping::ManyToManyOwningSide)
+      join_table = assoc.join_table
+      join_table.should_not be_nil
+      join_table.not_nil!.name.should eq "my_custom_join_table"
+    end
+  end
+
+  def test_custom_join_column_annotations : Nil
+    class_metadata = @em.class_metadata CustomColumnCategory
+
+    assoc = class_metadata.association_mappings["products"]?
+    assoc.should_not be_nil
+    assoc = assoc.not_nil!
+
+    assoc.should be_a AORM::Mapping::ManyToManyOwningSide
+    if assoc.is_a?(AORM::Mapping::ManyToManyOwningSide)
+      join_table = assoc.join_table
+      join_table.should_not be_nil
+      jt = join_table.not_nil!
+
+      jt.name.should eq "category_product_map"
+
+      # Check join columns (source entity to join table)
+      jt.join_columns.size.should eq 1
+      jt.join_columns[0].name.should eq "cat_id"
+      jt.join_columns[0].referenced_column_name.should eq "id"
+
+      # Check inverse join columns (join table to target entity)
+      jt.inverse_join_columns.size.should eq 1
+      jt.inverse_join_columns[0].name.should eq "prod_id"
+      jt.inverse_join_columns[0].referenced_column_name.should eq "id"
+    end
+  end
+
+  def test_bidirectional_association_sync_on_add : Nil
+    user_persister = MockEntityPersister.new @em, @em.class_metadata CmsUser
+    @uow.set_entity_persister CmsUser, user_persister
+    user_persister.mock_id_generator = :identity
+
+    group_persister = MockEntityPersister.new @em, @em.class_metadata CmsGroup
+    @uow.set_entity_persister CmsGroup, group_persister
+    group_persister.mock_id_generator = :identity
+
+    user = CmsUser.new
+    user.username = "test_user"
+    user.groups.set_owner(user, @em.class_metadata(CmsUser).association_mappings["groups"])
+
+    group = CmsGroup.new
+    group.name = "group1"
+    group.users.set_owner(group, @em.class_metadata(CmsGroup).association_mappings["users"])
+
+    # Add group to user's collection (owning side)
+    user.groups << group
+
+    @uow.persist user
+    @uow.commit
+
+    # After flush, the back-reference should be synced
+    # The group's users collection should contain the user
+    group.users.includes?(user).should be_true
   end
 end
 

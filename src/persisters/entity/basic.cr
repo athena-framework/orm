@@ -273,10 +273,12 @@ class Athena::ORM::Persisters::Entity::Basic
       unless assoc = @class_metadata.association_mappings[id_field]?
         id_value = identifier[id_field].value
 
-        params << if !id_value.is_a?(AORM::Entity)
-          id_value
-        else
+        if id_value.is_a?(DB::Any)
+          params << id_value
+        elsif id_value.is_a?(AORM::Entity)
           raise "BUG: non-association AORM::Entity value"
+        elsif id_value.is_a?(Collection)
+          raise "BUG: collection cannot be identifier"
         end
 
         where << @quote_strategy.column_name id_field, @class_metadata, @platform
@@ -345,8 +347,14 @@ class Athena::ORM::Persisters::Entity::Basic
         raise "BUG: non-association AORM::Entity value"
       end
 
-      values << value
-      conditions << "#{k} = ?"
+      if value.is_a? Collection
+        raise "BUG: collection in delete condition"
+      end
+
+      if value.is_a?(DB::Any)
+        values << value
+        conditions << "#{k} = ?"
+      end
     end
 
     {values, conditions}
@@ -395,14 +403,17 @@ class Athena::ORM::Persisters::Entity::Basic
         end
 
         @column_types[column_name] = fm.type
-        if !new_val.is_a?(AORM::Entity)
+        if new_val.is_a?(DB::Any)
           result[self.owning_table field][column_name] = new_val
-        else
+        elsif new_val.is_a?(AORM::Entity)
           raise "BUG: non-association AORM::Entity value"
         end
 
         next
       end
+
+      # Only owning side of x-1 associations can have a FK column.
+      next unless assoc.is_a? Mapping::ToOneOwningSide
 
       # TODO: Handle associations
     end

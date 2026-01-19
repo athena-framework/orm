@@ -1,0 +1,14 @@
+@[AORMA::Entity]
+@[AORMA::Table(name: "cms_groups")]
+class CmsGroup < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+
+  @[AORMA::Column(length: 50)]
+  property! name : String
+
+  @[AORMA::ManyToMany(target_entity: CmsUser, mapped_by: "groups")]
+  property users : AORM::PersistentCollection(CmsUser) = AORM::PersistentCollection(CmsUser).new
+end

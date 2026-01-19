@@ -26,7 +26,7 @@ module Athena::ORM
 
       return [] of String unless assoc = metadata.association_mappings[field_name]?
 
-      unless assoc.owning_side?
+      unless assoc.is_a?(Mapping::OwningSide)
         if assoc.is_a?(Mapping::InverseSide)
           return self.type_of_field(assoc.mapped_by, em.class_metadata(assoc.target_entity), em)
         end
@@ -59,8 +59,7 @@ module Athena::ORM
 
       # Iterate over to-one owning side association mappings
       metadata.association_mappings.each_value do |assoc|
-        next unless assoc.to_one_owning_side?
-        next unless assoc.is_a?(Mapping::ToOneOwningSide)
+        next unless assoc.is_a? Mapping::ToOneOwningSide
 
         assoc.join_columns.each do |join_column|
           if join_column.name == column_name
@@ -111,6 +110,12 @@ module Athena::ORM
       end
 
       [em.unit_of_work.single_identifier_value value] of DB::Any
+    end
+
+    private def self.convert_individual_value(value : Collection, em : AORM::EntityManagerInterface) : Array(DB::Any)
+      # Collections are not converted to parameter values directly.
+      # They are handled by the collection persisters.
+      [] of DB::Any
     end
 
     private def self.convert_individual_value(value : DB::Any, em : AORM::EntityManagerInterface) : Array(DB::Any)

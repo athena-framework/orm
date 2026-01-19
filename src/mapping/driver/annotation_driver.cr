@@ -7,6 +7,11 @@ module Athena::ORM::Mapping::Driver
     schema : String? = nil,
     quoted : Bool? = nil
 
+  # Holds join column definition from annotation for passing to mapping constructors.
+  record JoinColumnDef,
+    name : String?,
+    referenced_column_name : String?
+
   record ColumnMapping,
     field_name : String,
     type : String? = nil,
@@ -33,7 +38,10 @@ module Athena::ORM::Mapping::Driver
     orphan_removal : Bool? = nil,
     fetch_mode : FetchMode? = nil,
     is_owning_side : Bool? = nil,
-    join_table : Hash(String, String)? = nil
+    join_table : Hash(String, String)? = nil,
+    index_by : String? = nil,
+    join_column_defs : Array(JoinColumnDef)? = nil,
+    inverse_join_column_defs : Array(JoinColumnDef)? = nil
 
   struct Annotation
     def load_metadata_for_entity(metadata : Class(T)) : Nil forall T
@@ -119,6 +127,64 @@ module Athena::ORM::Mapping::Driver
           )
 
           metadata.map_one_to_one mapping
+        {% elsif ann = ivar.annotation AORMA::ManyToMany %}
+          many_to_many_ann = AORM::Mapping::Annotations::ManyToMany.new({{ann.named_args.double_splat}})
+
+          if metadata.embedded_class?
+            raise "Can't use ManyToMany on embedded class"
+          end
+
+          mapping = mapping.copy_with(
+            target_entity: many_to_many_ann.target_entity,
+            mapped_by: many_to_many_ann.mapped_by,
+            inversed_by: many_to_many_ann.inversed_by,
+            cascade: many_to_many_ann.cascade,
+            orphan_removal: many_to_many_ann.orphan_removal,
+            fetch_mode: many_to_many_ann.fetch_mode,
+            index_by: many_to_many_ann.index_by
+          )
+
+          {% if jt_ann = ivar.annotation AORMA::JoinTable %}
+            join_table_ann = AORM::Mapping::Annotations::JoinTable.new({{jt_ann.named_args.double_splat}})
+
+            if jt_name = join_table_ann.name
+              jt_hash = {"name" => jt_name}
+              if jt_schema = join_table_ann.schema
+                jt_hash["schema"] = jt_schema
+              end
+              mapping = mapping.copy_with(join_table: jt_hash)
+            end
+          {% end %}
+
+          # Collect JoinColumn annotations (source entity to join table)
+          {% join_col_anns = ivar.annotations AORMA::JoinColumn %}
+          {% unless join_col_anns.empty? %}
+            join_col_defs = [] of JoinColumnDef
+            {% for jc_ann in join_col_anns %}
+              join_col_defs << JoinColumnDef.new(
+                name: {{jc_ann[:name]}},
+                referenced_column_name: {{jc_ann[:referenced_column_name]}}
+              )
+            {% end %}
+            mapping = mapping.copy_with(join_column_defs: join_col_defs)
+          {% end %}
+
+          # Collect InverseJoinColumn annotations (join table to target entity)
+          {% inv_join_col_anns = ivar.annotations AORMA::InverseJoinColumn %}
+          {% unless inv_join_col_anns.empty? %}
+            inv_join_col_defs = [] of JoinColumnDef
+            {% for ijc_ann in inv_join_col_anns %}
+              inv_join_col_defs << JoinColumnDef.new(
+                name: {{ijc_ann[:name]}},
+                referenced_column_name: {{ijc_ann[:referenced_column_name]}}
+              )
+            {% end %}
+            mapping = mapping.copy_with(inverse_join_column_defs: inv_join_col_defs)
+          {% end %}
+
+          # TODO: Handle OrderBy
+
+          metadata.map_many_to_many mapping
         {% end %}
       {% end %}
 

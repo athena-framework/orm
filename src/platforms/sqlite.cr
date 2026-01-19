@@ -5,6 +5,6 @@ class Athena::ORM::Platforms::SQLite < Athena::ORM::Platforms::Platform
       limit = -1
     end
 
-    super query, limit, offset
+    super sql, limit, offset
   end
 end

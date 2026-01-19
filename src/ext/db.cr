@@ -24,7 +24,7 @@ end
 # PG Extensions
 
 # :nodoc:
-class PG::Connection
+class PG::Connection < DB::Connection
   def database_platform : AORM::Platforms::Platform
     case self.version
     else

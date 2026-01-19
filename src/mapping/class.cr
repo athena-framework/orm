@@ -6,13 +6,15 @@ module Athena::ORM::Mapping::ClassInterface
   abstract def field_mappings : Hash(String, Field)
   abstract def identifier : Set(String)
   abstract def new_instance(data : Hash(String, DB::Any?)) : AORM::Entity
+  abstract def assign_identifier(entity : AORM::Entity, id_field : String, id_value) : Nil
 end
 
 private struct Athena::ORM::Mapping::TypedFieldMapper
   DEFAULT_TYPE_FIELD_MAPPINGS = {
     ::String => "string",
     ::Bool   => "boolean",
-    ::Int64  => "integer",
+    ::Int32  => "integer",
+    ::Int64  => "bigint",
   }
 
   @typed_field_mappings : Hash(String, String)
@@ -133,7 +135,7 @@ class Athena::ORM::Mapping::Class(T)
   getter table : TableInfo
 
   getter field_mappings : Hash(String, Field) = Hash(String, Field).new
-  getter association_mappings : Hash(String, OneToOneInverseSide | OneToOneOwningSide) = Hash(String, OneToOneInverseSide | OneToOneOwningSide).new
+  getter association_mappings : Hash(String, Association) = Hash(String, Association).new
 
   # Maps column name => field name
   getter field_names : Hash(String, String) = Hash(String, String).new
@@ -170,14 +172,19 @@ class Athena::ORM::Mapping::Class(T)
       {% else %}
         instance = T.allocate
         {% for ivar in T.instance_vars %}
-          if data.has_key?({{ ivar.name.stringify }})
-            raw = data[{{ ivar.name.stringify }}]
-            {% if ivar.type.nilable? %}
-              pointerof(instance.@{{ ivar.id }}).value = raw.as({{ ivar.type }})
-            {% else %}
-              pointerof(instance.@{{ ivar.id }}).value = raw.not_nil!.as({{ ivar.type }})
-            {% end %}
-          end
+          {% ivar_base_type = ivar.type.nilable? ? ivar.type.union_types.reject(&.nilable?).first : ivar.type %}
+          {% is_collection = ivar_base_type.name.starts_with?("Athena::ORM::PersistentCollection") || ivar_base_type.name.starts_with?("Athena::ORM::ArrayCollection") %}
+          {% is_entity = ivar_base_type < AORM::Entity %}
+          {% unless is_collection || is_entity %}
+            if data.has_key?({{ ivar.name.stringify }})
+              raw = data[{{ ivar.name.stringify }}]
+              {% if ivar.type.nilable? %}
+                pointerof(instance.@{{ ivar.id }}).value = raw.as({{ ivar.type }})
+              {% else %}
+                pointerof(instance.@{{ ivar.id }}).value = raw.not_nil!.as({{ ivar.type }})
+              {% end %}
+            end
+          {% end %}
         {% end %}
         instance
       {% end %}
@@ -251,6 +258,22 @@ class Athena::ORM::Mapping::Class(T)
   # TODO: Is there a better way to handle this?
   def set_identifier_values(entity : _, id : Hash(String, _)) : NoReturn
     raise "BUG: Invoked wrong overload"
+  end
+
+  def assign_identifier(entity : AORM::Entity, id_field : String, id_value) : Nil
+    {% begin %}
+      typed_entity = entity.as(T)
+      {% for ivar in T.instance_vars %}
+        if id_field == {{ivar.name.id.stringify}}
+          {% ivar_base_type = ivar.type.nilable? ? ivar.type.union_types.reject(&.nilable?).first : ivar.type %}
+          if id_value.is_a?({{ ivar_base_type }})
+            pointerof(typed_entity.@{{ ivar.id }}).value = id_value
+            return
+          end
+        end
+      {% end %}
+      raise "BUG: Field #{id_field} not found on #{T} or type mismatch (got #{id_value.class})"
+    {% end %}
   end
 
   def identifier_natural? : Bool
@@ -331,6 +354,14 @@ class Athena::ORM::Mapping::Class(T)
     self.store_association_mapping mapping
   end
 
+  def map_many_to_many(mapping : Driver::ColumnMapping) : Nil
+    mapping = mapping.copy_with type: "many_to_many"
+
+    mapping = self.validate_and_complete_association_mapping mapping
+
+    self.store_association_mapping mapping
+  end
+
   def validate_and_complete_association_mapping(mapping : Driver::ColumnMapping) : Association
     # TODO: Handle unsetting things?
 
@@ -360,7 +391,16 @@ class Athena::ORM::Mapping::Class(T)
       mapping = mapping.copy_with fetch_mode: FetchMode::LAZY
     end
 
-    # TODO: Handle cascades
+    cascades = (arr = mapping.cascade) ? arr.map! &.downcase : [] of String
+    all_cascades = ["remove", "persist", "refresh", "detach"]
+
+    if cascades.includes? "all"
+      cascades = all_cascades
+    else
+      # TODO: Validate cascades
+    end
+
+    mapping = mapping.copy_with cascade: cascades
 
     case mapping.type
     when "one_to_one"
@@ -371,6 +411,13 @@ class Athena::ORM::Mapping::Class(T)
         @table,
         self.inheritance_type.single_table?
       ) : OneToOneInverseSide.new mapping
+    when "many_to_many"
+      mapping.is_owning_side ? ManyToManyOwningSide.new(
+        mapping,
+        @naming_strategy,
+        @entity_class,
+        mapping.target_entity.not_nil!
+      ) : ManyToManyInverseSide.new mapping
     else
       raise "Invalid association type"
     end

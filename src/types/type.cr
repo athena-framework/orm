@@ -12,7 +12,7 @@ module Athena::ORM::Types
     private BUILTIN_TYPES_MAP = {
       Types::STRING  => AORM::Types::String,
       Types::TEXT    => AORM::Types::String,
-      Types::INTEGER => AORM::Types::BigInt,
+      Types::INTEGER => AORM::Types::Integer,
       Types::BIGINT  => AORM::Types::BigInt,
       Types::BOOLEAN => AORM::Types::Boolean,
     }

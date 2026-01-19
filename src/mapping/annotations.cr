@@ -18,7 +18,18 @@ module Athena::ORM::Mapping::Annotations
   protected record JoinColumn,
     name : String? = nil,
     referenced_column_name : String? = nil,
-    deferable : Bool = false,
+    deferrable : Bool = false,
+    unique : Bool = false,
+    nullable : Bool = false,
+    column_definition : String? = nil,
+    field_name : String? = nil
+  # on_delete : Any
+  # options : Hash(String, String)
+
+  protected record InverseJoinColumn,
+    name : String? = nil,
+    referenced_column_name : String? = nil,
+    deferrable : Bool = false,
     unique : Bool = false,
     nullable : Bool = false,
     column_definition : String? = nil,
@@ -40,4 +51,19 @@ module Athena::ORM::Mapping::Annotations
     inversed_by : String? = nil,
     orphan_removal : Bool = false,
     cascade : Array(String)? = nil
+
+  protected record ManyToMany,
+    target_entity : AORM::Entity.class | Nil = nil,
+    fetch_mode : FetchMode = :lazy,
+    mapped_by : String? = nil,
+    inversed_by : String? = nil,
+    orphan_removal : Bool = false,
+    cascade : Array(String)? = nil,
+    index_by : String? = nil
+
+  protected record JoinTable,
+    name : String? = nil,
+    schema : String? = nil,
+    join_columns : Array(JoinColumn)? = nil,
+    inverse_join_columns : Array(JoinColumn)? = nil
 end

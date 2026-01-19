@@ -50,27 +50,21 @@ abstract class Athena::ORM::Mapping::Association
     @cascade = cascade || [] of String
   end
 
-  def owning_side? : Bool
-    self.is_a? OwningSide
-  end
-
-  def to_one? : Bool
-    self.is_a? ToOne
-  end
-
-  def one_to_one? : Bool
-    self.is_a? OneToOne
-  end
-
-  def to_one_owning_side? : Bool
-    self.to_one? && self.owning_side?
-  end
-
   def cascade_persist? : Bool
     @cascade.includes? "persist"
   end
 
   def cascade_remove? : Bool
     @cascade.includes? "remove"
+  end
+
+  # TODO: Make this an enum
+  def type : String
+    return "one_to_one" if self.is_a? OneToOne
+    # return "one_to_many" if self.is_a? OneToMany
+    # return "many_to_one" if self.is_a? ManyToOne
+    return "many_to_many" if self.is_a? ManyToMany
+
+    raise "Cannot determine type for #{self.class}"
   end
 end
