@@ -18,70 +18,152 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
 
   getter! back_ref_field_name : String
   @collection : AORM::ArrayCollection(T)
+  @em : AORM::EntityManagerInterface?
+  @class_metadata : Mapping::ClassInterface?
 
+  # Creates a PersistentCollection backed by an ArrayCollection.
+  # Used by the ORM when loading entities.
   def initialize(
-    @em : AORM::EntityManagerInterface,
-    @class_metadata : Mapping::ClassInterface,
-    @collection : Athena::ORM::ArrayCollection(T),
+    em : AORM::EntityManagerInterface,
+    class_metadata : Mapping::ClassInterface,
+    collection : Athena::ORM::ArrayCollection(T),
   )
-    @initialized = true
+    @em = em
+    @class_metadata = class_metadata
+    @collection = collection
+    @is_loaded = true
+  end
+
+  # Creates an empty PersistentCollection.
+  # Primarily for testing or standalone use.
+  def initialize
+    @collection = AORM::ArrayCollection(T).new
+    @is_loaded = true
+  end
+
+  # Creates a PersistentCollection with initial elements.
+  # Primarily for testing or standalone use.
+  def initialize(elements : Array(T))
+    @collection = AORM::ArrayCollection(T).new(elements)
+    @is_loaded = true
   end
 
   # Sets the owner entity and association for this collection.
   def set_owner(owner : AORM::Entity, association : AORM::Mapping::Association) : Nil
     @owner = owner
     @association = association
-    @back_ref_field_name = association.is_a?(Mapping::OwningSide) ? association.inversed_by : association.mapped_by
+    @back_ref_field_name = if association.is_a?(Mapping::OwningSide)
+                             association.inversed_by
+                           else
+                             association.as(Mapping::InverseSide).mapped_by
+                           end
   end
 
   def each(& : T ->) : Nil
+    initialize_collection
     @collection.each do |v|
       yield v
     end
   end
 
   def size : Int32
+    initialize_collection
     @collection.size
   end
 
   def unsafe_fetch(index) : T
+    initialize_collection
     @collection.unsafe_fetch index
   end
 
+  # Returns the element at the given index, or nil if out of bounds.
+  def []?(index : Int) : T?
+    initialize_collection
+    @collection[index]?
+  end
+
+  # Sets the element at the given index with dirty tracking.
+  def []=(index : Int, value : T) : T
+    mark_dirty
+    @collection[index] = value
+  end
+
+  # Adds an element to the collection with dirty tracking.
+  def <<(element : T) : self
+    mark_dirty
+    @collection << element
+    self
+  end
+
+  # Removes an element from the collection with dirty tracking.
+  def delete(element : T) : T?
+    initialize_collection
+    if @collection.includes?(element)
+      mark_dirty
+      @collection.delete(element)
+    end
+  end
+
+  # Removes all elements from the collection with dirty tracking.
+  def clear : Nil
+    initialize_collection
+    unless @collection.empty?
+      mark_dirty
+    end
+    @collection.clear
+  end
+
+  # Returns whether the collection contains the element.
+  def includes?(element : T) : Bool
+    initialize_collection
+    @collection.includes?(element)
+  end
+
+  # Removes an element and returns whether it was present.
+  def remove_element(element : T) : Bool
+    initialize_collection
+    if @collection.includes?(element)
+      mark_dirty
+      @collection.delete(element)
+      true
+    else
+      false
+    end
+  end
+
   def hydrate_add(element : AORM::Entity) : Nil
-    self.hydrate_add element.as T
+    # Cast and add directly to avoid overload resolution issues
+    @collection << element.as(T)
   end
 
   # Adds an element during hydration without marking dirty.
-  # Called by the hydrator when loading from database.
   def hydrate_add(element : T) : Nil
-    # @elements << element
+    @collection << element
   end
 
   # Sets an element during hydration without marking dirty.
   def hydrate_set(index : Int, element : T) : Nil
-    # @elements[index] = element
+    @collection[index] = element
   end
 
   def initialize_collection : Nil
-    return if @initialized || @association.nil?
+    return if @is_loaded || @association.nil?
 
+    # Set loaded early to prevent re-entrancy during do_initialize
+    @is_loaded = true
     self.do_initialize
-    @initialized = true
   end
 
   # Captures the current state for change detection.
-  # Called by the UnitOfWork after loading or flushing.
   def take_snapshot : Nil
-    # @snapshot = @elements.dup
+    @snapshot = @collection.to_a
     @dirty = false
   end
 
   # Returns a copy of the elements array.
   def to_a : Array(T)
     initialize_collection
-    # @elements.dup
-    [] of T
+    @collection.to_a
   end
 
   # Marks the collection as dirty.
@@ -91,14 +173,12 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
 
   # Returns elements that were in the snapshot but are no longer present.
   def delete_diff : Array(T)
-    # @snapshot.reject { |e| @elements.includes?(e) }
-    [] of T
+    @snapshot.reject { |e| @collection.includes?(e) }
   end
 
   # Returns elements that are present now but were not in the snapshot.
   def insert_diff : Array(T)
-    # @elements.reject { |e| @snapshot.includes?(e) }
-    [] of T
+    @collection.to_a.reject { |e| @snapshot.includes?(e) }
   end
 
   # Returns a copy of the snapshot.
@@ -112,6 +192,9 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
   end
 
   protected def do_initialize : Nil
+    em = @em
+    return unless em # Standalone collection without ORM context
+
     newly_added_dirty_objects = [] of T
 
     if @dirty
@@ -119,7 +202,7 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     end
 
     self.unwrap.clear
-    @em.unit_of_work.load_collection self
+    em.unit_of_work.load_collection self
     self.take_snapshot
 
     unless newly_added_dirty_objects.empty?

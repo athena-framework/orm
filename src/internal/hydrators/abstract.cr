@@ -1,38 +1,35 @@
-abstract class Athena::ORM::Internal::Hydrators::Abstract
-  # Column info cache structure
-  private record ColumnInfo, type : AORM::Types::Type, field_name : String, identifier : Bool
+class Athena::ORM::Query::Hints
+end
 
-  @em : AORM::EntityManagerInterface
+abstract class Athena::ORM::Internal::Hydrators::Abstract
+  # :nodoc:
+  record ColumnInfo, field_name : String, type : Types::Type?, alias_name : String, is_identifier : Bool # enum_type
+
+  private getter! rsm : AORM::Query::ResultSetMapping
   @platform : AORM::Platforms::Platform
   @uow : AORM::UnitOfWork
+  @metadata_cache = Hash(AORM::Entity.class, Mapping::ClassInterface).new.compare_by_identity
 
-  # Column info cache
-  @cache = Hash(String, ColumnInfo).new
+  @cache : Hash(String, ColumnInfo) = Hash(String, ColumnInfo).new
 
-  # Query hints
-  @hints = Hash(String, String).new
-
-  # Current result set being hydrated
   private getter! rs : DB::ResultSet
-
-  # Current class metadata being hydrated
-  private getter! class_metadata : AORM::Mapping::ClassInterface
+  @hints : Query::Hints = Query::Hints.new
 
   def initialize(@em : AORM::EntityManagerInterface)
     @platform = @em.connection.database_platform
     @uow = @em.unit_of_work
   end
 
+  # Hydrates all rows using ResultSetMapping.
   def hydrate_all(
-    rs : DB::ResultSet,
-    class_metadata : AORM::Mapping::ClassInterface,
-    hints : Hash(String, String) = {} of String => String,
-  ) : Array(AORM::Entity)
+    @rs : DB::ResultSet,
+    @rsm : AORM::Query::ResultSetMapping,
+    hints : Query::Hints = Query::Hints.new,
+  ) : Array
     @rs = rs
-    @class_metadata = class_metadata
+    @rsm = rsm
     @hints = hints
 
-    # TODO: EM Eventing
     self.prepare
 
     begin
@@ -44,29 +41,45 @@ abstract class Athena::ORM::Internal::Hydrators::Abstract
 
   # Hydrates all rows from the current result set.
   # Children implement this with their specific hydration logic.
-  protected abstract def hydrate_all_data : Array(AORM::Entity)
+  protected abstract def hydrate_all_data : Array
 
-  # Retrieves column information with caching.
-  protected def hydrate_column_info(column_name : String) : ColumnInfo?
-    # TODO: Repalce this with `ResultSetMapping`?
-
-    if ci = @cache[column_name]?
+  protected def hydrate_column_info(key : String) : ColumnInfo?
+    if ci = @cache[key]?
       return ci
     end
 
-    return nil unless field_name = class_metadata.field_names[column_name]?
-    return nil unless field = class_metadata.field_mappings[field_name]?
+    if field_name = self.rsm.field_mappings[key]?
+      class_metadata = self.class_metadata self.rsm.declaring_classes[key]
+      field_mapping = class_metadata.field_mappings[field_name]
+      owner_map = self.rsm.column_owner_map[key]
 
-    @cache[column_name] = ColumnInfo.new(
-      AORM::Types::Type.get_type(field.type),
-      field_name,
-      class_metadata.identifier.includes? field_name
-    )
+      column_info = ColumnInfo.new(
+        field_name,
+        Types::Type.get_type(field_mapping.type),
+        owner_map,
+        class_metadata.identifier.includes?(field_name)
+      )
+
+      # TODO: Handle discriminators
+
+      return @cache[key] = column_info
+    end
+
+    nil
+  end
+
+  protected def gather_row_data : Hash
+    self.rs.column_names.to_h do |col|
+      {col, self.rs.read}
+    end
+  end
+
+  protected def class_metadata(entity_class : AORM::Entity.class) : Mapping::ClassInterface
+    @metadata_cache[entity_class] ||= @em.class_metadata entity_class
   end
 
   # Lifecycle hook called before hydration begins.
   protected def prepare : Nil
-    @cache.clear
   end
 
   # Lifecycle hook called after hydration completes.
@@ -74,8 +87,10 @@ abstract class Athena::ORM::Internal::Hydrators::Abstract
     self.rs.close
 
     @rs = nil
-    @class_metadata = nil
+    @rsm = nil
+    @metadata_cache.clear
     @cache.clear
-    @hints.clear
+
+    # TODO: Remove onClear event listener
   end
 end

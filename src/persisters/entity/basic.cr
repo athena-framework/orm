@@ -40,7 +40,7 @@ class Athena::ORM::Persisters::Entity::Basic
     criteria : Hash(String, _),
     entity : AORM::Entity? = nil,
     association : Mapping::Association? = nil,
-    hints : Hash(String, String) = {} of String => String,
+    hints : Query::Hints = Query::Hints.new,
     lock_mode : LockMode? = nil,
     limit : Int? = nil,
     order_by : Array(String)? = nil,
@@ -54,7 +54,7 @@ class Athena::ORM::Persisters::Entity::Basic
     entities = [] of AORM::Entity
 
     @connection.query sql, args: params do |rs|
-      entities = hydrator.hydrate_all(rs, @class_metadata, hints)
+      entities = hydrator.hydrate_all(rs, @current_persister_context.rsm, hints)
     end
 
     entities.first?
@@ -506,7 +506,7 @@ class Athena::ORM::Persisters::Entity::Basic
     end
 
     column_list = [] of String
-    # TODO: ResultSetMapping?
+    @current_persister_context.rsm.add_root_entity @class_metadata.entity_class, "r"
 
     # Add regular columns
     @class_metadata.field_names.each_value do |field|
@@ -569,14 +569,19 @@ class Athena::ORM::Persisters::Entity::Basic
     fm = metadata.field_mappings[field]
     sql = "#{table_alias}.#{@quote_strategy.column_name field, metadata, @platform}"
 
-    column_alias = nil
-    # TODO: ResultSetMapping?
+    rsm = @current_persister_context.rsm
+
+    # Check if RSM already has an alias for this field (from a previous generation)
+    column_alias = rsm.field_mappings.key_for?(field).try do |col|
+      col if rsm.column_owner_map[col]? == col_alias
+    end
 
     unless column_alias
       column_alias = self.sql_column_alias fm.column_name
     end
 
-    # TODO: ResultSetMapping?
+    rsm.add_field_result col_alias, column_alias, field
+
     # TODO: Handle enum type columns
 
     type = Types::Type.get_type fm.type
@@ -639,8 +644,7 @@ class Athena::ORM::Persisters::Entity::Basic
       return columns
     end
 
-    pp assoc.nil?
-    if assoc && !field.includes?(' ') && !field.includes?('(')
+    if association && !field.includes?(' ') && !field.includes?('(')
       return [field]
     end
 
@@ -657,16 +661,25 @@ class Athena::ORM::Persisters::Entity::Basic
     @current_persister_context = @limits_handling_context
   end
 
-  # Loads entities for a ManyToMany collection.
-  # Mirrors Doctrine's BasicEntityPersister::loadManyToManyCollection.
+  private def load_collection_from_result_set(
+    assoc : Mapping::ManyToMany,
+    rs : DB::ResultSet,
+    collection : AORM::PersistentCollection,
+  ) : Array(AORM::Entity)
+    # TODO: Handle defer eager load hint
+    # TODO: Handle indexed association
+
+    @em.hydrator(:object).hydrate_all(rs, @current_persister_context.rsm).as Array(AORM::Entity)
+  end
+
   def load_many_to_many_collection(
     assoc : Mapping::ManyToMany,
     source_entity : AORM::Entity,
     collection : AORM::PersistentCollection,
   ) : Array(AORM::Entity)
-    stmt = self.many_to_many_statement assoc, source_entity
+    rs = self.many_to_many_statement assoc, source_entity
 
-    [] of AORM::Entity
+    self.load_collection_from_result_set assoc, rs, collection
   end
 
   record CollectionParameter, value : Mapping::Value, source_class_metadata : Mapping::ClassInterface
@@ -714,8 +727,6 @@ class Athena::ORM::Persisters::Entity::Basic
     end
 
     sql = self.select_sql criteria, assoc, nil, limit, offset
-
-    pp sql
 
     # TODO: Do we need to return types?
     params = self.expand_to_many_parameters parameters

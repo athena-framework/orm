@@ -118,7 +118,7 @@ class Athena::ORM::UnitOfWork
       # Collection deletions (deletions of complete collections)
       @collection_deletions.each do |collection|
         # Deferred explicit tracked collections can be removed only when owning relation was persisted
-        owner = collection.as(AORM::PersistentCollection).owner
+        owner = collection.owner
 
         # TODO: Handle change tracking and dirty checks
       end
@@ -140,10 +140,7 @@ class Athena::ORM::UnitOfWork
 
       # Handle collection updates after entity inserts
       @collection_updates.each do |collection|
-        persistent = collection.as(AORM::PersistentCollection)
-        if assoc = persistent.association?
-          self.collection_persister(assoc).update persistent
-        end
+        self.collection_persister(collection.association).update collection
       end
 
       unless @entity_deletions.empty?
@@ -161,7 +158,7 @@ class Athena::ORM::UnitOfWork
     @visited_collections.each do |collection|
       # TODO: Handle pending collection element removals
 
-      collection.as(AORM::PersistentCollection).take_snapshot
+      collection.take_snapshot
     end
 
     # TODO: Handle eventing (postFlush)
@@ -1058,10 +1055,12 @@ class Athena::ORM::UnitOfWork
   # Creates or retrieves an entity from hydrated data.
   # Mirrors Doctrine's UnitOfWork::createEntity.
   def create_entity(
-    class_metadata : AORM::Mapping::ClassInterface,
-    data : Hash(String, DB::Any?),
-    hints : Hash(String, String) = {} of String => String,
+    entity_class : AORM::Entity.class,
+    data : Hash,
+    hints : AORM::Query::Hints = AORM::Query::Hints.new,
   ) : AORM::Entity
+    class_metadata = @em.class_metadata entity_class
+
     id = identifier_flattener.flatten_identifier(class_metadata, data)
     id_hash = self.class.id_hash_by_identifier id
 
@@ -1133,9 +1132,15 @@ class Athena::ORM::UnitOfWork
     assoc = collection.association
     persister = self.entity_persister(assoc.target_entity)
 
-    case assoc
-    when Mapping::ManyToMany
-      persister.load_many_to_many_collection(assoc, collection.owner.not_nil!, collection)
+    entities = case assoc
+               when Mapping::ManyToMany
+                 persister.load_many_to_many_collection(assoc, collection.owner.not_nil!, collection)
+               else
+                 [] of AORM::Entity
+               end
+
+    entities.each do |entity|
+      collection.hydrate_add(entity)
     end
 
     collection.initialized = true

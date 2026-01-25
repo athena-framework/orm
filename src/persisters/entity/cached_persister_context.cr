@@ -5,13 +5,18 @@ class Athena::ORM::Persisters::Entity::CachedPersisterContext
   getter class_metadata : AORM::Mapping::ClassInterface
   getter? handles_limit : Bool
 
+  # Result set mapping built alongside SQL generation
+  getter rsm : AORM::Query::ResultSetMapping
+
   property select_column_list_sql : String? = nil
   property select_join_sql : String = ""
 
   def initialize(
     @class_metadata : AORM::Mapping::ClassInterface,
     @handles_limit : Bool,
-  ); end
+  )
+    @rsm = AORM::Query::ResultSetMapping.new
+  end
 
   def sql_alias_counter : Int
     idx = @sql_alias_counter

@@ -5,5 +5,13 @@ abstract class Athena::ORM::AbstractLazyCollection(T)
   include Indexable(T)
 
   # @collection : Athena::ORM::Collection
-  property? initialized : Bool = false
+  @is_loaded : Bool = false
+
+  def loaded? : Bool
+    @is_loaded
+  end
+
+  def initialized=(value : Bool) : Bool
+    @is_loaded = value
+  end
 end

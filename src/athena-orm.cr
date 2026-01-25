@@ -10,6 +10,7 @@ require "./mapping/**"
 require "./persisters/entity/*"
 require "./persisters/collection/*"
 require "./platforms/*"
+require "./query/*"
 require "./sql/parser"
 require "./types/*"
 require "./utility/*"
@@ -19,6 +20,7 @@ require "./default_repository_factory"
 require "./entity"
 require "./entity_manager"
 require "./entity_repository"
+require "./native_query"
 require "./persister_helper"
 require "./unit_of_work"
 
@@ -97,9 +99,9 @@ class Group < AORM::Entity
   @[AORMA::Column(length: 50)]
   property! name : String
 
-  # Inverse side: has mapped_by pointing to the owning side's field
-  @[AORMA::ManyToMany(target_entity: User, mapped_by: "groups")]
-  property users : AORM::Collection(User) = AORM::ArrayCollection(User).new
+  # # Inverse side: has mapped_by pointing to the owning side's field
+  # @[AORMA::ManyToMany(target_entity: User, mapped_by: "groups")]
+  # property users : AORM::Collection(User) = AORM::ArrayCollection(User).new
 end
 
 # # ## Custom Join Table and Column Names
@@ -153,13 +155,25 @@ em = AORM::EntityManager.new connection
 # em.persist(user)
 
 # Later: load user with groups
-loaded_user = em.find!(User, 1)
-loaded_user.groups.each do |group|
-  puts group.name
-end
-# pp loaded_user
 
-em.flush
+# SELECT t0.id AS id_1, t0.username AS username_2 FROM users t0 WHERE t0.id = $1
+loaded_user = em.find!(User, 1)
+loaded_group = em.find! Group, 1
+
+groups = loaded_user.groups
+# raise "foo" unless groups.is_a? AORM::PersistentCollection
+
+pp groups.first.name
+pp loaded_group.name
+# Later on when first accessed
+# SELECT t0.id AS id_1, t0.name AS name_2 FROM groups t0 INNER JOIN user_group ON t0.id = user_group.group_id WHERE user_group.user_id = $
+# loaded_user.groups.each do |group|
+#   puts group.name
+# end
+
+# loaded_user.groups.delete loaded_group
+
+# em.flush
 # # Remove a group from the relationship
 # loaded_user.groups.delete(group1)
 # em.flush # Updates join table, removes the user_group row

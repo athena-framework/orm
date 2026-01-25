@@ -142,6 +142,11 @@ class Athena::ORM::EntityManager
     end
   end
 
+  # Creates a native SQL query with explicit result set mapping.
+  def create_native_query(sql : String, rsm : Query::ResultSetMapping) : NativeQuery
+    NativeQuery.new(self, sql, rsm)
+  end
+
   private def unless_closed(&) : Nil
     # Use an actual Exception type for this
     raise "EM IS CLOSED" if @closed

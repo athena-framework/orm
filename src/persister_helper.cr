@@ -102,7 +102,7 @@ module Athena::ORM
       [value.value]
     end
 
-    private def self.convert_individual_value(value : AORM::Entity, em : AORM::EntityManagerInterface) : Array(DB::Any)
+    private def self.convert_individual_value(value : AORM::Entity, em : AORM::EntityManagerInterface) : Array
       class_metadata = em.class_metadata value.class
 
       if class_metadata.is_identifier_composite
@@ -112,13 +112,13 @@ module Athena::ORM
       [em.unit_of_work.single_identifier_value value] of DB::Any
     end
 
-    private def self.convert_individual_value(value : Collection, em : AORM::EntityManagerInterface) : Array(DB::Any)
+    private def self.convert_individual_value(value : Collection, em : AORM::EntityManagerInterface) : Array
       # Collections are not converted to parameter values directly.
       # They are handled by the collection persisters.
       [] of DB::Any
     end
 
-    private def self.convert_individual_value(value : DB::Any, em : AORM::EntityManagerInterface) : Array(DB::Any)
+    private def self.convert_individual_value(value : DB::Any, em : AORM::EntityManagerInterface) : Array
       [value] of DB::Any
     end
   end

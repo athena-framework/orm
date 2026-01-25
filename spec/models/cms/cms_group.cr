@@ -10,5 +10,5 @@ class CmsGroup < AORM::Entity
   property! name : String
 
   @[AORMA::ManyToMany(target_entity: CmsUser, mapped_by: "groups")]
-  property users : AORM::PersistentCollection(CmsUser) = AORM::PersistentCollection(CmsUser).new
+  property users : AORM::Collection(CmsUser) = AORM::ArrayCollection(CmsUser).new
 end
