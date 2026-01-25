@@ -665,18 +665,22 @@ class Athena::ORM::Persisters::Entity::Basic
     assoc : Mapping::ManyToMany,
     rs : DB::ResultSet,
     collection : AORM::PersistentCollection,
-  ) : Array(AORM::Entity)
-    # TODO: Handle defer eager load hint
+  ) : Array
+    hints = Query::Hints.new(
+      defer_eager_load: true,
+      collection: collection
+    )
+
     # TODO: Handle indexed association
 
-    @em.hydrator(:object).hydrate_all(rs, @current_persister_context.rsm).as Array(AORM::Entity)
+    @em.hydrator(:object).hydrate_all(rs, @current_persister_context.rsm, hints).as Array(AORM::Entity)
   end
 
   def load_many_to_many_collection(
     assoc : Mapping::ManyToMany,
     source_entity : AORM::Entity,
     collection : AORM::PersistentCollection,
-  ) : Array(AORM::Entity)
+  ) : Array
     rs = self.many_to_many_statement assoc, source_entity
 
     self.load_collection_from_result_set assoc, rs, collection
@@ -735,17 +739,13 @@ class Athena::ORM::Persisters::Entity::Basic
   end
 
   private def expand_to_many_parameters(parameters : Array(CollectionParameter)) : Array
-    params = [] of DB::Any
-
-    parameters.each do |param|
+    parameters.flat_map do |param|
       value = param.value
       value = value.is_a?(Mapping::Value) ? value.value : value
 
       next if value.nil?
 
-      params.concat PersisterHelper.convert_to_parameter_value value, @em
+      PersisterHelper.convert_to_parameter_value value, @em
     end
-
-    params
   end
 end

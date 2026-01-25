@@ -14,7 +14,7 @@ class Athena::ORM::Internal::Hydrators::SimpleObject < Athena::ORM::Internal::Hy
     self.rs.each do
       # Gather row data as a has to make things simpler?
       # TODO: See if we could just pass in the RS instead maybe?
-      row_data = self.gather_row_data
+      row_data = self.fetch_assoc
 
       self.hydrate_row_data row_data, result
     end

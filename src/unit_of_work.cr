@@ -1052,6 +1052,10 @@ class Athena::ORM::UnitOfWork
     @orphan_removals.add entity
   end
 
+  def trigger_eager_loads : Nil
+    # TODO: Implement this
+  end
+
   # Creates or retrieves an entity from hydrated data.
   # Mirrors Doctrine's UnitOfWork::createEntity.
   def create_entity(

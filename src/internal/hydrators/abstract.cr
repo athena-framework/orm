@@ -1,6 +1,16 @@
 class Athena::ORM::Query::Hints
+  # Hint used to collect all primary keys of associated entities during hydration and execute it in a dedicated query afterwards
+  property? defer_eager_load : Bool? = nil
+  getter! collection : AORM::PersistentCollectionInterface
+  property! fetch_alias : String
+
+  def initialize(
+    @defer_eager_load : Bool? = nil,
+    @collection : AORM::PersistentCollectionInterface? = nil,
+  ); end
 end
 
+# TODO: Maybe see about making this generic to more accurately type what `hydrate_all` returns?
 abstract class Athena::ORM::Internal::Hydrators::Abstract
   # :nodoc:
   record ColumnInfo, field_name : String, type : Types::Type?, alias_name : String, is_identifier : Bool # enum_type
@@ -68,7 +78,54 @@ abstract class Athena::ORM::Internal::Hydrators::Abstract
     nil
   end
 
-  protected def gather_row_data : Hash
+  struct RowData
+    getter data : Hash(String, Hash(String, Mapping::Value)) = Hash(String, Hash(String, Mapping::Value)).new { |hash, key| hash[key] = Hash(String, Mapping::Value).new }
+    getter new_objects : Array(AORM::Entity) = [] of AORM::Entity
+  end
+
+  protected def gather_row_data(data : Hash, id : Hash(String, String), non_empty_component : Hash(String, Bool)) : RowData
+    # TODO: Handle RSM new objects?
+    # row_data = {
+    #   data:        Hash(String, typeof(data)).new,
+    #   new_objects: [] of AORM::Entity,
+    # }
+    row_data = RowData.new
+
+    data.each do |key, value|
+      next unless cache_key_info = self.hydrate_column_info key
+
+      field_name = cache_key_info.field_name
+
+      # TODO: Handle isNewObjectParamter
+      # TODO: Handle isScalar
+
+      alias_name = cache_key_info.alias_name
+      type = cache_key_info.type
+
+      # If there are field name collisions in the child class, then we need to only hydrate if we are looking at the correct discriminator value
+      # TODO: Handle that
+
+      # in an inheritance hierarchy the same field could be defined several times.
+      # We overwrite this value so long we don't have a non-null value, that value we keep.
+      # Per definition it cannot be that a field is defined several times and has several values.
+      # TODO: Handle that
+
+      row_data.data[alias_name][field_name] = Mapping::SingleValue.new type ? type.to_crystal_value(value, @platform) : value
+
+      # TODO: Handle enum types
+
+      if cache_key_info.is_identifier && !value.nil?
+        id[alias_name] += "|#{value}"
+        non_empty_component[alias_name] = true
+      end
+    end
+
+    # TODO: Handle nested / new objects
+
+    row_data
+  end
+
+  protected def fetch_assoc : Hash
     self.rs.column_names.to_h do |col|
       {col, self.rs.read}
     end

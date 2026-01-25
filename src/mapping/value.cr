@@ -1,7 +1,11 @@
 module Athena::ORM::Mapping
   # Container type for holding arbitrary values for a given column
 
-  abstract struct Value; end
+  abstract struct Value
+    abstract def value
+  end
+
+  record SingleValue(T) < Athena::ORM::Mapping::Value, value : T
 
   record ColumnValue(T) < Athena::ORM::Mapping::Value, name : String, value : T do
     forward_missing_to @value

@@ -196,7 +196,13 @@ class Athena::ORM::Mapping::Class(T)
           # {% is_collection = ivar_base_type.name.starts_with?("Athena::ORM::PersistentCollection") || ivar_base_type.name.starts_with?("Athena::ORM::ArrayCollection") %}
           # {% is_entity = ivar_base_type < AORM::Entity %}
           # {% unless is_collection || is_entity %}
-          if data.has_key?({{ ivar.name.stringify }}) && (raw = data[{{ivar.name.stringify}}]).is_a?({{ivar.type}})
+          raw = if data.has_key?({{ ivar.name.stringify }})
+                  data[{{ivar.name.stringify}}]
+                end
+
+          raw = raw.is_a?(Mapping::Value) ? raw.value : raw
+
+          if raw && raw.is_a?({{ivar.type}})
             pointerof(instance.@{{ ivar.id }}).value = raw.not_nil!.as({{ ivar.type }})
           end
           # {% end %}

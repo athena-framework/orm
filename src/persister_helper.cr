@@ -98,6 +98,10 @@ module Athena::ORM
       self.convert_individual_value value, em
     end
 
+    private def self.convert_individual_value(value : Mapping::Value, em : AORM::EntityManagerInterface) : Array
+      self.convert_individual_value value.value
+    end
+
     private def self.convert_individual_value(value : ::Enum, em : AORM::EntityManagerInterface)
       [value.value]
     end
@@ -120,6 +124,10 @@ module Athena::ORM
 
     private def self.convert_individual_value(value : DB::Any, em : AORM::EntityManagerInterface) : Array
       [value] of DB::Any
+    end
+
+    private def self.convert_individual_value(value : _, em : AORM::EntityManagerInterface) : Array
+      [value]
     end
   end
 end
