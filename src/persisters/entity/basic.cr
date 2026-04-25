@@ -474,12 +474,14 @@ class Athena::ORM::Persisters::Entity::Basic
       new_value = change.new.value
 
       # An associated entity that's still queued for insert hasn't received its
-      # identifier yet — null the FK column out and let a follow-up update set
-      # it once the target has an id. (Doctrine schedules the extra update
-      # explicitly; we currently rely on the topological sort to insert
-      # targets first, so this branch only triggers on cycles.)
+      # identifier yet — null the FK column out for the current INSERT and
+      # schedule an extra UPDATE to patch the column once the target has an id.
+      # The topological sort handles the non-cyclic case before we get here, so
+      # this branch only fires on true cycles.
       if new_value.is_a?(AORM::Entity) && uow.is_scheduled_for_insert?(new_value)
-        # TODO: schedule_extra_update once UoW supports it.
+        patch = Hash(String, UnitOfWork::Change).new
+        patch[field] = change
+        uow.schedule_extra_update entity, patch
         new_value = nil
       end
 

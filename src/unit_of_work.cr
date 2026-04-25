@@ -95,6 +95,11 @@ class Athena::ORM::UnitOfWork
   # Per-collection list of entities flagged for removal during change-set computation; applied after the transaction commits, alongside snapshots.
   @pending_collection_element_removals = Hash(AORM::PersistentCollectionInterface, Array(AORM::Entity)).new.compare_by_identity
 
+  # Per-entity changeset patches that must be applied as follow-up UPDATEs
+  # after the main inserts run — needed when a FK can't be set during INSERT
+  # because the referenced row hasn't been written yet (i.e. cyclic FKs).
+  @extra_updates = Hash(AORM::Entity, Hash(String, Change)).new.compare_by_identity
+
   getter identifier_flattener : AORM::Utility::IdentifierFlattener { AORM::Utility::IdentifierFlattener.new(self, @em.metadata_factory) }
 
   def initialize(@em : AORM::EntityManagerInterface)
@@ -147,7 +152,9 @@ class Athena::ORM::UnitOfWork
         self.execute_updates
       end
 
-      # TODO: Handle extra updates
+      unless @extra_updates.empty?
+        self.execute_extra_updates
+      end
 
       # Handle collection updates after entity inserts
       @collection_updates.each do |collection|
@@ -239,6 +246,7 @@ class Athena::ORM::UnitOfWork
     @entity_updates.clear
     @entity_deletions.clear
     @entity_change_sets.clear
+    @extra_updates.clear
     @orphan_removals.clear
     @collection_deletions.clear
     @collection_updates.clear
@@ -690,6 +698,7 @@ class Athena::ORM::UnitOfWork
     @non_cascaded_new_detected_entities.clear
     @collection_deletions.clear
     @collection_updates.clear
+    @extra_updates.clear
     @visited_collections.clear
     @pending_collection_element_removals.clear
   end
@@ -885,6 +894,33 @@ class Athena::ORM::UnitOfWork
     end
 
     cs
+  end
+
+  # Schedules a follow-up UPDATE to apply the given changeset to *entity*. Used
+  # by persisters when a FK can't be written at INSERT time because the
+  # referenced entity hasn't been inserted yet (cyclic dependency). Multiple
+  # extra updates for the same entity are merged.
+  def schedule_extra_update(entity : AORM::Entity, changeset : Hash(String, Change)) : Nil
+    if existing = @extra_updates[entity]?
+      @extra_updates[entity] = existing.merge changeset
+    else
+      @extra_updates[entity] = changeset
+    end
+  end
+
+  def extra_update_for(entity : AORM::Entity) : Hash(String, Change)
+    @extra_updates[entity]? || Hash(String, Change).new
+  end
+
+  private def execute_extra_updates : Nil
+    @extra_updates.each do |entity, changeset|
+      # Swap the entity's main changeset out for the extra one so the persister's
+      # update path writes only the patched columns.
+      @entity_change_sets[entity] = changeset
+      self.entity_persister(entity.class).update entity
+    end
+
+    @extra_updates.clear
   end
 
   def compute_changesets : Nil

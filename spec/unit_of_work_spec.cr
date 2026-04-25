@@ -240,6 +240,49 @@ struct UnitOfWorkTest < ASPEC::TestCase
     avatar_persister.deletes.size.should eq 0
   end
 
+  def test_schedule_extra_update_merges_repeated_changesets : Nil
+    user = ForumUser.new
+    user.username = "fred"
+
+    avatar1 = ForumAvatar.new
+    avatar2 = ForumAvatar.new
+    val1 = AORM::Mapping::SingleValue(AORM::Entity?).new(avatar1)
+    val2 = AORM::Mapping::SingleValue(AORM::Entity?).new(avatar2)
+
+    @uow.schedule_extra_update user, {"avatar" => AORM::UnitOfWork::Change.new(nil, val1)}
+    @uow.schedule_extra_update user, {"username" => AORM::UnitOfWork::Change.new(nil, val2)}
+
+    extras = @uow.extra_update_for user
+    extras.keys.sort.should eq ["avatar", "username"]
+  end
+
+  def test_execute_extra_updates_runs_persister_update_with_patched_changeset : Nil
+    user_persister = MockEntityPersister.new @em, @em.class_metadata ForumUser
+    @uow.set_entity_persister ForumUser, user_persister
+    user_persister.mock_id_generator = :identity
+
+    avatar_persister = MockEntityPersister.new @em, @em.class_metadata ForumAvatar
+    @uow.set_entity_persister ForumAvatar, avatar_persister
+    avatar_persister.mock_id_generator = :identity
+
+    avatar = ForumAvatar.new
+    user = ForumUser.new
+    user.username = "fred"
+    user.avatar = avatar
+
+    # The cycle-style write would normally be wired via a persister, but here we
+    # poke the UoW directly to verify the update fires after the main inserts.
+    @uow.persist user
+    avatar_value = AORM::Mapping::SingleValue(AORM::Entity?).new(avatar)
+    @uow.schedule_extra_update user, {"avatar" => AORM::UnitOfWork::Change.new(nil, avatar_value)}
+
+    @uow.commit
+
+    user_persister.updates.size.should eq 1
+    user_persister.updates.first.should be user
+    @uow.extra_update_for(user).should be_empty
+  end
+
   def test_insert_execution_order_places_to_one_owning_side_target_first : Nil
     user_persister = MockEntityPersister.new @em, @em.class_metadata ForumUser
     @uow.set_entity_persister ForumUser, user_persister

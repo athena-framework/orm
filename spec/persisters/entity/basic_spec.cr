@@ -118,8 +118,8 @@ struct BasicPersisterTest < ASPEC::TestCase
     user.avatar = avatar
 
     # Both entities are scheduled for insert and the target has no identifier
-    # yet: the FK column gets NULL, mirroring Doctrine's "fall back to null,
-    # rely on a follow-up update" path.
+    # yet: the FK column gets NULL on this INSERT and an extra UPDATE gets
+    # scheduled to patch it once the target has an id.
     em.unit_of_work.persist user
     em.unit_of_work.compute_changesets
 
@@ -127,6 +127,7 @@ struct BasicPersisterTest < ASPEC::TestCase
     user_row = data["forum_users"]
 
     user_row["avatar_id"].value.should be_nil
+    em.unit_of_work.extra_update_for(user).has_key?("avatar").should be_true
   end
 
   def test_insert_sql_lists_columns_and_placeholders : Nil
