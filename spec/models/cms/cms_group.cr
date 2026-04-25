@@ -11,4 +11,9 @@ class CmsGroup < AORM::Entity
 
   @[AORMA::ManyToMany(target_entity: CmsUser, mapped_by: "groups")]
   property users : AORM::Collection(CmsUser) = AORM::ArrayCollection(CmsUser).new
+
+  # Inverse-side helper invoked from `CmsUser#add_group` (does not recurse).
+  def add_user(user : CmsUser) : Nil
+    self.users << user
+  end
 end

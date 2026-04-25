@@ -131,6 +131,19 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     end
   end
 
+  # Polymorphic entry used when the caller only knows `AORM::Entity`
+  # (e.g., the UnitOfWork applying pending element removals via
+  # `Hash(PersistentCollectionInterface, Array(Entity))`). The macro guard
+  # mirrors `hydrate_add` above so non-entity instantiations don't try to
+  # cast `Entity` into a primitive.
+  def remove_element(element : AORM::Entity) : Bool
+    {% if T <= AORM::Entity %}
+      remove_element element.as(T)
+    {% else %}
+      raise "BUG: Entity overload of remove_element invoked on non-entity collection"
+    {% end %}
+  end
+
   # Polymorphic entry used by the hydrator, where the static type of *element*
   # is `AORM::Entity` even though the runtime type matches `T`. The macro guard
   # keeps non-entity instantiations (e.g. `PersistentCollection(Int32)` used in

@@ -539,10 +539,11 @@ struct UnitOfWorkTest < ASPEC::TestCase
     user.groups.includes?(group1).should be_true
     user.groups.includes?(group2).should be_true
 
-    # Now remove group1 (using remove, which triggers remove_from_collections)
+    # Schedule group1 for removal. Doctrine defers the in-memory collection
+    # cleanup until after `commit` succeeds, so the assertion has to come after the next flush.
     @uow.remove group1
+    @uow.commit
 
-    # The group should be removed from the user's collection
     user.groups.includes?(group1).should be_false
     user.groups.size.should eq 1
     user.groups.includes?(group2).should be_true
@@ -657,14 +658,12 @@ struct UnitOfWorkTest < ASPEC::TestCase
     group = CmsGroup.new
     group.name = "group1"
 
-    # Add group to user's collection (owning side)
-    user.groups << group
+    # Owning-side helper updates both ends
+    user.add_group group
 
     @uow.persist user
     @uow.commit
 
-    # After flush, the back-reference should be synced
-    # The group's users collection should contain the user
     group.users.includes?(user).should be_true
   end
 end

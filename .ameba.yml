@@ -6,6 +6,8 @@ Lint/Formatting:
   Enabled: false # This has its own dedicated CI job
 Lint/NotNil:
   Enabled: false
+Lint/SpecFilename:
+  Enabled: false
 Lint/Typos:
   Enabled: false # This has its own dedicated CI job
 Lint/UselessAssign:

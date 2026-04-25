@@ -84,6 +84,9 @@ class Athena::ORM::UnitOfWork
   # Collections that have been visited during changeset computation
   @visited_collections = Set(AORM::PersistentCollectionInterface).new.compare_by_identity
 
+  # Per-collection list of entities flagged for removal during change-set computation; applied after the transaction commits, alongside snapshots.
+  @pending_collection_element_removals = Hash(AORM::PersistentCollectionInterface, Array(AORM::Entity)).new.compare_by_identity
+
   getter identifier_flattener : AORM::Utility::IdentifierFlattener { AORM::Utility::IdentifierFlattener.new(self, @em.metadata_factory) }
 
   def initialize(@em : AORM::EntityManagerInterface)
@@ -154,9 +157,11 @@ class Athena::ORM::UnitOfWork
 
     self.after_transaction_complete
 
-    # Take snapshots of collections
+    # Apply pending element removals, then snapshot
     @visited_collections.each do |collection|
-      # TODO: Handle pending collection element removals
+      if pending = @pending_collection_element_removals[collection]?
+        pending.each { |entity| collection.remove_element entity }
+      end
 
       collection.take_snapshot
     end
@@ -230,6 +235,7 @@ class Athena::ORM::UnitOfWork
     @collection_deletions.clear
     @collection_updates.clear
     @visited_collections.clear
+    @pending_collection_element_removals.clear
   end
 
   private def execute_inserts(class_metadata : AORM::Mapping::ClassInterface) : Nil
@@ -662,6 +668,7 @@ class Athena::ORM::UnitOfWork
     @collection_deletions.clear
     @collection_updates.clear
     @visited_collections.clear
+    @pending_collection_element_removals.clear
   end
 
   def single_identifier_value(entity : AORM::Entity)
@@ -1047,7 +1054,12 @@ class Athena::ORM::UnitOfWork
 
         @visited_collections << value
 
-        # TODO: Handle collection element removals
+        # Defer the in-memory removal until after the transaction completes
+        # successfully. Mirrors Doctrine UnitOfWork.php:862-877.
+        if value.is_a? AORM::PersistentCollectionInterface
+          pending = @pending_collection_element_removals[value] ||= [] of AORM::Entity
+          pending << entity
+        end
       else
         # noop
       end
