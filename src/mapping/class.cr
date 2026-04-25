@@ -130,7 +130,11 @@ class Athena::ORM::Mapping::Class(T)
         {% ivar_type = IVarType.nilable? ? IVarType.union_types.reject(&.nilable?).first : IVarType %}
 
         {% if ivar_type <= AORM::Entity? %}
+          # ToOne: `property avatar : Avatar?` → infer Avatar.
           mapping = mapping.copy_with target_entity: {{ivar_type}}
+        {% elsif !ivar_type.type_vars.empty? && ivar_type.type_vars.first <= AORM::Entity %}
+          # ToMany: `property groups : AORM::Collection(Group)` → infer Group from the collection's element type.
+          mapping = mapping.copy_with target_entity: {{ivar_type.type_vars.first}}
         {% end %}
       {% end %}
 

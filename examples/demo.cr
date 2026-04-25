@@ -1,9 +1,37 @@
 require "pg"
 require "../src/athena-orm"
 
-# Pipe crystal-db's statement logs to stdout in a readable form so each step's
-# SQL appears inline. Source: `db` (defined as `Log = ::Log.for(self)` in
-# `db.cr`; statement execution emits `"Executing query"` at debug).
+# ============================================================================
+# Athena::ORM end-to-end demo
+# ============================================================================
+#
+# This file is both a smoke test for the ORM and a guided tour of how it's
+# meant to be used. Run it with `crystal run examples/demo.cr` against the
+# docker-compose Postgres (DROP+CREATE at the top makes it idempotent).
+#
+# This file is both a smoke test for the ORM and a guided tour of how it's meant to be used.
+# Run it with `crystal run examples/demo.cr` against the docker-compose Postgres (DROP+CREATE at the top makes it idempotent).
+#
+# A few core concepts worth keeping in mind as you read the steps:
+#
+# * **Entity** — a Crystal class that maps to a database table. Annotated with `@[AORMA::Entity]` and optionally `@[AORMA::Table]`.
+#                Columns and relationships are declared as annotated `property` declarations.
+#
+# * **EntityManager (EM)** — your handle on the ORM for a given connection.
+#   You call `em.persist`, `em.find`, `em.flush`, etc. on it. Internally it owns a `UnitOfWork` and an identity map.
+#
+# * **Unit of Work** — pending writes (inserts, updates, deletes) are buffered and only sent to the DB on `em.flush`.
+#                      The flush wraps everything in a single transaction and figures out the right order to write things in (so a child row's FK target is inserted before the child).
+#
+# * **Identity map** — once an entity is loaded, the EM remembers it by primary key.
+#                      A second `em.find!(User, 1)` returns the *same* in-memory object as the first call, no extra query, until you `em.clear`.
+#
+# * **Change tracking** — modify a property on a managed entity, call `em.flush`, and the ORM diffs against what it loaded and emits an UPDATE for just the changed columns.
+#
+# * **Lazy loading** — when you load a `User`, its `groups` collection isn't populated yet; the join SELECT only fires the first time you actually touch the collection (`.size`, `.each`, `[0]`, etc.).
+#
+# * **Cascade** — `cascade: ["persist"]` on an association tells the ORM to `persist` related entities automatically when you persist the parent.
+#                 So `em.persist(user)` followed by `em.flush` will INSERT the user *and* any associated avatar/groups in one transaction.
 ::Log.setup do |c|
   backend = ::Log::IOBackend.new(STDOUT, formatter: ::Log::Formatter.new { |entry, io|
     next unless entry.source == "db"
@@ -50,6 +78,19 @@ SCHEMA = [
 ]
 
 # ===== Entities =====
+#
+# Each entity is a regular Crystal class extending `AORM::Entity`.
+# Annotations tell the ORM how to map it to a row:
+#
+#   @[AORMA::Entity]              — required marker
+#   @[AORMA::Table(name: ...)]    — table name (optional, defaults derive from class)
+#   @[AORMA::Column]              — map a property to a scalar column
+#   @[AORMA::ID]                  — primary-key field
+#   @[AORMA::GeneratedValue]      — let the DB generate the id (SERIAL/IDENTITY)
+#   @[AORMA::OneToOne]            — single-record association (FK on this side)
+#   @[AORMA::ManyToMany]          — collection-of-records association (join table)
+#
+# `target_entity` on the relationship annotations is *inferred* from the property's type restriction: `Avatar?` for OneToOne, `Collection(Group)` for ManyToMany — there's no need to repeat the type as an annotation arg.
 
 @[AORMA::Entity]
 @[AORMA::Table(name: "avatars")]
@@ -74,14 +115,14 @@ class User < AORM::Entity
   @[AORMA::Column(length: 50)]
   property! username : String
 
-  @[AORMA::OneToOne(target_entity: Avatar, cascade: ["persist"])]
-  @[AORMA::JoinColumn(name: "avatar_id", referenced_column_name: "id")]
+  # OneToOne, owning side: this entity holds the FK column (`avatar_id`).
+  # `cascade: ["persist"]` means persisting a User also persists its Avatar.
+  @[AORMA::OneToOne(cascade: ["persist"])]
   property avatar : Avatar? = nil
 
-  @[AORMA::ManyToMany(target_entity: Group, inversed_by: "users", cascade: ["persist"])]
-  @[AORMA::JoinTable(name: "user_group")]
-  @[AORMA::JoinColumn(name: "user_id", referenced_column_name: "id")]
-  @[AORMA::InverseJoinColumn(name: "group_id", referenced_column_name: "id")]
+  # ManyToMany, owning side: writes to the join table happen from here.
+  # `inversed_by` names the property on the inverse side (Group#users).
+  @[AORMA::ManyToMany(inversed_by: "users", cascade: ["persist"])]
   property groups : AORM::Collection(Group) = AORM::ArrayCollection(Group).new
 
   def add_group(group : Group) : Nil
@@ -101,7 +142,9 @@ class Group < AORM::Entity
   @[AORMA::Column(length: 50)]
   property! name : String
 
-  @[AORMA::ManyToMany(target_entity: User, mapped_by: "groups")]
+  # ManyToMany, *inverse* side: `mapped_by` points back at the owning side (User#groups).
+  # The inverse side is read-only as far as the join table is concerned — modifications must go through the owning side to be persisted.
+  @[AORMA::ManyToMany(mapped_by: "groups")]
   property users : AORM::Collection(User) = AORM::ArrayCollection(User).new
 
   def add_user(user : User) : Nil
@@ -139,6 +182,8 @@ DB.open "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres" do |db|
     em = AORM::EntityManager.new conn
 
     # ---------------------------------------------------------------------
+    # `persist` registers the entity with the UoW; nothing hits the DB until `flush`.
+    # After flush, identity-strategy id columns are populated on the in-memory entity from the row the DB just inserted (Postgres LASTVAL).
     step 1, "persist + flush + post-insert ID (scalar entity)" do
       alice = User.new
       alice.username = "alice"
@@ -153,6 +198,8 @@ DB.open "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres" do |db|
     end
 
     # ---------------------------------------------------------------------
+    # The first `find!` issues a SELECT and stores the entity in the identity map.
+    # The second `find!` for the same id returns the SAME object — no extra query — so equality checks via `same?` hold.
     step 2, "find by ID + identity-map dedup" do
       first = em.find!(User, 1)
       second = em.find!(User, 1)
@@ -165,6 +212,8 @@ DB.open "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres" do |db|
     end
 
     # ---------------------------------------------------------------------
+    # `cascade: ["persist"]` on User.avatar means we only have to persist Bob; the avatar tags along.
+    # The UoW also figures out insert order: avatars is inserted FIRST so its generated id is available as the user's avatar_id FK in the same flush.
     step 3, "OneToOne cascade-persist + FK column populated" do
       avatar = Avatar.new
       avatar.url = "https://example.test/bob.png"
@@ -189,6 +238,8 @@ DB.open "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres" do |db|
     end
 
     # ---------------------------------------------------------------------
+    # ManyToMany cascade follows the same shape: persist Carol → her groups also get inserted, and the join-table rows are written automatically after both sides have ids.
+    # Note `add_group` keeps both ends of the relationship in sync in-memory — the ORM only writes through the owning side, but you generally want the inverse to reflect reality too.
     step 4, "cascade-persist M2M (insert into user_group)" do
       admins = Group.new
       admins.name = "admins"
@@ -217,6 +268,8 @@ DB.open "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres" do |db|
     end
 
     # ---------------------------------------------------------------------
+    # `em.repository(T)` returns a typed `EntityRepository(T)` with the standard finder API (`find`, `find_by`, `find_one_by`, `count`).
+    # It's just a convenient front-end over the persister.
     step 5, "repository find_by(criteria, order_by, limit, offset)" do
       repo = em.repository(User)
       page = repo.find_by(order_by: {"username" => "ASC"}, limit: 2, offset: 0)
@@ -238,8 +291,63 @@ DB.open "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres" do |db|
     end
 
     # ---------------------------------------------------------------------
-    step 7, "change tracking -> UPDATE on flush" do
-      alice = em.find!(User, 1).as(User)
+    # Lazy loading: an entity's collections aren't fetched eagerly.
+    # They come back from `find!` as initialized=false `PersistentCollection`s, and the actual SELECT only fires the first time you touch them.
+    # This avoids the classic N+1 trap of "hydrate everything in case the caller might want it" while still letting `user.groups.size` Just Work.
+    step 7, "lazy load: M2M owning side (User.groups)" do
+      # Drop the in-memory carol so `find!` actually round-trips to the DB.
+      em.clear
+
+      puts "    -- find!(User, 3): expect ONE SELECT for users, none for groups"
+      carol = em.find!(User, 3)
+
+      pc = carol.groups.as(AORM::PersistentCollection(Group))
+      show "carol.groups.loaded?", pc.loaded?
+
+      expect("groups collection is uninitialized after find!") { !pc.loaded? }
+
+      puts "    -- carol.groups.size: expect the join SELECT to fire NOW"
+      size = carol.groups.size
+
+      show "carol.groups.size", size
+      show "carol.groups.loaded? (after touch)", pc.loaded?
+
+      expect("collection initialized after first access") { pc.loaded? }
+      expect("loaded the expected number of groups") { size == 2 }
+    end
+
+    # ---------------------------------------------------------------------
+    # The inverse side reads through the same join table from the other end: `Group.users` is annotated `mapped_by: "groups"`, so loading it issues# a SELECT joining user_group → users.
+    # Same lazy semantics as the owning side; the only difference is which join column gets used as the filter.
+    step 8, "lazy load: M2M inverse side (Group.users via mapped_by)" do
+      em.clear
+
+      puts "    -- find!(Group, 1): expect ONE SELECT for groups, none for users"
+      admins = em.find!(Group, 1)
+
+      pc = admins.users.as(AORM::PersistentCollection(User))
+      show "admins.users.loaded?", pc.loaded?
+
+      expect("users collection is uninitialized after find!") { !pc.loaded? }
+
+      puts "    -- admins.users.size: expect the inverse-side join SELECT to fire NOW"
+      size = admins.users.size
+
+      show "admins.users.size", size
+      show "admins.users.loaded? (after touch)", pc.loaded?
+
+      expect("collection initialized after first access") { pc.loaded? }
+      # carol left admins as part of step 8 below would normally apply, but at
+      # this point in the demo nobody has touched user_group yet beyond step 4,
+      # so admins still has its single member.
+      expect("loaded the expected number of users") { size == 1 }
+    end
+
+    # ---------------------------------------------------------------------
+    # No `update` call needed — modify a property on a managed entity and the ORM diffs against what it loaded on next flush, emitting an UPDATE for exactly the dirty columns.
+    step 9, "change tracking -> UPDATE on flush" do
+      em.clear
+      alice = em.find!(User, 1)
       show "alice.username (before)", alice.username
 
       alice.username = "alice_renamed"
@@ -252,8 +360,10 @@ DB.open "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres" do |db|
     end
 
     # ---------------------------------------------------------------------
-    step 8, "remove element from M2M collection -> join-table DELETE" do
-      carol = em.find!(User, 3).as(User)
+    # Removing an element from a managed M2M collection emits just a DELETE on the join row, leaving both entities (user + group) untouched.
+    # The element-level removal is queued and applied when the UoW commits.
+    step 10, "remove element from M2M collection -> join-table DELETE" do
+      carol = em.find!(User, 3)
 
       # Force the lazy collection to load so we can mutate it.
       groups = carol.groups
@@ -273,8 +383,11 @@ DB.open "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres" do |db|
     end
 
     # ---------------------------------------------------------------------
-    step 9, "remove entity -> DELETE row + cascade join cleanup" do
-      carol = em.find!(User, 3).as(User)
+    # `em.remove` schedules the entity for deletion.
+    # The actual DELETE runs on flush.
+    # Join-table rows go away here via the schema's FK CASCADE; the ORM doesn't issue separate DELETEs for them.
+    step 11, "remove entity -> DELETE row + cascade join cleanup" do
+      carol = em.find!(User, 3)
       em.remove carol
       em.flush
 

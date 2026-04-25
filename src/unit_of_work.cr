@@ -985,20 +985,18 @@ class Athena::ORM::UnitOfWork
         next unless original_data.has_key? prop_name
 
         original_value = original_data[prop_name].value
+        actual_inner = actual_value.value
 
         # TODO: Handle enum types
 
-        # Skip if value hasn't changed
-        next if original_value == actual_value.value
+        next if original_value == actual_inner
 
         # Regular field
         unless assoc = class_metadata.association_mappings[prop_name]?
-          change_set[prop_name] = class_metadata.field_info[prop_name].create_change original_value, actual_value.value
+          change_set[prop_name] = class_metadata.field_info[prop_name].create_change original_value, actual_inner
 
           next
         end
-
-        actual_inner = actual_value.value
 
         if actual_inner.is_a? AORM::PersistentCollection
           raise "BUG: Not ToMany assoc" unless assoc.is_a? Mapping::ToMany
@@ -1026,7 +1024,7 @@ class Athena::ORM::UnitOfWork
 
         if assoc.is_a? Mapping::ToOne
           if assoc.is_a? Mapping::OwningSide
-            change_set[prop_name] = class_metadata.field_info[prop_name].create_change original_value, actual_value.value
+            change_set[prop_name] = class_metadata.field_info[prop_name].create_change original_value, actual_inner
           end
 
           if original_value.is_a?(AORM::Entity) && assoc.orphan_removal?
@@ -1080,9 +1078,12 @@ class Athena::ORM::UnitOfWork
     # TODO: Handle proxies
 
     unwrapped_value = if assoc.is_a?(Mapping::ToMany)
-                        # ToMany: value is a collection, iterate its elements
+                        # Iterate the backing collection without forcing a lazy
+                        # load — `unwrap` returns the inner ArrayCollection
+                        # whether the PC is initialized or not. Uninitialized
+                        # collections are simply empty.
                         if value.is_a?(AORM::PersistentCollection)
-                          value.to_a
+                          value.unwrap.to_a
                         else
                           raise "BUG: ToMany value is not iterable (#{value.class})"
                         end
@@ -1214,15 +1215,11 @@ class Athena::ORM::UnitOfWork
     assoc = collection.association
     persister = self.entity_persister(assoc.target_entity)
 
-    entities = case assoc
-               when Mapping::ManyToMany
-                 persister.load_many_to_many_collection(assoc, collection.owner.not_nil!, collection)
-               else
-                 [] of AORM::Entity
-               end
-
-    entities.each do |entity|
-      collection.hydrate_add(entity)
+    # The persister hydrates straight into the collection via the `:collection`
+    # hydrator hint, so there's nothing to re-add here.
+    case assoc
+    when Mapping::ManyToMany
+      persister.load_many_to_many_collection(assoc, collection.owner.not_nil!, collection)
     end
 
     collection.initialized = true

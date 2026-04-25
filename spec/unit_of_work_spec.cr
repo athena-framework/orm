@@ -149,6 +149,49 @@ class CustomColumnCategory < AORM::Entity
   property products : AORM::PersistentCollection(CustomColumnProduct) = AORM::PersistentCollection(CustomColumnProduct).new
 end
 
+# Stand-in persister that mimics the hydrator's `:collection`-hint behavior:
+# when `load_many_to_many_collection` runs, the canned entities are pushed
+# directly into the target collection via `hydrate_add`. Used to verify that
+# the UoW doesn't add them a second time on top of that.
+class CollectionAddingPersister < AORM::Persisters::Entity::Basic
+  property canned_entities : Array(AORM::Entity) = [] of AORM::Entity
+
+  def load_many_to_many_collection(
+    assoc : AORM::Mapping::ManyToMany,
+    source_entity : AORM::Entity,
+    collection : AORM::PersistentCollection,
+  ) : Array
+    @canned_entities.each { |e| collection.hydrate_add e }
+    @canned_entities
+  end
+end
+
+# Fixtures: associations declared without `target_entity` so the inference
+# from the property's type restriction is what gets exercised.
+@[AORMA::Entity]
+class InferredTargetTag < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+end
+
+@[AORMA::Entity]
+class InferredTargetOwner < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+
+  # Inferred from `InferredTargetTag?`
+  @[AORMA::OneToOne]
+  property primary : InferredTargetTag? = nil
+
+  # Inferred from `AORM::Collection(InferredTargetTag)`
+  @[AORMA::ManyToMany]
+  property tags : AORM::Collection(InferredTargetTag) = AORM::ArrayCollection(InferredTargetTag).new
+end
+
 struct UnitOfWorkTest < ASPEC::TestCase
   @connection : MockConnection
   @em : MockEntityManager
@@ -238,6 +281,58 @@ struct UnitOfWorkTest < ASPEC::TestCase
     avatar_persister.inserts.size.should eq 1
     avatar_persister.updates.size.should eq 0
     avatar_persister.deletes.size.should eq 0
+  end
+
+  def test_load_collection_does_not_double_add_hydrated_entities : Nil
+    # The persister's `load_many_to_many_collection` already adds the loaded
+    # entities into the target collection (via the `:collection` hydrator hint).
+    # `UnitOfWork#load_collection` must not re-add them on top of that, or the
+    # collection ends up with each row twice.
+    user_persister = MockEntityPersister.new @em, @em.class_metadata CmsUser
+    @uow.set_entity_persister CmsUser, user_persister
+
+    group_persister = CollectionAddingPersister.new @em, @em.class_metadata(CmsGroup)
+    @uow.set_entity_persister CmsGroup, group_persister
+    group_persister.canned_entities = [build_cms_group(1, "admins"), build_cms_group(2, "devs")] of AORM::Entity
+
+    data = Hash(String, AORM::Mapping::Value).new
+    data["id"] = AORM::Mapping::SingleValue(Int32).new(7)
+    data["username"] = AORM::Mapping::SingleValue(String).new("fred")
+    user = @uow.create_entity(CmsUser, data).as CmsUser
+    pc = user.groups.as(AORM::PersistentCollection(CmsGroup))
+
+    @uow.load_collection pc
+
+    pc.size.should eq 2
+    pc.loaded?.should be_true
+  end
+
+  private def build_cms_group(id : Int32, name : String) : CmsGroup
+    g = CmsGroup.new
+    g.name = name
+    pointerof(g.@id).value = id
+    g
+  end
+
+  def test_compute_change_set_does_not_initialize_unchanged_lazy_collection : Nil
+    user_persister = MockEntityPersister.new @em, @em.class_metadata CmsUser
+    @uow.set_entity_persister CmsUser, user_persister
+
+    # Drive the hydration path so the user gets an injected (uninitialized)
+    # PersistentCollection for `groups`, the same as a real `find!` would.
+    data = Hash(String, AORM::Mapping::Value).new
+    data["id"] = AORM::Mapping::SingleValue(Int32).new(1)
+    data["username"] = AORM::Mapping::SingleValue(String).new("fred")
+    user = @uow.create_entity(CmsUser, data).as CmsUser
+    pc = user.groups.as(AORM::PersistentCollection(CmsGroup))
+    pc.loaded?.should be_false
+
+    # Modify a scalar field and commit. The lazy groups collection must NOT be
+    # initialized as a side effect of computing the user's changeset.
+    user.username = "fred-renamed"
+    @uow.commit
+
+    pc.loaded?.should be_false
   end
 
   def test_schedule_extra_update_merges_repeated_changesets : Nil
@@ -657,6 +752,20 @@ struct UnitOfWorkTest < ASPEC::TestCase
     expect_raises(Exception, "Insert failed") do
       @uow.commit
     end
+  end
+
+  def test_target_entity_inferred_from_to_one_property_type : Nil
+    cm = @em.class_metadata InferredTargetOwner
+
+    assoc = cm.association_mappings["primary"].not_nil!
+    assoc.target_entity.should eq InferredTargetTag
+  end
+
+  def test_target_entity_inferred_from_collection_element_type : Nil
+    cm = @em.class_metadata InferredTargetOwner
+
+    assoc = cm.association_mappings["tags"].not_nil!
+    assoc.target_entity.should eq InferredTargetTag
   end
 
   def test_index_by_annotation_reaches_mapping : Nil
