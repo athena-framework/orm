@@ -741,6 +741,23 @@ struct UnitOfWorkTest < ASPEC::TestCase
     AORM::UnitOfWork.id_hash_by_identifier({"a" => 1, "b" => 2}).should eq "1 2"
   end
 
+  def test_id_hash_by_identifier_handles_empty_string_single_key : Nil
+    AORM::UnitOfWork.id_hash_by_identifier({"id" => ""}).should eq ""
+  end
+
+  def test_id_hash_by_identifier_handles_empty_string_composite_keys : Nil
+    # Two empty values still produce the separator between them.
+    AORM::UnitOfWork.id_hash_by_identifier({"id1" => "", "id2" => ""}).should eq " "
+  end
+
+  def test_id_hash_by_identifier_renders_boolean_true : Nil
+    AORM::UnitOfWork.id_hash_by_identifier({"id" => true}).should eq "true"
+  end
+
+  def test_id_hash_by_identifier_renders_boolean_false : Nil
+    AORM::UnitOfWork.id_hash_by_identifier({"id" => false}).should eq "false"
+  end
+
   # ===== Identity map =====
 
   def test_add_to_identity_map_returns_true_when_inserting_a_new_entry : Nil

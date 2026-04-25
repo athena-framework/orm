@@ -126,6 +126,60 @@ struct BasicPersisterTest < ASPEC::TestCase
     sql.should match /username\s+IS NULL/
   end
 
+  def test_select_condition_statement_sql_emits_each_comparison_operator : Nil
+    persister = build_persister
+
+    {
+      "="  => /id = \?/,
+      "<>" => /id != \?/,
+      ">"  => /id > \?/,
+      ">=" => /id >= \?/,
+      "<"  => /id < \?/,
+      "<=" => /id <= \?/,
+    }.each do |op, expected|
+      sql = persister.select_condition_statement_sql("id", 1, comparison: op)
+      sql.should match expected
+    end
+  end
+
+  def test_select_condition_statement_sql_with_nin_keeps_in_then_or_null : Nil
+    persister = build_persister
+
+    sql = persister.select_condition_statement_sql("id", [1, nil, 2], comparison: "NIN")
+
+    # NIN mirrors IN's NULL split, just with NOT IN.
+    sql.should match(/\(t\d+\.id NOT IN \(\?, \?\) OR t\d+\.id IS NULL\)/)
+  end
+
+  def test_select_condition_statement_column_sql_raises_for_unknown_field : Nil
+    persister = build_persister
+
+    expect_raises(Exception, /unrecognized field/) do
+      persister.select_condition_statement_sql("nonexistent_field", 1)
+    end
+  end
+
+  def test_expand_parameters_passes_through_scalar_types : Nil
+    persister = build_persister
+
+    # Each scalar value becomes one positional parameter — no transformation,
+    # no flattening for non-Indexable values.
+    params = persister.expand_parameters({
+      "id"       => 42,
+      "username" => "fred",
+    })
+
+    params.size.should eq 2
+    params.includes?(42).should be_true
+    params.includes?("fred").should be_true
+  end
+
+  def test_expand_parameters_returns_empty_for_all_nil_criteria : Nil
+    persister = build_persister
+
+    persister.expand_parameters({"id" => nil, "username" => nil}).should be_empty
+  end
+
   private def build_persister : AORM::Persisters::Entity::Basic
     em = MockEntityManager.new(MockConnection.new)
     AORM::Persisters::Entity::Basic.new em, em.class_metadata(ForumUser)
