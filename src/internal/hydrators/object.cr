@@ -53,11 +53,7 @@ class Athena::ORM::Internal::Hydrators::Object < Athena::ORM::Internal::Hydrator
     result = [] of AORM::Entity
 
     self.rs.each do
-      # Gather row data as a has to make things simpler?
-      # TODO: See if we could just pass in the RS instead maybe?
-      row_data = self.fetch_assoc
-
-      self.hydrate_row_data row_data, result
+      self.hydrate_row_data result
     end
 
     # Snapshot newly initialized collections
@@ -65,13 +61,13 @@ class Athena::ORM::Internal::Hydrators::Object < Athena::ORM::Internal::Hydrator
     result
   end
 
-  protected def hydrate_row_data(row : Hash, result : Array(AORM::Entity)) : Nil
+  protected def hydrate_row_data(result : Array(AORM::Entity)) : Nil
     # Per-row copy: gather_row_data mutates `id` via `id[alias] += "|#{value}"`
     # so the template must not be aliased.
     id = @id_template.dup
     non_empty_components = Hash(String, Bool).new
-    # Split the row data into chunks of class data;
-    row_data = self.gather_row_data row, id, non_empty_components
+    # Read directly from the cursor, bucketing into per-alias chunks.
+    row_data = self.gather_row_data self.rs, id, non_empty_components
 
     @result_pointers.clear
 

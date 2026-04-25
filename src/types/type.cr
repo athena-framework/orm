@@ -54,11 +54,20 @@ module Athena::ORM::Types
     # The SQL used to declare a column of this type
     abstract def sql_declaration(platform : AORM::Platforms::Platform) : ::String
 
-    # Extracts/converts a value from *rs* into a Crystal value
-    abstract def from_db(rs : DB::ResultSet, platform : AORM::Platforms::Platform)
+    # Converts a raw DB value into the Crystal type this `Type` represents.
+    # Each subclass defines this once; it is the canonical place for any per-type translation logic (parsing, narrowing, decoding, etc.).
+    # Accepts any input shape (matches Doctrine's `convertToPHPValue($value mixed)`)
+    # and validates inside the body via `case value`.
+    abstract def to_crystal_value(value : _, platform : Platforms::Platform)
 
-    def to_crystal_value(value : _, platform : Platforms::Platform)
-      value
+    # Reads the next column from *value* with this `Type`'s target Crystal type.
+    #
+    # The default implementation does an untyped read and routes through `to_crystal_value(value, platform)`.
+    # Subclasses MAY override to skip the union-type dispatch when a concrete `rs.read T` is available — for example `Integer` reads `rs.read Int32?` directly.
+    #
+    # Note: this advances the cursor by one column.
+    def to_crystal_value(value : DB::ResultSet, platform : Platforms::Platform)
+      self.to_crystal_value value.read, platform
     end
 
     # Crystal value to its DB representation

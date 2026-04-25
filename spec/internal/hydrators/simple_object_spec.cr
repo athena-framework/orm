@@ -72,4 +72,28 @@ struct SimpleObjectHydratorTest < ASPEC::TestCase
       AORM::Internal::Hydrators::SimpleObject.new(em).hydrate_all(rs, rsm)
     end
   end
+
+  # Cursor invariant regression: mixing mapped and unmapped columns across
+  # multiple rows must not desync the cursor. Specifically, the unmapped-column
+  # branch must call `rs.read` to advance — otherwise the next row's columns
+  # shift and we get scrambled values.
+  def test_unmapped_columns_do_not_desync_the_cursor_across_rows : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    rsm = AORM::Query::ResultSetMapping.new
+    rsm.add_root_entity CmsPhonenumber, "p"
+    rsm.add_field_result "p", "p__phonenumber", "phonenumber"
+
+    # Each row carries an unmapped `rownum` between… no, actually before a
+    # mapped column. If the unmapped branch forgets to advance, the mapped
+    # read on row 2 will pick up row 1's leftover and assertions blow up.
+    rs = FakeResultSet.new([
+      {"rownum" => "1".as(DB::Any), "p__phonenumber" => "555-A".as(DB::Any)},
+      {"rownum" => "2".as(DB::Any), "p__phonenumber" => "555-B".as(DB::Any)},
+      {"rownum" => "3".as(DB::Any), "p__phonenumber" => "555-C".as(DB::Any)},
+    ])
+
+    result = AORM::Internal::Hydrators::SimpleObject.new(em).hydrate_all(rs, rsm)
+
+    result.map(&.as(CmsPhonenumber).phonenumber).should eq ["555-A", "555-B", "555-C"]
+  end
 end

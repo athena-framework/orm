@@ -83,34 +83,35 @@ abstract class Athena::ORM::Internal::Hydrators::Abstract
     getter new_objects : Array(AORM::Entity) = [] of AORM::Entity
   end
 
-  protected def gather_row_data(data : Hash, id : Hash(String, String), non_empty_component : Hash(String, Bool)) : RowData
-    # TODO: Handle RSM new objects?
-    # row_data = {
-    #   data:        Hash(String, typeof(data)).new,
-    #   new_objects: [] of AORM::Entity,
-    # }
+  # Reads the current row directly from the cursor, bucketing values by RSM
+  # alias/field and updating the per-alias id template + non-empty markers as
+  # it goes.
+  #
+  # Cursor invariant: every column listed in `rs.column_names` MUST be either
+  # consumed via `Type#to_crystal_value(rs, platform)` (mapped column path) or
+  # explicitly skipped via `rs.read` (unmapped column path). Missing a read
+  # would desynchronize subsequent rows.
+  protected def gather_row_data(rs : DB::ResultSet, id : Hash(String, String), non_empty_component : Hash(String, Bool)) : RowData
     row_data = RowData.new
 
-    data.each do |key, value|
-      next unless cache_key_info = self.hydrate_column_info key
+    rs.column_names.each do |key|
+      cache_key_info = self.hydrate_column_info key
+
+      unless cache_key_info
+        # Unmapped column — must still be consumed to keep the cursor aligned.
+        rs.read
+        next
+      end
 
       field_name = cache_key_info.field_name
-
-      # TODO: Handle isNewObjectParamter
-      # TODO: Handle isScalar
-
       alias_name = cache_key_info.alias_name
       type = cache_key_info.type
 
-      # If there are field name collisions in the child class, then we need to only hydrate if we are looking at the correct discriminator value
-      # TODO: Handle that
+      # TODO: Handle isNewObjectParameter / isScalar / discriminator collisions / inheritance overwrites
 
-      # in an inheritance hierarchy the same field could be defined several times.
-      # We overwrite this value so long we don't have a non-null value, that value we keep.
-      # Per definition it cannot be that a field is defined several times and has several values.
-      # TODO: Handle that
+      value = type ? type.to_crystal_value(rs, @platform) : rs.read
 
-      row_data.data[alias_name][field_name] = Mapping::SingleValue.new type ? type.to_crystal_value(value, @platform) : value
+      row_data.data[alias_name][field_name] = Mapping::SingleValue.new value
 
       # TODO: Handle enum types
 
@@ -123,18 +124,6 @@ abstract class Athena::ORM::Internal::Hydrators::Abstract
     # TODO: Handle nested / new objects
 
     row_data
-  end
-
-  # Constructed manually with an explicit value type so Crystal does not infer
-  # it from a `to_h` block before `lib/pg`'s array decoders finish registering.
-  # The race produces a macro-expansion error in `array_decoder.cr`. This shape
-  # is not related to `Mapping::Value` flow — `gather_row_data` is what wraps
-  # the raw values; this method's job is just to normalize the read into a
-  # column-keyed hash without snagging on PG decoder registration order.
-  protected def fetch_assoc
-    result = Hash(String, typeof(self.rs.read)).new
-    self.rs.column_names.each { |col| result[col] = self.rs.read }
-    result
   end
 
   protected def class_metadata(entity_class : AORM::Entity.class) : Mapping::ClassInterface
