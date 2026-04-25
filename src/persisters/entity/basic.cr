@@ -471,7 +471,40 @@ class Athena::ORM::Persisters::Entity::Basic
       # Only owning side of x-1 associations can have a FK column.
       next unless assoc.is_a? Mapping::ToOneOwningSide
 
-      # TODO: Handle associations
+      new_value = change.new.value
+
+      # An associated entity that's still queued for insert hasn't received its
+      # identifier yet — null the FK column out and let a follow-up update set
+      # it once the target has an id. (Doctrine schedules the extra update
+      # explicitly; we currently rely on the topological sort to insert
+      # targets first, so this branch only triggers on cycles.)
+      if new_value.is_a?(AORM::Entity) && uow.is_scheduled_for_insert?(new_value)
+        # TODO: schedule_extra_update once UoW supports it.
+        new_value = nil
+      end
+
+      new_value_id = nil
+      if new_value.is_a?(AORM::Entity)
+        new_value_id = uow.entity_identifier(new_value)
+      end
+
+      target_class = @em.class_metadata(assoc.target_entity)
+      owning_table = self.owning_table(field)
+
+      assoc.join_columns.each do |join_column|
+        source_column = join_column.name
+        target_column = join_column.referenced_column_name
+
+        @column_types[source_column] = PersisterHelper.type_of_column(target_column, target_class, @em)
+
+        column_value = if new_value_id && (target_field = target_class.field_names[target_column]?)
+                         new_value_id[target_field]
+                       else
+                         Mapping::SingleValue(DB::Any).new(nil)
+                       end
+
+        result[owning_table][source_column] = column_value.as Mapping::Value
+      end
     end
 
     result

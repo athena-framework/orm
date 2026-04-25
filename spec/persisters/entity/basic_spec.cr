@@ -86,6 +86,49 @@ struct BasicPersisterTest < ASPEC::TestCase
     params.first.should eq 99
   end
 
+  def test_prepare_insert_data_writes_to_one_owning_side_fk_column : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    persister = MockEntityPersister.new em, em.class_metadata(ForumUser)
+
+    avatar = ForumAvatar.new
+    em.unit_of_work.register_managed avatar, {"id" => 99}, {"id" => 99}
+
+    user = ForumUser.new
+    user.username = "fred"
+    user.avatar = avatar
+
+    em.unit_of_work.persist user
+    em.unit_of_work.compute_changesets
+
+    data = persister.insert_data_for user
+    user_row = data["forum_users"]
+
+    user_row["username"].value.should eq "fred"
+    # avatar_id mirrors the avatar's identifier so the FK is written on insert.
+    user_row["avatar_id"].value.should eq 99
+  end
+
+  def test_prepare_insert_data_writes_null_fk_when_target_still_queued : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    persister = MockEntityPersister.new em, em.class_metadata(ForumUser)
+
+    avatar = ForumAvatar.new
+    user = ForumUser.new
+    user.username = "fred"
+    user.avatar = avatar
+
+    # Both entities are scheduled for insert and the target has no identifier
+    # yet: the FK column gets NULL, mirroring Doctrine's "fall back to null,
+    # rely on a follow-up update" path.
+    em.unit_of_work.persist user
+    em.unit_of_work.compute_changesets
+
+    data = persister.insert_data_for user
+    user_row = data["forum_users"]
+
+    user_row["avatar_id"].value.should be_nil
+  end
+
   def test_insert_sql_lists_columns_and_placeholders : Nil
     persister = build_persister
 

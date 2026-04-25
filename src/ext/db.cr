@@ -1,5 +1,3 @@
-require "semantic_version"
-
 # :nodoc:
 abstract class DB::Connection
   def database_platform : AORM::Platforms::Platform
@@ -21,34 +19,8 @@ class DB::Database
   end
 end
 
-# PG Extensions
-
-# :nodoc:
-class PG::Connection < DB::Connection
-  def database_platform : AORM::Platforms::Platform
-    case self.version
-    else
-      # Otherwise return default version.
-      AORM::Platforms::Postgres.new
-    end
-  end
-
-  def last_insert_id : Int64
-    self.scalar("SELECT LASTVAL()").as Int64
-  end
-
-  def prepare(query : String) : DB::Statement
-    visitor = Athena::ORM::SQL::ConvertParameters.new
-    Athena::ORM::SQL::Parser.new(false).parse(query, visitor)
-
-    self.build visitor.sql
-  end
-
-  private def version : SemanticVersion
-    version = @connection.server_parameters["server_version"]
-
-    parts = version.split('.')
-
-    SemanticVersion.new parts[0].to_i, parts[1].to_i, parts.fetch(2, 0).to_i
-  end
-end
+# Driver-specific extensions live in their own files so consumers only pay the
+# compile-time cost (and shard requirement) for the DBs they actually use.
+{% if @top_level.has_constant?("PG") %}
+  require "./pg"
+{% end %}

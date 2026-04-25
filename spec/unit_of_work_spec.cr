@@ -240,6 +240,33 @@ struct UnitOfWorkTest < ASPEC::TestCase
     avatar_persister.deletes.size.should eq 0
   end
 
+  def test_insert_execution_order_places_to_one_owning_side_target_first : Nil
+    user_persister = MockEntityPersister.new @em, @em.class_metadata ForumUser
+    @uow.set_entity_persister ForumUser, user_persister
+    user_persister.mock_id_generator = :identity
+
+    avatar_persister = MockEntityPersister.new @em, @em.class_metadata ForumAvatar
+    @uow.set_entity_persister ForumAvatar, avatar_persister
+    avatar_persister.mock_id_generator = :identity
+
+    user = ForumUser.new
+    user.username = "Fred"
+    avatar = ForumAvatar.new
+    user.avatar = avatar
+
+    # Persisting the user cascades into the avatar; the user gets registered
+    # for insert first, but the FK on users -> avatars means the topological
+    # sort must place the avatar ahead of the user in the execution order.
+    @uow.persist user
+    @uow.compute_changesets
+
+    order = @uow.insert_execution_order
+
+    order.index(avatar).should_not be_nil
+    order.index(user).should_not be_nil
+    order.index(avatar).not_nil!.should be < order.index(user).not_nil!
+  end
+
   @[Pending]
   def test_get_entity_state_on_versioned_entity_with_assigned_identifier : Nil
     # Requires: @[AORMA::Version] annotation support

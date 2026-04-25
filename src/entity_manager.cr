@@ -98,10 +98,17 @@ class Athena::ORM::EntityManager
 
   macro finished
     {% for entity in Athena::ORM::Entity.all_subclasses.reject &.abstract? %}
-      # Define a `#repository` overload for entities who have custom repos.
-      {% if (entity_ann = entity.annotation(AORMA::Entity)) && (repository_class = entity_ann[:repository_class]) %}
+      {% entity_ann = entity.annotation(AORMA::Entity) %}
+      {% repository_class = entity_ann && entity_ann[:repository_class] %}
+      {% if repository_class %}
+        # Custom-repo overload: `@[Entity(repository_class: …)]` on the entity wins.
         def repository(entity_class : {{entity.id}}.class) : {{repository_class.id}}
           @repository_factory.repository(self, entity_class).as {{repository_class.id}}
+        end
+      {% else %}
+        # Default overload: returns a generic `EntityRepository(T)` typed to this entity.
+        def repository(entity_class : {{entity.id}}.class) : AORM::EntityRepository({{entity.id}})
+          @repository_factory.repository(self, entity_class).as AORM::EntityRepository({{entity.id}})
         end
       {% end %}
     {% end %}

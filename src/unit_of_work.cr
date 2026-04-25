@@ -275,19 +275,34 @@ class Athena::ORM::UnitOfWork
     # TODO: Handle eventing (postPersist)
   end
 
-  private def compute_insert_execution_order : Array(AORM::Entity)
+  protected def compute_insert_execution_order : Array(AORM::Entity)
     sort = Internal::TopologicalSort.new
 
-    # Ensure all nodes are added
     @entity_insertions.each do |entity|
       sort.add_node entity
     end
 
-    # Add edges
     @entity_insertions.each do |entity|
       class_metadata = @em.class_metadata entity.class
 
-      # TODO: Handle associations
+      class_metadata.association_mappings.each_value do |assoc|
+        # ManyToMany owning sides write to a join table after the row inserts,
+        # so they don't constrain insertion order.
+        next unless assoc.is_a?(Mapping::ToOneOwningSide)
+
+        target = class_metadata.field_value(entity, assoc.field_name)
+        next if target.nil?
+        next unless target.is_a?(AORM::Entity)
+        # Only enforce ordering when the target is also being inserted in this flush.
+        next unless sort.has_node? target
+
+        # If the FK is nullable we can break the cycle by writing NULL first and
+        # patching it up via an extra update; if not, the edge is mandatory.
+        join_column = assoc.join_columns.first?
+        is_nullable = join_column.nil? || join_column.nullable.nil? || join_column.nullable == true
+
+        sort.add_edge entity, target, is_nullable
+      end
     end
 
     sort.sort

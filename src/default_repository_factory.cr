@@ -18,8 +18,20 @@ struct Athena::ORM::DefaultRepositoryFactory
   private def create_repository(em : AORM::EntityManagerInterface, entity_class : AORM::Entity.class) : AORM::RepositoryInterface
     class_metadata = em.class_metadata entity_class
 
-    repo_class = class_metadata.custom_repository_class || class_metadata.default_repository_class
+    if repo_class = class_metadata.custom_repository_class
+      return repo_class.new em, class_metadata
+    end
 
-    repo_class.new em, class_metadata
+    # Per-entity dispatch into a generic `EntityRepository(EntityType)` since
+    # generic types can't be built from a runtime `Class` value.
+    self.create_default_repository em, entity_class, class_metadata
+  end
+
+  macro finished
+    {% for entity in Athena::ORM::Entity.all_subclasses.reject &.abstract? %}
+      private def create_default_repository(em : AORM::EntityManagerInterface, entity_class : {{entity.id}}.class, class_metadata : AORM::Mapping::ClassInterface) : AORM::RepositoryInterface
+        AORM::EntityRepository({{entity.id}}).new em, class_metadata
+      end
+    {% end %}
   end
 end

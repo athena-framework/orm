@@ -17,6 +17,11 @@ class MockUnitOfWork < AORM::UnitOfWork
   def set_entity_persister(entity_class : AORM::Entity.class, persister : AORM::Persisters::Entity::Basic) : Nil
     @persister_mock[entity_class] = persister
   end
+
+  # Test access to the topologically-sorted insert order.
+  def insert_execution_order : Array(AORM::Entity)
+    self.compute_insert_execution_order
+  end
 end
 
 class MockEntityManager < AORM::EntityManager
@@ -34,6 +39,16 @@ end
 
 class MockEntityPersister < AORM::Persisters::Entity::Basic
   record PostInsert, generated_id : Int32, entity : AORM::Entity
+
+  # Test access to the protected `prepare_insert_data`.
+  def insert_data_for(entity : AORM::Entity) : Hash(String, Hash(String, AORM::Mapping::Value))
+    self.prepare_insert_data entity
+  end
+
+  # Test access to the protected `prepare_update_data`.
+  def update_data_for(entity : AORM::Entity) : Hash(String, Hash(String, AORM::Mapping::Value))
+    self.prepare_update_data entity
+  end
 
   getter execute_insert_call_count : Int32 = 0
   getter inserts : Array(AORM::Entity) = [] of AORM::Entity

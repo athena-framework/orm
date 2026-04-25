@@ -27,7 +27,7 @@ class Athena::ORM::EntityRepository(EntityType) < Athena::ORM::RepositoryInterfa
     self.find_by criteria.to_h.transform_keys &.to_s
   end
 
-  def find_by(criteria : Criteria, order_by : Hash(String, String) = Hash(String, String).new, limit : Int? = nil, offset : Int? = nil) : Array(EntityType)
+  def find_by(criteria : Criteria = Criteria.new, order_by : Hash(String, String) = Hash(String, String).new, limit : Int? = nil, offset : Int? = nil) : Array(EntityType)
     persister = @em.unit_of_work.entity_persister @entity_class
 
     persister.load_all(criteria, order_by, limit, offset).map &.as EntityType
