@@ -33,8 +33,16 @@ class Athena::ORM::EntityManager
 
     # TODO: Handle locking
 
-    # TODO: Support composite PKs via #find.
-    unless id.is_a? Hash
+    if id.is_a? Hash
+      missing = class_metadata.identifier.reject { |field| id.has_key? field }
+      unless missing.empty?
+        raise AORM::Exceptions::MissingIdentifierField.new entity_class, missing
+      end
+    else
+      if class_metadata.identifier.size > 1
+        raise AORM::Exceptions::MissingIdentifierField.new entity_class,
+          "scalar id passed for composite primary key (fields: #{class_metadata.identifier.to_a.join(", ")})"
+      end
       id = {class_metadata.single_identifier_field_name => id}
     end
 
@@ -76,8 +84,10 @@ class Athena::ORM::EntityManager
     end
   end
 
-  def refresh(entity : AORM::Entity) : Nil
-    NotImplementedError.new "TODO: Implement this"
+  def refresh(entity : AORM::Entity, lock_mode : AORM::LockMode? = nil) : Nil
+    self.unless_closed do
+      self.unit_of_work.refresh entity, lock_mode
+    end
   end
 
   def flush : Nil

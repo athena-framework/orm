@@ -556,6 +556,7 @@ class Athena::ORM::Persisters::Entity::Basic
       io << @current_persister_context.select_join_sql << join_sql
       io << (condition_sql.empty? ? "" : " WHERE ") << condition_sql
       # TODO: Handle lock
+      # TODO: Handle OrderBy
     end
 
     @platform.modify_limit_query query, limit, offset || 0 # TODO: Append lock SQL
@@ -605,9 +606,6 @@ class Athena::ORM::Persisters::Entity::Basic
     end
 
     @current_persister_context.select_join_sql = ""
-    eager_alias_counter = 0
-
-    # TODO: Handle associations
 
     sql = @current_persister_context.select_column_list_sql = column_list.join ", "
     # TODO: Update filter hash

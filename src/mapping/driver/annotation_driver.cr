@@ -127,6 +127,19 @@ module Athena::ORM::Mapping::Driver
             fetch_mode: one_to_one_ann.fetch_mode
           )
 
+          # Collect JoinColumn annotations — the FK column lives on this entity.
+          {% join_col_anns = ivar.annotations AORMA::JoinColumn %}
+          {% unless join_col_anns.empty? %}
+            join_col_defs = [] of JoinColumnDef
+            {% for jc_ann in join_col_anns %}
+              join_col_defs << JoinColumnDef.new(
+                name: {{jc_ann[:name]}},
+                referenced_column_name: {{jc_ann[:referenced_column_name]}}
+              )
+            {% end %}
+            mapping = mapping.copy_with(join_column_defs: join_col_defs)
+          {% end %}
+
           metadata.map_one_to_one mapping
         {% elsif ann = ivar.annotation AORMA::OneToMany %}
           one_to_many_ann = AORM::Mapping::Annotations::OneToMany.new({{ann.named_args.double_splat}})
@@ -163,6 +176,19 @@ module Athena::ORM::Mapping::Driver
             cascade: many_to_one_ann.cascade,
             fetch_mode: many_to_one_ann.fetch_mode
           )
+
+          # Collect JoinColumn annotations — the FK column lives on this entity.
+          {% join_col_anns = ivar.annotations AORMA::JoinColumn %}
+          {% unless join_col_anns.empty? %}
+            join_col_defs = [] of JoinColumnDef
+            {% for jc_ann in join_col_anns %}
+              join_col_defs << JoinColumnDef.new(
+                name: {{jc_ann[:name]}},
+                referenced_column_name: {{jc_ann[:referenced_column_name]}}
+              )
+            {% end %}
+            mapping = mapping.copy_with(join_column_defs: join_col_defs)
+          {% end %}
 
           metadata.map_many_to_one mapping
         {% elsif ann = ivar.annotation AORMA::ManyToMany %}

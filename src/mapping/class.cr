@@ -6,6 +6,7 @@ module Athena::ORM::Mapping::ClassInterface
   abstract def field_mappings : Hash(String, Field)
   abstract def identifier : Set(String)
   abstract def new_instance(data : Hash(String, DB::Any?)) : AORM::Entity
+  abstract def apply_data(instance : AORM::Entity, data : Hash(String, _)) : Nil
   abstract def assign_identifier(entity : AORM::Entity, id_field : String, id_value) : Nil
 end
 
@@ -221,25 +222,31 @@ class Athena::ORM::Mapping::Class(T)
         raise "Cannot instantiate abstract entity {{T}}"
       {% else %}
         instance = T.allocate
-        {% for ivar in T.instance_vars %}
-          # Extracts the first non-nilable type from a union. `String?` => `String`
-          {% ivar_base_type = ivar.type.nilable? ? ivar.type.union_types.reject(&.nilable?).first : ivar.type %}
+        self.apply_data instance, data
+        instance
+      {% end %}
+    {% end %}
+  end
 
-          # {% is_collection = ivar_base_type.name.starts_with?("Athena::ORM::PersistentCollection") || ivar_base_type.name.starts_with?("Athena::ORM::ArrayCollection") %}
-          # {% is_entity = ivar_base_type < AORM::Entity %}
-          # {% unless is_collection || is_entity %}
+  # Writes scalar field values from *data* onto an existing entity instance, leaving association/collection ivars alone.
+  # Used by `new_instance` for initial hydration and by `UnitOfWork#refresh` to update the in-memory state of a managed entity from the latest DB row.
+  def apply_data(instance : AORM::Entity, data : Hash(String, _)) : Nil
+    {% begin %}
+      {% if T.abstract? %}
+        raise "Cannot apply data to abstract entity {{T}}"
+      {% else %}
+        typed_instance = instance.as({{T}})
+        {% for ivar in T.instance_vars %}
           raw = if data.has_key?({{ ivar.name.stringify }})
-                  data[{{ivar.name.stringify}}]
+                  data[{{ ivar.name.stringify }}]
                 end
 
           raw = raw.is_a?(Mapping::Value) ? raw.value : raw
 
           if raw && raw.is_a?({{ivar.type}})
-            pointerof(instance.@{{ ivar.id }}).value = raw.not_nil!.as({{ ivar.type }})
+            pointerof(typed_instance.@{{ ivar.id }}).value = raw.not_nil!.as({{ ivar.type }})
           end
-          # {% end %}
         {% end %}
-        instance
       {% end %}
     {% end %}
   end

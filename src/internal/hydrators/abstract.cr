@@ -3,10 +3,14 @@ class Athena::ORM::Query::Hints
   property? defer_eager_load : Bool? = nil
   getter! collection : AORM::PersistentCollectionInterface
   property! fetch_alias : String
+  # When set, an entity already in the identity map is updated from the loaded row data instead of being returned untouched.
+  # Used by `EntityManager#refresh`.
+  property? refresh : Bool = false
 
   def initialize(
     @defer_eager_load : Bool? = nil,
     @collection : AORM::PersistentCollectionInterface? = nil,
+    @refresh : Bool = false,
   ); end
 end
 

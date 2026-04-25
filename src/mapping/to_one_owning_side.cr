@@ -16,7 +16,16 @@ abstract class Athena::ORM::Mapping::ToOneOwningSide < Athena::ORM::Mapping::Own
 
     raise "not owning" unless instance.is_a? Mapping::ToOneOwningSide
 
-    if instance.join_columns.empty?
+    # Honor user-supplied @[AORMA::JoinColumn] annotations when present;
+    # otherwise fall back to the naming-strategy default (`<field>_id`).
+    if defs = mapping.join_column_defs
+      instance.join_columns.replace(defs.map { |d|
+        JoinColumn.new(
+          name: d.name || naming_strategy.join_column_name(instance.field_name, entity_class),
+          referenced_column_name: d.referenced_column_name || naming_strategy.reference_column_name
+        )
+      })
+    elsif instance.join_columns.empty?
       instance.join_columns.replace([
         JoinColumn.new(
           name: naming_strategy.join_column_name(instance.field_name, entity_class),

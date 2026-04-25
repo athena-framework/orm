@@ -123,6 +123,11 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
     @mock_load_by_id_result
   end
 
+  # Test fixture: when set, `load` simulates a fresh row by calling
+  # `uow.create_entity` with this data, which runs the refresh-hint code path
+  # for already-managed entities. Used for `UoW#refresh` specs.
+  setter mock_refresh_data : Hash(String, DB::Any)? = nil
+
   def load(
     criteria : Hash(String, _),
     entity : AORM::Entity? = nil,
@@ -132,10 +137,15 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
     limit : Int? = nil,
     order_by : Hash(String, String)? = nil,
   ) : AORM::Entity?
-    @load_calls << LoadCall.new(
-      criteria.transform_values { |v| v.as(DB::Any | Array(DB::Any)) },
-      limit.try(&.to_i32)
-    )
+    widened_criteria = Hash(String, DB::Any | Array(DB::Any)).new
+    criteria.each { |k, v| widened_criteria[k] = v.as(DB::Any | Array(DB::Any)) }
+    @load_calls << LoadCall.new(widened_criteria, limit.try(&.to_i32))
+
+    if (data = @mock_refresh_data) && hints.refresh? && entity
+      @em.unit_of_work.create_entity entity.class, data, hints
+      return entity
+    end
+
     @mock_load_result
   end
 

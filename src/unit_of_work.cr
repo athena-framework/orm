@@ -478,6 +478,23 @@ class Athena::ORM::UnitOfWork
     end
   end
 
+  # Re-loads *entity* from the database and applies the fresh row to its in-memory state, discarding any pending changes.
+  # The entity must be in the MANAGED state.
+  def refresh(entity : AORM::Entity, lock_mode : AORM::LockMode? = nil) : Nil
+    # TODO: Handle pessimistic locking
+    state = self.entity_state entity
+    raise "Cannot refresh entity that is not managed" unless state.managed?
+
+    class_metadata = @em.class_metadata entity.class
+    id = self.entity_identifier(entity).transform_values &.value
+
+    # The persister routes through `create_entity`; the refresh hint signals
+    # that an existing identity-map entry should be updated rather than
+    # short-circuited.
+    hints = AORM::Query::Hints.new refresh: true
+    self.entity_persister(entity.class).load id, entity, nil, hints
+  end
+
   # Schedules a collection for deletion (all rows in join table).
   def schedule_collection_deletion(collection : AORM::PersistentCollection(AORM::Entity)) : Nil
     @collection_deletions << collection
@@ -667,25 +684,6 @@ class Athena::ORM::UnitOfWork
 
   def is_scheduled_for_update?(entity : AORM::Entity) : Bool
     @entity_updates.includes? entity
-  end
-
-  def refresh(entity : AORM::Entity) : Nil
-    visited = Set(UInt64).new
-
-    self.remove entity, visited
-  end
-
-  private def refresh(entity : AORM::Entity, visited : Set(AORM::Entity)) : Nil
-    return unless visited.add? entity
-
-    class_metadata = @em.class_metadata entity.class
-
-    # TODO: Use proper exception type for this
-    raise "Entity not managed" if !self.entity_state(entity).managed?
-
-    self.entity_persister.refresh
-
-    # TODO: Handle cascade refreshing
   end
 
   def clear : Nil
@@ -1150,11 +1148,18 @@ class Athena::ORM::UnitOfWork
 
     # Check identity map for existing entity
     if (class_map = @identity_map[class_metadata.entity_class]?) && (entity = class_map[id_hash]?)
-      # TODO: Handle refresh hints
-
       # TODO: Know if entity is uninitialized?
 
-      # TODO: Handle refresh hints
+      if hints.refresh?
+        # Re-apply scalar fields from the freshly fetched row data and reset
+        # the changeset baseline so the EM no longer sees pending changes.
+        class_metadata.apply_data entity, data
+        @original_entity_data[entity] = data.transform_values do |v, k|
+          class_metadata.field_info[k].create_column_value(v).as Mapping::Value
+        end
+        @entity_change_sets.delete entity
+        @entity_updates.delete entity
+      end
 
       return entity
     end

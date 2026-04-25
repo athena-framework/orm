@@ -151,6 +151,33 @@ end
 
 # Fixtures: a User has many Posts (OneToMany inverse) backed by a Post that belongs to a User (ManyToOne owning).
 # Used to exercise OneToMany lazy load, metadata, and cascade-persist.
+# Fixtures: ToOne owning sides that explicitly override the join-column name
+# via @[AORMA::JoinColumn], to verify the annotation flows through the driver
+# rather than being silently dropped.
+@[AORMA::Entity]
+class CustomJoinTarget < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+end
+
+@[AORMA::Entity]
+class CustomJoinOwner < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+
+  @[AORMA::OneToOne]
+  @[AORMA::JoinColumn(name: "explicit_one_to_one_fk", referenced_column_name: "id")]
+  property linked : CustomJoinTarget? = nil
+
+  @[AORMA::ManyToOne]
+  @[AORMA::JoinColumn(name: "explicit_many_to_one_fk", referenced_column_name: "id")]
+  property parent : CustomJoinTarget? = nil
+end
+
 @[AORMA::Entity]
 @[AORMA::Table(name: "blog_users")]
 class BlogUser < AORM::Entity
@@ -810,6 +837,72 @@ struct UnitOfWorkTest < ASPEC::TestCase
     expect_raises(Exception, "Insert failed") do
       @uow.commit
     end
+  end
+
+  def test_refresh_updates_managed_entity_from_persister : Nil
+    persister = MockEntityPersister.new @em, @em.class_metadata ForumUser
+    @uow.set_entity_persister ForumUser, persister
+
+    user = ForumUser.new
+    user.username = "fred-original"
+    pointerof(user.@id).value = 7
+    @uow.register_managed user, {"id" => 7}, {"id" => 7, "username" => "fred-original"}
+
+    # In-memory drift away from the DB row.
+    user.username = "fred-stale-edit"
+
+    fresh_data = Hash(String, DB::Any).new
+    fresh_data["id"] = 7
+    fresh_data["username"] = "fred-from-db"
+    persister.mock_refresh_data = fresh_data
+
+    @uow.refresh user
+
+    user.username.should eq "fred-from-db"
+    user.id.should eq 7
+  end
+
+  def test_refresh_raises_for_new_entity : Nil
+    user = ForumUser.new
+    user.username = "fred-new"
+
+    # Never registered as managed.
+    expect_raises(Exception, /not managed/) do
+      @uow.refresh user
+    end
+  end
+
+  def test_refresh_raises_for_removed_entity : Nil
+    persister = MockEntityPersister.new @em, @em.class_metadata ForumUser
+    @uow.set_entity_persister ForumUser, persister
+
+    user = ForumUser.new
+    user.username = "fred-removed"
+    pointerof(user.@id).value = 9
+    @uow.register_managed user, {"id" => 9}, {"id" => 9, "username" => "fred-removed"}
+    @uow.schedule_for_delete user
+
+    expect_raises(Exception, /not managed/) do
+      @uow.refresh user
+    end
+  end
+
+  def test_explicit_join_column_on_one_to_one_owning_side_overrides_default : Nil
+    cm = @em.class_metadata CustomJoinOwner
+
+    assoc = cm.association_mappings["linked"].not_nil!
+    owning = assoc.as AORM::Mapping::OneToOneOwningSide
+    owning.join_columns.size.should eq 1
+    owning.join_columns.first.name.should eq "explicit_one_to_one_fk"
+  end
+
+  def test_explicit_join_column_on_many_to_one_owning_side_overrides_default : Nil
+    cm = @em.class_metadata CustomJoinOwner
+
+    assoc = cm.association_mappings["parent"].not_nil!
+    owning = assoc.as AORM::Mapping::ManyToOneOwningSide
+    owning.join_columns.size.should eq 1
+    owning.join_columns.first.name.should eq "explicit_many_to_one_fk"
   end
 
   def test_one_to_many_inverse_side_metadata_uses_mapped_by : Nil

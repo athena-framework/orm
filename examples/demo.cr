@@ -162,10 +162,12 @@ class Post < AORM::Entity
   @[AORMA::Column(length: 200)]
   property! title : String
 
-  # ManyToOne, owning side: holds the FK column.
-  # The default naming strategy derives the column name from the property + "_id" → `user_id`.
+  # ManyToOne, owning side: holds the FK column. We declare the column name
+  # explicitly via @[AORMA::JoinColumn] for visibility (the default naming
+  # strategy would produce the same `user_id` here).
   # `inversed_by` names the property on the inverse side (User#posts).
   @[AORMA::ManyToOne(inversed_by: "posts")]
+  @[AORMA::JoinColumn(name: "user_id", referenced_column_name: "id")]
   property user : User? = nil
 end
 
