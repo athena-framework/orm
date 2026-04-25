@@ -1,6 +1,7 @@
-# Port of Doctrine's InverseSideMapping.
-# Base class for associations where the other side contains the foreign key.
-
+# Base class for the side of a bidirectional association whose mapping points
+# at the owning side via `mapped_by`. The owning side is where the foreign key
+# (or join-table reference) lives; the inverse side is read-only with respect
+# to the relationship.
 abstract class Athena::ORM::Mapping::InverseSide < Athena::ORM::Mapping::Association
   def self.new(mapping : Driver::ColumnMapping) : self
     new(

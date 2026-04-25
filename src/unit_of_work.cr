@@ -1054,8 +1054,8 @@ class Athena::ORM::UnitOfWork
 
         @visited_collections << value
 
-        # Defer the in-memory removal until after the transaction completes
-        # successfully. Mirrors Doctrine UnitOfWork.php:862-877.
+        # Defer the in-memory removal until after the transaction commits, so a
+        # rollback leaves the collection's view of its elements unchanged.
         if value.is_a? AORM::PersistentCollectionInterface
           pending = @pending_collection_element_removals[value] ||= [] of AORM::Entity
           pending << entity
@@ -1074,8 +1074,8 @@ class Athena::ORM::UnitOfWork
     # TODO: Implement this
   end
 
-  # Creates or retrieves an entity from hydrated data.
-  # Mirrors Doctrine's UnitOfWork::createEntity.
+  # Creates or retrieves an entity from hydrated data, returning the
+  # identity-mapped instance when one already exists for this id_hash.
   def create_entity(
     entity_class : AORM::Entity.class,
     data : Hash,
@@ -1104,8 +1104,7 @@ class Athena::ORM::UnitOfWork
 
     # TODO: Handle eager loading entities
 
-    # Initialize collections with owner and association metadata for lazy loading.
-    # Mirrors Doctrine's collection injection in createEntity.
+    # Initialize collections with owner and association metadata so they can lazy-load.
     class_metadata.association_mappings.each do |field_name, assoc|
       # TODO: Handle fetchAlias/fetchMode hints
 

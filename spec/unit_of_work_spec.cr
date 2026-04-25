@@ -1,7 +1,8 @@
 require "./spec_helper"
 require "uuid"
 
-# Inline test entities (like Doctrine's test-only entities)
+# Inline test entities — kept here rather than under spec/models/ because they
+# only matter to this file's coverage of UnitOfWork edge cases.
 @[AORMA::Entity]
 class VersionedAssignedIdentifierEntity < AORM::Entity
   @[AORMA::Column]
@@ -539,8 +540,8 @@ struct UnitOfWorkTest < ASPEC::TestCase
     user.groups.includes?(group1).should be_true
     user.groups.includes?(group2).should be_true
 
-    # Schedule group1 for removal. Doctrine defers the in-memory collection
-    # cleanup until after `commit` succeeds, so the assertion has to come after the next flush.
+    # The UoW defers the in-memory collection cleanup until after `commit`
+    # succeeds, so the assertion has to come after the next flush.
     @uow.remove group1
     @uow.commit
 
@@ -665,6 +666,79 @@ struct UnitOfWorkTest < ASPEC::TestCase
     @uow.commit
 
     group.users.includes?(user).should be_true
+  end
+
+  def test_schedule_for_delete_drops_an_insert_pending_entity : Nil
+    persister = MockEntityPersister.new @em, @em.class_metadata CmsPhonenumber
+    @uow.set_entity_persister CmsPhonenumber, persister
+
+    phone = CmsPhonenumber.new
+    phone.phonenumber = "555"
+
+    @uow.persist phone
+    @uow.is_scheduled_for_insert?(phone).should be_true
+
+    @uow.schedule_for_delete phone
+
+    # An entity scheduled for insertion that gets removed before flush should
+    # disappear entirely, not be queued for deletion of a row that was never
+    # inserted.
+    @uow.is_scheduled_for_insert?(phone).should be_false
+    @uow.is_scheduled_for_delete?(phone).should be_false
+  end
+
+  def test_schedule_for_update_raises_on_entity_without_identity : Nil
+    user = ForumUser.new
+    user.username = "Fred"
+    # Never persisted, so the UoW has no identifier for it.
+
+    expect_raises(Exception, /Entity has no identity/) do
+      @uow.schedule_for_update user
+    end
+  end
+
+  def test_schedule_for_update_raises_on_entity_scheduled_for_deletion : Nil
+    persister = MockEntityPersister.new @em, @em.class_metadata CmsPhonenumber
+    @uow.set_entity_persister CmsPhonenumber, persister
+
+    phone = CmsPhonenumber.new
+    phone.phonenumber = "555"
+
+    @uow.persist phone
+    @uow.commit
+    @uow.schedule_for_delete phone
+
+    expect_raises(Exception, /Entity scheduled for deletion/) do
+      @uow.schedule_for_update phone
+    end
+  end
+
+  def test_schedule_for_update_skips_entities_already_pending_insert : Nil
+    persister = MockEntityPersister.new @em, @em.class_metadata VersionedAssignedIdentifierEntity
+    @uow.set_entity_persister VersionedAssignedIdentifierEntity, persister
+
+    entity = VersionedAssignedIdentifierEntity.new
+    entity.id = 1
+
+    @uow.persist entity
+    @uow.is_scheduled_for_insert?(entity).should be_true
+
+    @uow.schedule_for_update entity
+
+    # Insert-pending entities don't double-up as updates — the insert will
+    # already write the current state when it executes.
+    @uow.is_scheduled_for_update?(entity).should be_false
+    @uow.is_scheduled_for_insert?(entity).should be_true
+  end
+
+  def test_id_hash_by_identifier_joins_single_key : Nil
+    AORM::UnitOfWork.id_hash_by_identifier({"id" => 42}).should eq "42"
+  end
+
+  def test_id_hash_by_identifier_joins_composite_keys_with_space : Nil
+    # Composite identifier values are flattened into a single space-separated
+    # string for use as the identity-map key.
+    AORM::UnitOfWork.id_hash_by_identifier({"a" => 1, "b" => 2}).should eq "1 2"
   end
 end
 

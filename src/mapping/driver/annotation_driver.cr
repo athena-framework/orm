@@ -1,6 +1,7 @@
 module Athena::ORM::Mapping::Driver
-  # These structs map to what Doctrine uses assoc arrays for but these are easier to work with.
-  # Also don't want to use the annotation records directly either
+  # Strongly-typed mapping records consumed by `Annotation#load_metadata_for_entity`.
+  # Kept separate from the `@[AORMA::*]` annotation records so the loader can
+  # normalize/default fields without mutating user-facing annotation data.
 
   record TableMapping,
     name : String? = nil,
