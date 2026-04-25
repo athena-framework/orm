@@ -833,7 +833,7 @@ class Athena::ORM::Persisters::Entity::Basic
   end
 
   private def load_collection_from_result_set(
-    assoc : Mapping::ManyToMany,
+    assoc : Mapping::Association,
     rs : DB::ResultSet,
     collection : AORM::PersistentCollection,
   ) : Array
@@ -855,6 +855,52 @@ class Athena::ORM::Persisters::Entity::Basic
     rs = self.many_to_many_statement assoc, source_entity
 
     self.load_collection_from_result_set assoc, rs, collection
+  end
+
+  def load_one_to_many_collection(
+    assoc : Mapping::OneToMany,
+    source_entity : AORM::Entity,
+    collection : AORM::PersistentCollection,
+  ) : Array
+    rs = self.one_to_many_statement assoc, source_entity
+
+    self.load_collection_from_result_set assoc, rs, collection
+  end
+
+  private def one_to_many_statement(
+    assoc : Mapping::OneToMany,
+    source_entity : AORM::Entity,
+    offset : Int32? = nil,
+    limit : Int32? = nil,
+  ) : ::DB::ResultSet
+    self.switch_persister_context offset, limit
+
+    # `self` is the persister for the target ("many") class.
+    # The owning side of the relationship lives on the target as a `ManyToOneOwningSide`, named by the inverse side's `mapped_by`.
+    source_class_metadata = @em.class_metadata assoc.source_entity
+    owning_assoc = @class_metadata.association_mappings[assoc.mapped_by]?
+    raise "BUG: OneToMany owning side '#{assoc.mapped_by}' not found on '#{@class_metadata.entity_class}'" unless owning_assoc.is_a?(Mapping::ManyToOneOwningSide)
+
+    table_alias = self.sql_table_alias @class_metadata.entity_class
+    criteria = Hash(String, Mapping::Value).new
+    parameters = [] of CollectionParameter
+
+    owning_assoc.source_to_target_key_columns.each do |target_fk_column, source_pk_column|
+      field_name = source_class_metadata.field_names[source_pk_column]?
+      raise "BUG: source PK column '#{source_pk_column}' has no mapped field on '#{source_class_metadata.entity_class}'" unless field_name
+
+      fi = source_class_metadata.field_info[field_name]
+      value = fi.create_column_value fi.get_value source_entity
+
+      quoted_target_column = @quote_strategy.column_name field_name, source_class_metadata, @platform
+      criteria["#{table_alias}.#{target_fk_column}"] = value
+      parameters << CollectionParameter.new value, source_class_metadata
+    end
+
+    sql = self.select_sql criteria, assoc, nil, limit, offset
+    params = self.expand_to_many_parameters parameters
+
+    @connection.query sql, args: params
   end
 
   record CollectionParameter, value : Mapping::Value, source_class_metadata : Mapping::ClassInterface

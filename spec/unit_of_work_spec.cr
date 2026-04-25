@@ -149,6 +149,38 @@ class CustomColumnCategory < AORM::Entity
   property products : AORM::PersistentCollection(CustomColumnProduct) = AORM::PersistentCollection(CustomColumnProduct).new
 end
 
+# Fixtures: a User has many Posts (OneToMany inverse) backed by a Post that belongs to a User (ManyToOne owning).
+# Used to exercise OneToMany lazy load, metadata, and cascade-persist.
+@[AORMA::Entity]
+@[AORMA::Table(name: "blog_users")]
+class BlogUser < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+
+  @[AORMA::Column]
+  property! username : String
+
+  @[AORMA::OneToMany(mapped_by: "user", cascade: ["persist"])]
+  property posts : AORM::Collection(BlogPost) = AORM::ArrayCollection(BlogPost).new
+end
+
+@[AORMA::Entity]
+@[AORMA::Table(name: "blog_posts")]
+class BlogPost < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+
+  @[AORMA::Column]
+  property! title : String
+
+  @[AORMA::ManyToOne(inversed_by: "posts")]
+  property user : BlogUser? = nil
+end
+
 # Stand-in persister that mimics the hydrator's `:collection`-hint behavior:
 # when `load_many_to_many_collection` runs, the canned entities are pushed
 # directly into the target collection via `hydrate_add`. Used to verify that
@@ -715,9 +747,35 @@ struct UnitOfWorkTest < ASPEC::TestCase
     user.groups.includes?(group2).should be_true
   end
 
-  @[Pending]
   def test_removed_entity_is_removed_from_one_to_many_collection : Nil
-    # Requires: OneToMany association support
+    user_persister = MockEntityPersister.new @em, @em.class_metadata BlogUser
+    @uow.set_entity_persister BlogUser, user_persister
+    user_persister.mock_id_generator = :identity
+
+    post_persister = MockEntityPersister.new @em, @em.class_metadata BlogPost
+    @uow.set_entity_persister BlogPost, post_persister
+    post_persister.mock_id_generator = :identity
+
+    user = BlogUser.new
+    user.username = "fred"
+    p1 = BlogPost.new
+    p1.title = "first"
+    p2 = BlogPost.new
+    p2.title = "second"
+    user.posts << p1
+    user.posts << p2
+
+    @uow.persist user
+    @uow.commit
+
+    # Now remove p1 and re-flush — it should be marked for delete AND dropped
+    # from user.posts (via pending_collection_element_removals applied on commit).
+    @uow.remove p1
+    @uow.commit
+
+    user.posts.size.should eq 1
+    user.posts.includes?(p2).should be_true
+    user.posts.includes?(p1).should be_false
   end
 
   def test_it_throws_when_application_provided_ids_collide : Nil
@@ -752,6 +810,67 @@ struct UnitOfWorkTest < ASPEC::TestCase
     expect_raises(Exception, "Insert failed") do
       @uow.commit
     end
+  end
+
+  def test_one_to_many_inverse_side_metadata_uses_mapped_by : Nil
+    cm = @em.class_metadata BlogUser
+
+    assoc = cm.association_mappings["posts"].not_nil!
+    assoc.should be_a AORM::Mapping::OneToManyInverseSide
+    assoc.target_entity.should eq BlogPost
+    assoc.as(AORM::Mapping::OneToManyInverseSide).mapped_by.should eq "user"
+  end
+
+  def test_many_to_one_owning_side_metadata_carries_join_column : Nil
+    cm = @em.class_metadata BlogPost
+
+    assoc = cm.association_mappings["user"].not_nil!
+    assoc.should be_a AORM::Mapping::ManyToOneOwningSide
+    assoc.target_entity.should eq BlogUser
+
+    owning = assoc.as AORM::Mapping::ManyToOneOwningSide
+    owning.source_to_target_key_columns.should eq({"user_id" => "id"})
+  end
+
+  def test_one_to_many_required_mapped_by : Nil
+    # Direct construction without `mapped_by` should fail loudly — OneToMany
+    # is always the inverse side, so the `mapped_by` pointer is mandatory.
+    expect_raises(Exception, /mapped_by/) do
+      AORM::Mapping::OneToManyInverseSide.new(
+        AORM::Mapping::Driver::ColumnMapping.new(
+          field_name: "x",
+          source_entity: BlogUser,
+          target_entity: BlogPost,
+        )
+      )
+    end
+  end
+
+  def test_one_to_many_cascade_persist_writes_target_inserts : Nil
+    user_persister = MockEntityPersister.new @em, @em.class_metadata BlogUser
+    @uow.set_entity_persister BlogUser, user_persister
+    user_persister.mock_id_generator = :identity
+
+    post_persister = MockEntityPersister.new @em, @em.class_metadata BlogPost
+    @uow.set_entity_persister BlogPost, post_persister
+    post_persister.mock_id_generator = :identity
+
+    user = BlogUser.new
+    user.username = "fred"
+    p1 = BlogPost.new
+    p1.title = "first"
+    p2 = BlogPost.new
+    p2.title = "second"
+    user.posts << p1
+    user.posts << p2
+
+    @uow.persist user
+    @uow.commit
+
+    user.id.should be > 0
+    user_persister.inserts.size.should eq 1
+    # Both posts cascade-persisted off of `user.posts`.
+    post_persister.inserts.size.should eq 2
   end
 
   def test_target_entity_inferred_from_to_one_property_type : Nil

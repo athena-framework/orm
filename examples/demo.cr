@@ -49,13 +49,14 @@ require "../src/athena-orm"
 end
 
 # ===== Schema =====
-# Three relationship shapes get exercised:
+# Four relationship shapes get exercised:
 #   - scalar columns          (User.username, Group.name, Avatar.url)
 #   - OneToOne owning side    (User.avatar  -> avatars.id via users.avatar_id FK)
 #   - ManyToMany              (User <-> Group via user_group join table)
-# OneToMany is intentionally absent: the mapping layer has it stubbed but the UoW + persister paths aren't wired up yet, so the demo would crash.
+#   - OneToMany / ManyToOne   (User has many Posts; Post belongs to User via posts.user_id FK)
 SCHEMA = [
   "DROP TABLE IF EXISTS user_group CASCADE",
+  "DROP TABLE IF EXISTS posts CASCADE",
   "DROP TABLE IF EXISTS users CASCADE",
   "DROP TABLE IF EXISTS groups CASCADE",
   "DROP TABLE IF EXISTS avatars CASCADE",
@@ -75,6 +76,13 @@ SCHEMA = [
       PRIMARY KEY (user_id, group_id)
     )
   SQL
+  <<-SQL,
+    CREATE TABLE posts (
+      id      SERIAL PRIMARY KEY,
+      title   VARCHAR(200) NOT NULL,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
+    )
+  SQL
 ]
 
 # ===== Entities =====
@@ -88,6 +96,8 @@ SCHEMA = [
 #   @[AORMA::ID]                  — primary-key field
 #   @[AORMA::GeneratedValue]      — let the DB generate the id (SERIAL/IDENTITY)
 #   @[AORMA::OneToOne]            — single-record association (FK on this side)
+#   @[AORMA::ManyToOne]           — single-record association (FK on this side, "many" side)
+#   @[AORMA::OneToMany]           — collection-of-records association, inverse of a ManyToOne
 #   @[AORMA::ManyToMany]          — collection-of-records association (join table)
 #
 # `target_entity` on the relationship annotations is *inferred* from the property's type restriction: `Avatar?` for OneToOne, `Collection(Group)` for ManyToMany — there's no need to repeat the type as an annotation arg.
@@ -125,10 +135,38 @@ class User < AORM::Entity
   @[AORMA::ManyToMany(inversed_by: "users", cascade: ["persist"])]
   property groups : AORM::Collection(Group) = AORM::ArrayCollection(Group).new
 
+  # OneToMany, *inverse* side: owns no FK column; the FK lives on Post.user_id.
+  # `mapped_by` names the property on the owning side (Post#user).
+  @[AORMA::OneToMany(mapped_by: "user", cascade: ["persist"])]
+  property posts : AORM::Collection(Post) = AORM::ArrayCollection(Post).new
+
   def add_group(group : Group) : Nil
     self.groups << group
     group.add_user self
   end
+
+  def add_post(post : Post) : Nil
+    self.posts << post
+    post.user = self
+  end
+end
+
+@[AORMA::Entity]
+@[AORMA::Table(name: "posts")]
+class Post < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+
+  @[AORMA::Column(length: 200)]
+  property! title : String
+
+  # ManyToOne, owning side: holds the FK column.
+  # The default naming strategy derives the column name from the property + "_id" → `user_id`.
+  # `inversed_by` names the property on the inverse side (User#posts).
+  @[AORMA::ManyToOne(inversed_by: "posts")]
+  property user : User? = nil
 end
 
 @[AORMA::Entity]
@@ -344,8 +382,58 @@ DB.open "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres" do |db|
     end
 
     # ---------------------------------------------------------------------
+    # OneToMany cascade-persist: User.posts is the inverse side, so the ORM can't write the FK on its own — `add_post` flips post.user back to the owner so the FK column gets populated when the cascading insert runs.
+    # `cascade: ["persist"]` then takes care of inserting each Post off the parent's `em.persist alice` call.
+    step 9, "cascade-persist OneToMany (User.posts -> posts.user_id FK)" do
+      em.clear
+      alice = em.find!(User, 1)
+
+      first = Post.new
+      first.title = "first post"
+      second = Post.new
+      second.title = "second post"
+      alice.add_post first
+      alice.add_post second
+
+      em.flush
+
+      show "first.id", first.id
+      show "second.id", second.id
+
+      db_count = conn.scalar("SELECT COUNT(*) FROM posts WHERE user_id = $1", alice.id).as(Int64)
+      show "posts rows for alice", db_count
+
+      expect("both posts inserted via cascade") { first.id > 0 && second.id > 0 }
+      expect("FK column populated for both posts") { db_count == 2 }
+    end
+
+    # ---------------------------------------------------------------------
+    # Same lazy semantics as M2M: the inverse-side collection only loads when touched.
+    # The SELECT here is `WHERE posts.user_id = ?` against the target table directly — no join table needed.
+    step 10, "lazy load: OneToMany inverse side (User.posts via mapped_by)" do
+      em.clear
+
+      puts "    -- find!(User, 1): expect ONE SELECT for users, none for posts"
+      alice = em.find!(User, 1)
+
+      pc = alice.posts.as(AORM::PersistentCollection(Post))
+      show "alice.posts.loaded?", pc.loaded?
+
+      expect("posts collection is uninitialized after find!") { !pc.loaded? }
+
+      puts "    -- alice.posts.size: expect the FK SELECT to fire NOW"
+      size = alice.posts.size
+
+      show "alice.posts.size", size
+      show "alice.posts.loaded? (after touch)", pc.loaded?
+
+      expect("collection initialized after first access") { pc.loaded? }
+      expect("loaded the expected number of posts") { size == 2 }
+    end
+
+    # ---------------------------------------------------------------------
     # No `update` call needed — modify a property on a managed entity and the ORM diffs against what it loaded on next flush, emitting an UPDATE for exactly the dirty columns.
-    step 9, "change tracking -> UPDATE on flush" do
+    step 11, "change tracking -> UPDATE on flush" do
       em.clear
       alice = em.find!(User, 1)
       show "alice.username (before)", alice.username
@@ -362,7 +450,7 @@ DB.open "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres" do |db|
     # ---------------------------------------------------------------------
     # Removing an element from a managed M2M collection emits just a DELETE on the join row, leaving both entities (user + group) untouched.
     # The element-level removal is queued and applied when the UoW commits.
-    step 10, "remove element from M2M collection -> join-table DELETE" do
+    step 12, "remove element from M2M collection -> join-table DELETE" do
       carol = em.find!(User, 3)
 
       # Force the lazy collection to load so we can mutate it.
@@ -386,7 +474,7 @@ DB.open "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres" do |db|
     # `em.remove` schedules the entity for deletion.
     # The actual DELETE runs on flush.
     # Join-table rows go away here via the schema's FK CASCADE; the ORM doesn't issue separate DELETEs for them.
-    step 11, "remove entity -> DELETE row + cascade join cleanup" do
+    step 13, "remove entity -> DELETE row + cascade join cleanup" do
       carol = em.find!(User, 3)
       em.remove carol
       em.flush

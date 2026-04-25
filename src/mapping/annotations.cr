@@ -61,6 +61,20 @@ module Athena::ORM::Mapping::Annotations
     cascade : Array(String)? = nil,
     index_by : String? = nil
 
+  protected record OneToMany,
+    target_entity : AORM::Entity.class | Nil = nil,
+    fetch_mode : FetchMode = :lazy,
+    mapped_by : String? = nil,
+    orphan_removal : Bool = false,
+    cascade : Array(String)? = nil,
+    index_by : String? = nil
+
+  protected record ManyToOne,
+    target_entity : AORM::Entity.class | Nil = nil,
+    fetch_mode : FetchMode = :lazy,
+    inversed_by : String? = nil,
+    cascade : Array(String)? = nil
+
   protected record JoinTable,
     name : String? = nil,
     schema : String? = nil,

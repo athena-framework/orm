@@ -415,6 +415,22 @@ class Athena::ORM::Mapping::Class(T)
     self.store_association_mapping mapping
   end
 
+  def map_one_to_many(mapping : Driver::ColumnMapping) : Nil
+    mapping = mapping.copy_with type: "one_to_many"
+
+    mapping = self.validate_and_complete_association_mapping mapping
+
+    self.store_association_mapping mapping
+  end
+
+  def map_many_to_one(mapping : Driver::ColumnMapping) : Nil
+    mapping = mapping.copy_with type: "many_to_one"
+
+    mapping = self.validate_and_complete_association_mapping mapping
+
+    self.store_association_mapping mapping
+  end
+
   def validate_and_complete_association_mapping(mapping : Driver::ColumnMapping) : Association
     # TODO: Handle unsetting things?
 
@@ -471,6 +487,16 @@ class Athena::ORM::Mapping::Class(T)
         @entity_class,
         mapping.target_entity.not_nil!
       ) : ManyToManyInverseSide.new mapping
+    when "one_to_many"
+      OneToManyInverseSide.new mapping
+    when "many_to_one"
+      ManyToOneOwningSide.new(
+        mapping,
+        @naming_strategy,
+        @entity_class,
+        @table,
+        self.inheritance_type.single_table?
+      )
     else
       raise "Invalid association type"
     end

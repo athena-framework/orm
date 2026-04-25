@@ -128,6 +128,43 @@ module Athena::ORM::Mapping::Driver
           )
 
           metadata.map_one_to_one mapping
+        {% elsif ann = ivar.annotation AORMA::OneToMany %}
+          one_to_many_ann = AORM::Mapping::Annotations::OneToMany.new({{ann.named_args.double_splat}})
+
+          if metadata.embedded_class?
+            raise "Can't use OneToMany on embedded class"
+          end
+
+          mapping = mapping.copy_with(
+            target_entity: one_to_many_ann.target_entity,
+            mapped_by: one_to_many_ann.mapped_by,
+            cascade: one_to_many_ann.cascade,
+            orphan_removal: one_to_many_ann.orphan_removal,
+            fetch_mode: one_to_many_ann.fetch_mode,
+            index_by: one_to_many_ann.index_by
+          )
+
+          metadata.map_one_to_many mapping
+        {% elsif ann = ivar.annotation AORMA::ManyToOne %}
+          many_to_one_ann = AORM::Mapping::Annotations::ManyToOne.new({{ann.named_args.double_splat}})
+
+          if metadata.embedded_class?
+            raise "Can't use ManyToOne on embedded class"
+          end
+
+          {% if ivar.annotation AORMA::ID %}
+            mapping = mapping.copy_with id: true
+          {% end %}
+
+          mapping = mapping.copy_with(
+            target_entity: many_to_one_ann.target_entity,
+            join_columns: [] of String,
+            inversed_by: many_to_one_ann.inversed_by,
+            cascade: many_to_one_ann.cascade,
+            fetch_mode: many_to_one_ann.fetch_mode
+          )
+
+          metadata.map_many_to_one mapping
         {% elsif ann = ivar.annotation AORMA::ManyToMany %}
           many_to_many_ann = AORM::Mapping::Annotations::ManyToMany.new({{ann.named_args.double_splat}})
 

@@ -6,6 +6,8 @@ module Athena::ORM::Annotations
   annotation Table; end
   annotation Entity; end
   annotation OneToOne; end
+  annotation OneToMany; end
+  annotation ManyToOne; end
   annotation ManyToMany; end
   annotation JoinTable; end
   annotation MappedSuperclass; end

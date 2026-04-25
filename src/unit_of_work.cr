@@ -1220,6 +1220,8 @@ class Athena::ORM::UnitOfWork
     case assoc
     when Mapping::ManyToMany
       persister.load_many_to_many_collection(assoc, collection.owner.not_nil!, collection)
+    when Mapping::OneToMany
+      persister.load_one_to_many_collection(assoc, collection.owner.not_nil!, collection)
     end
 
     collection.initialized = true

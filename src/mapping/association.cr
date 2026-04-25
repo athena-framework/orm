@@ -60,10 +60,11 @@ abstract class Athena::ORM::Mapping::Association
 
   # TODO: Make this an enum
   def type : String
-    return "one_to_one" if self.is_a? OneToOne
-    # return "one_to_many" if self.is_a? OneToMany
-    # return "many_to_one" if self.is_a? ManyToOne
+    # ManyToOne is also ToOne (and a kind of OneToOne in our hierarchy via ToOneOwningSide), so check the more specific markers first.
+    return "many_to_one" if self.is_a? ManyToOne
+    return "one_to_many" if self.is_a? OneToMany
     return "many_to_many" if self.is_a? ManyToMany
+    return "one_to_one" if self.is_a? OneToOne
 
     raise "Cannot determine type for #{self.class}"
   end
