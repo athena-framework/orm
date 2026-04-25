@@ -90,13 +90,13 @@ struct EntityRepositoryTest < ASPEC::TestCase
     @persister.mock_load_all_result = canned
 
     criteria = {"phonenumber" => "555-1001"}.transform_values &.as(DB::Any | Array(DB::Any))
-    result = repository.find_by(criteria, ["phonenumber ASC"], 10, 5)
+    result = repository.find_by(criteria, {"phonenumber" => "ASC"}, 10, 5)
 
     result.size.should eq 2
     @persister.load_all_calls.size.should eq 1
     call = @persister.load_all_calls.first
     call.criteria["phonenumber"].should eq "555-1001"
-    call.order_by.should eq ["phonenumber ASC"]
+    call.order_by.should eq({"phonenumber" => "ASC"})
     call.limit.should eq 10
     call.offset.should eq 5
   end

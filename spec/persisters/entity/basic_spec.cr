@@ -199,6 +199,58 @@ struct BasicPersisterTest < ASPEC::TestCase
     sql.should match(/username = \?/)
   end
 
+  def test_order_by_sql_returns_empty_for_empty_input : Nil
+    persister = build_persister
+
+    persister.order_by_sql(Hash(String, String).new, "t0").should eq ""
+  end
+
+  def test_order_by_sql_emits_explicit_orientation : Nil
+    persister = build_persister
+
+    persister.order_by_sql({"username" => "DESC"}, "t0").should eq " ORDER BY t0.username DESC"
+    persister.order_by_sql({"username" => "ASC"}, "t0").should eq " ORDER BY t0.username ASC"
+  end
+
+  def test_order_by_sql_normalizes_lowercase_orientation : Nil
+    persister = build_persister
+
+    persister.order_by_sql({"username" => "desc"}, "t0").should eq " ORDER BY t0.username DESC"
+  end
+
+  def test_order_by_sql_joins_multiple_entries_with_comma : Nil
+    persister = build_persister
+
+    sql = persister.order_by_sql({"username" => "ASC", "id" => "DESC"}, "t0")
+
+    sql.should eq " ORDER BY t0.username ASC, t0.id DESC"
+  end
+
+  def test_order_by_sql_expands_to_one_to_owning_side_join_columns : Nil
+    persister = build_persister
+
+    # ForumUser.avatar is the ToOne owning side; its join column is `avatar_id`.
+    sql = persister.order_by_sql({"avatar" => "ASC"}, "t0")
+
+    sql.should eq " ORDER BY t0.avatar_id ASC"
+  end
+
+  def test_order_by_sql_raises_on_invalid_orientation : Nil
+    persister = build_persister
+
+    expect_raises(Exception, /Invalid ORDER BY orientation/) do
+      persister.order_by_sql({"username" => "SIDEWAYS"}, "t0")
+    end
+  end
+
+  def test_order_by_sql_raises_on_unrecognized_field : Nil
+    persister = build_persister
+
+    expect_raises(Exception, /Unrecognized field/) do
+      persister.order_by_sql({"nonexistent" => "ASC"}, "t0")
+    end
+  end
+
   private def build_persister : AORM::Persisters::Entity::Basic
     em = MockEntityManager.new(MockConnection.new)
     AORM::Persisters::Entity::Basic.new em, em.class_metadata(ForumUser)

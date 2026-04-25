@@ -97,7 +97,7 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
   setter mock_load_all_result : Array(AORM::Entity) = [] of AORM::Entity
   record LoadAllCall,
     criteria : Hash(String, Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | Nil | Array(Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | Nil)),
-    order_by : Array(String)?,
+    order_by : Hash(String, String)?,
     limit : Int32?,
     offset : Int32?
   getter load_all_calls : Array(LoadAllCall) = [] of LoadAllCall
@@ -115,7 +115,7 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
     hints : AORM::Query::Hints = AORM::Query::Hints.new,
     lock_mode : AORM::LockMode? = nil,
     limit : Int? = nil,
-    order_by : Array(String)? = nil,
+    order_by : Hash(String, String)? = nil,
   ) : AORM::Entity?
     @load_calls << LoadCall.new(
       criteria.transform_values { |v| v.as(DB::Any | Array(DB::Any)) },
@@ -126,7 +126,7 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
 
   def load_all(
     criteria : Hash(String, _) = Hash(String, DB::Any).new,
-    order_by : Array(String)? = nil,
+    order_by : Hash(String, String)? = nil,
     limit : Int? = nil,
     offset : Int32? = nil,
   ) : Array(AORM::Entity)

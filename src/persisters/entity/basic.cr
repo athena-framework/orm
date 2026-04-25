@@ -50,7 +50,7 @@ class Athena::ORM::Persisters::Entity::Basic
     hints : Query::Hints = Query::Hints.new,
     lock_mode : LockMode? = nil,
     limit : Int? = nil,
-    order_by : Array(String)? = nil,
+    order_by : Hash(String, String)? = nil,
   ) : AORM::Entity?
     self.switch_persister_context nil, limit
     sql = self.select_sql criteria, association, lock_mode, limit, nil, order_by
@@ -69,7 +69,7 @@ class Athena::ORM::Persisters::Entity::Basic
 
   def load_all(
     criteria : Hash(String, _) = Hash(String, DB::Any).new,
-    order_by : Array(String)? = nil,
+    order_by : Hash(String, String)? = nil,
     limit : Int? = nil,
     offset : Int32? = nil,
   ) : Array(AORM::Entity)
@@ -483,7 +483,7 @@ class Athena::ORM::Persisters::Entity::Basic
     lock_mode : LockMode? = nil,
     limit : Int? = nil,
     offset : Int32? = nil,
-    order_by : Array(String)? = nil,
+    order_by : Hash(String, String)? = nil,
   ) : String
     self.switch_persister_context offset, limit
 
@@ -640,13 +640,53 @@ class Athena::ORM::Persisters::Entity::Basic
     selected_columns.join " AND "
   end
 
-  # Builds the ORDER BY fragment. Currently only the empty-input case is wired
-  # — full per-field support (with ASC/DESC orientation parsing, association
-  # column resolution, inheritance) needs a follow-up port from Doctrine's
-  # `BasicEntityPersister::getOrderBySQL`.
-  protected def order_by_sql(order_by : Array(String), base_table_alias : String) : String
+  # Builds the ORDER BY fragment for the entity persister's SELECT.
+  #
+  # Each entry in *order_by* maps a field (or ToOne owning-side association)
+  # name to an orientation string (`"ASC"` or `"DESC"`, case-insensitive).
+  # Field names resolve to entity column names via `field_mappings`;
+  # association names expand to one ORDER BY clause per join column. Other
+  # shapes raise.
+  #
+  # Returns either an empty string (no input) or a leading-space-prefixed
+  # `" ORDER BY ..."` fragment ready to splice into the SELECT.
+  protected def order_by_sql(order_by : Hash(String, String), base_table_alias : String) : String
     return "" if order_by.empty?
-    raise "TODO: ORDER BY emission for non-empty order_by lists is not yet ported"
+
+    parts = [] of String
+
+    order_by.each do |field, orientation|
+      orientation = orientation.strip.upcase
+
+      unless orientation.in?({"ASC", "DESC"})
+        raise "Invalid ORDER BY orientation '#{orientation}' for field '#{field}' on '#{@class_metadata.entity_class}'"
+      end
+
+      if @class_metadata.field_mappings.has_key? field
+        # TODO: Resolve inherited fields to their declaring class's table alias.
+        column = @quote_strategy.column_name field, @class_metadata, @platform
+        parts << "#{base_table_alias}.#{column} #{orientation}"
+        next
+      end
+
+      if assoc = @class_metadata.association_mappings[field]?
+        unless assoc.is_a?(Mapping::OwningSide) && assoc.is_a?(Mapping::ToOne)
+          raise "Cannot order by inverse side of association '#{field}' on '#{@class_metadata.entity_class}'. Use the owning side."
+        end
+
+        # TODO: Resolve inherited associations to their declaring class's table alias.
+        assoc.join_columns.each do |jc|
+          column = @quote_strategy.join_column_name jc, @class_metadata, @platform
+          parts << "#{base_table_alias}.#{column} #{orientation}"
+        end
+
+        next
+      end
+
+      raise "Unrecognized field '#{field}' on '#{@class_metadata.entity_class}'"
+    end
+
+    " ORDER BY #{parts.join(", ")}"
   end
 
   protected def select_column_sql(field : String, metadata : Mapping::ClassInterface, col_alias : String = "r") : String
