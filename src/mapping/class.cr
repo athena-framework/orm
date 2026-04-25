@@ -81,6 +81,34 @@ class Athena::ORM::Mapping::Class(T)
       raise "BUG: Invoked wrong overload"
     end
 
+    # FIXME: Is there a better way to handle this?
+    def promote_collection(entity : OwningEntity, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
+      {% if IVarType <= Athena::ORM::Collection %}
+        {% collection_element_type = OwningEntity.instance_vars[Idx].default_value.receiver.type_vars.first %}
+
+        current = self.get_value entity
+
+        if current.is_a?(AORM::PersistentCollection({{collection_element_type}})) && current.owner == entity
+          return current
+        end
+
+        items = current.is_a?(AORM::Collection({{collection_element_type}})) ? current.to_a : Array({{collection_element_type}}).new
+        backing = AORM::ArrayCollection({{collection_element_type}}).new items
+        p_coll = AORM::PersistentCollection({{collection_element_type}}).new em, metadata, backing
+        p_coll.set_owner entity, assoc
+        p_coll.mark_dirty unless backing.empty?
+
+        self.set_value entity, p_coll
+        p_coll
+      {% else %}
+        raise "BUG: Not a collection field"
+      {% end %}
+    end
+
+    def promote_collection(entity : _, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
+      raise "BUG: Invoked wrong overload"
+    end
+
     def create_column_value(value : Mapping::Value) : Mapping::Value
       value
     end

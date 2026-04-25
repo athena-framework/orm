@@ -4,7 +4,14 @@ class Athena::ORM::Persisters::Entity::Basic
   include Athena::ORM::Persisters::Entity::Interface
 
   COMPARISON_MAP = {
-    "=" => "= %s",
+    "="   => "= %s",
+    "<>"  => "!= %s",
+    ">"   => "> %s",
+    ">="  => ">= %s",
+    "<"   => "< %s",
+    "<="  => "<= %s",
+    "IN"  => "IN (%s)",
+    "NIN" => "NOT IN (%s)",
   }
 
   private abstract struct ParameterBase; end
@@ -47,7 +54,7 @@ class Athena::ORM::Persisters::Entity::Basic
   ) : AORM::Entity?
     self.switch_persister_context nil, limit
     sql = self.select_sql criteria, association, lock_mode, limit, nil, order_by
-    params, types = self.expand_parameters criteria
+    params = self.expand_parameters criteria
 
     hydrator = @em.hydrator(!@current_persister_context.select_join_sql.empty? ? AORM::HydrationMode::Object : AORM::HydrationMode::SimpleObject)
 
@@ -80,7 +87,7 @@ class Athena::ORM::Persisters::Entity::Basic
       io << " WHERE " << self.select_condition_sql criteria
     end
 
-    params, types = self.expand_parameters criteria
+    params = self.expand_parameters criteria
 
     # TODO: Handle extra_conditions
 
@@ -129,22 +136,17 @@ class Athena::ORM::Persisters::Entity::Basic
     @class_metadata.table_name
   end
 
-  def expand_parameters(criteria : Hash(String, _)) : Tuple
-    params = [] of DB::Any
-    types = [] of ParameterType | ArrayParameterType | String
+  def expand_parameters(criteria : Hash(String, _)) : Array
+    criteria.values.flat_map do |v|
+      next [] of NoReturn if v.nil?
 
-    criteria.each do |k, v|
-      next if v.nil?
-
-      if v.is_a?(Enumerable)
-        # TODO: Handle array values
+      if v.is_a?(Indexable)
+        # IN clause: bind each non-null element as its own parameter.
+        v.to_a.compact.flat_map { |item| PersisterHelper.convert_to_parameter_value(item, @em) }
+      else
+        PersisterHelper.convert_to_parameter_value(v, @em)
       end
-
-      types.concat PersisterHelper.infer_parameter_types k, v, @class_metadata, @em
-      params.concat PersisterHelper.convert_to_parameter_value v, @em
     end
-
-    {params, types}
   end
 
   protected def lock_tables_sql(lock_mode : LockMode) : String
@@ -555,7 +557,28 @@ class Athena::ORM::Persisters::Entity::Basic
         next
       end
 
-      # TODO: Handle IN queries
+      if comparison == "IN" || comparison == "NIN"
+        elements = value.is_a?(Indexable) ? value.to_a : [value]
+
+        if elements.empty?
+          selected_columns << "1=0"
+          next
+        end
+
+        null_count = elements.count(&.nil?)
+        non_null_count = elements.size - null_count
+
+        if non_null_count.zero?
+          selected_columns << "#{column} IS NULL"
+          next
+        end
+
+        placeholders = Array.new(non_null_count, placeholder).join ", "
+        in_clause = "#{column} #{sprintf COMPARISON_MAP[comparison], placeholders}"
+
+        selected_columns << (null_count > 0 ? "(#{in_clause} OR #{column} IS NULL)" : in_clause)
+        next
+      end
 
       selected_columns << "#{column} #{sprintf COMPARISON_MAP[comparison], placeholder}"
     end
@@ -631,14 +654,24 @@ class Athena::ORM::Persisters::Entity::Basic
     end
 
     if assoc = @class_metadata.association_mappings[field]?
-      # ManyToMany requires join table check for join_column
       columns = [] of String
 
-      if association.is_a? Mapping::ManyToMany
-        raise "TODO"
+      if assoc.is_a? Mapping::ManyToMany
+        # TODO: handle ManyToMany branch
+        # Needs join-table column lookup using the outer `association` context.
+        raise "TODO: ManyToMany association criteria"
       else
-        raise "TODO"
-        # TODO: Handle non-ManyToMany
+        unless assoc.is_a?(Mapping::OwningSide) && assoc.is_a?(Mapping::ToOne)
+          raise "Cannot match on inverse side of association '#{field}' on '#{@class_metadata.entity_class}'. Use the owning side."
+        end
+
+        # TODO: Handle inherited associations
+        entity_class = @class_metadata.entity_class
+        table_alias = self.sql_table_alias entity_class
+
+        assoc.join_columns.each do |jc|
+          columns << "#{table_alias}.#{@quote_strategy.join_column_name jc, @class_metadata, @platform}"
+        end
       end
 
       return columns

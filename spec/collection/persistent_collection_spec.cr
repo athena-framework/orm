@@ -239,4 +239,51 @@ struct PersistentCollectionTest < ASPEC::TestCase
     collection.dirty?.should be_false
     collection[1].should eq 99
   end
+
+  def test_restore_new_objects_after_lazy_init_keeps_unloaded_and_marks_dirty : Nil
+    pre_added = TestEntityForRestore.new(1)
+    loaded = TestEntityForRestore.new(2)
+
+    collection = AORM::PersistentCollection(TestEntityForRestore).new([loaded])
+    collection.take_snapshot
+    # Drop dirty back to false so we can later assert restore is what re-marks it.
+
+    RestoreInvoker.invoke(collection, [pre_added])
+
+    items = collection.to_a
+    items.size.should eq 2
+    items.any?(&.same?(pre_added)).should be_true
+    collection.dirty?.should be_true
+  end
+
+  def test_restore_new_objects_skips_when_all_already_loaded : Nil
+    pre_added = TestEntityForRestore.new(7)
+
+    # Same instance appears in the loaded set, so restore should be a no-op.
+    collection = AORM::PersistentCollection(TestEntityForRestore).new([pre_added])
+    collection.take_snapshot
+
+    RestoreInvoker.invoke(collection, [pre_added])
+
+    collection.to_a.size.should eq 1
+    collection.dirty?.should be_false
+  end
+end
+
+# Plain reference-typed value object so the collection's identity-based dedup
+# (uses `same?`) has something to compare. Avoids pulling AORM::Entity into a
+# pure collection-level test.
+private class TestEntityForRestore
+  getter id : Int32
+
+  def initialize(@id : Int32); end
+end
+
+# Friend-of-the-collection: drives the protected restore path without requiring
+# a subclass that re-declares `@is_loaded` (which Crystal's two-level inheritance
+# inference around PersistentCollection makes awkward in tests).
+private class RestoreInvoker < AORM::PersistentCollection(TestEntityForRestore)
+  def self.invoke(target : AORM::PersistentCollection(TestEntityForRestore), new_entities : Array(TestEntityForRestore)) : Nil
+    target.restore_new_objects_in_dirty_collection new_entities
+  end
 end

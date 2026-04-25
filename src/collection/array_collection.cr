@@ -78,13 +78,6 @@ class Athena::ORM::ArrayCollection(T)
     @elements.dup
   end
 
-  # Compatibility method for PersistentCollection interface.
-  # ArrayCollection doesn't track snapshots, so this is a no-op.
-  def take_snapshot : Nil
-    @snapshot = self.unwrap.to_a
-    @dirty = false
-  end
-
   # Removes an element and returns whether it was present.
   def remove_element(element : T) : Bool
     if @elements.includes?(element)

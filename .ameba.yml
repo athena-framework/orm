@@ -1,0 +1,20 @@
+Documentation/DocumentationAdmonition:
+  Enabled: false
+Lint/ComparisonToBoolean:
+  Enabled: false # TODO: Enable once https://github.com/crystal-ameba/ameba/issues/432 is resolved
+Lint/Formatting:
+  Enabled: false # This has its own dedicated CI job
+Lint/NotNil:
+  Enabled: false
+Lint/Typos:
+  Enabled: false # This has its own dedicated CI job
+Lint/UselessAssign:
+  ExcludeTypeDeclarations: true # TODO: Disable this once https://github.com/crystal-ameba/ameba/issues/447 is resolved
+Naming/AccessorMethodName:
+  Enabled: false
+Naming/BlockParameterName:
+  Enabled: false
+Naming/QueryBoolMethods:
+  Enabled: false
+Style/LargeNumbers:
+  Enabled: true

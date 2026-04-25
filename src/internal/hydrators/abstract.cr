@@ -125,10 +125,14 @@ abstract class Athena::ORM::Internal::Hydrators::Abstract
     row_data
   end
 
-  protected def fetch_assoc : Hash
-    self.rs.column_names.to_h do |col|
-      {col, self.rs.read}
-    end
+  # FIXME: Constructed manually with an explicit value type so Crystal does
+  # not infer it from the `to_h` block before `lib/pg`'s array decoders finish
+  # registering — that race produces a macro expansion error in `array_decoder.cr`.
+  # Remove once dynamic values are consolidated onto `Mapping::Value` end-to-end.
+  protected def fetch_assoc
+    result = Hash(String, typeof(self.rs.read)).new
+    self.rs.column_names.each { |col| result[col] = self.rs.read }
+    result
   end
 
   protected def class_metadata(entity_class : AORM::Entity.class) : Mapping::ClassInterface

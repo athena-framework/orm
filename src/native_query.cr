@@ -5,7 +5,7 @@ class Athena::ORM::NativeQuery
   def initialize(
     @em : EntityManagerInterface,
     @sql : String,
-    @rsm : Query::ResultSetMapping
+    @rsm : Query::ResultSetMapping,
   )
   end
 

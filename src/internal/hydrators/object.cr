@@ -66,7 +66,9 @@ class Athena::ORM::Internal::Hydrators::Object < Athena::ORM::Internal::Hydrator
   end
 
   protected def hydrate_row_data(row : Hash, result : Array(AORM::Entity)) : Nil
-    id = @id_template
+    # Per-row copy: gather_row_data mutates `id` via `id[alias] += "|#{value}"`
+    # so the template must not be aliased.
+    id = @id_template.dup
     non_empty_components = Hash(String, Bool).new
     # Split the row data into chunks of class data;
     row_data = self.gather_row_data row, id, non_empty_components

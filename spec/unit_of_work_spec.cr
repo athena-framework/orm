@@ -529,8 +529,10 @@ struct UnitOfWorkTest < ASPEC::TestCase
     group1.id.should_not be_nil
     group2.id.should_not be_nil
 
-    # Take a snapshot of the collection state after persist
-    user.groups.take_snapshot
+    # Take a snapshot of the collection state after persist.
+    # The UoW promotes user.groups to a PersistentCollection during commit,
+    # so the runtime type matches even though the property is declared as Collection.
+    user.groups.as(AORM::PersistentCollection(CmsGroup)).take_snapshot
 
     # Verify both groups are in the collection
     user.groups.size.should eq 2
@@ -651,11 +653,9 @@ struct UnitOfWorkTest < ASPEC::TestCase
 
     user = CmsUser.new
     user.username = "test_user"
-    user.groups.set_owner(user, @em.class_metadata(CmsUser).association_mappings["groups"])
 
     group = CmsGroup.new
     group.name = "group1"
-    group.users.set_owner(group, @em.class_metadata(CmsGroup).association_mappings["users"])
 
     # Add group to user's collection (owning side)
     user.groups << group

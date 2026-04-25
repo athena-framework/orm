@@ -83,7 +83,7 @@ class User < AORM::Entity
   property! username : String
 
   # Owning side: has inversed_by pointing to the inverse side's field
-  @[AORMA::ManyToMany(target_entity: Group, inversed_by: "users", cascade: ["persist"])]
+  @[AORMA::ManyToMany(target_entity: Group, inversed_by: "users", cascade: ["persist"], fetch_mode: :eager)]
   property groups : AORM::Collection(Group) = AORM::ArrayCollection(Group).new
 end
 
@@ -134,10 +134,10 @@ end
 
 require "pg"
 
-connection = DB.connect "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres"
-em = AORM::EntityManager.new connection
+# connection = DB.connect "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres"
+# em = AORM::EntityManager.new connection
 
-# Create entities
+# # Create entities
 # user = User.new
 # user.username = "alice"
 
@@ -154,26 +154,17 @@ em = AORM::EntityManager.new connection
 # # Persist and flush - cascade: ["persist"] saves groups automatically
 # em.persist(user)
 
-# Later: load user with groups
+# em.flush
 
-# SELECT t0.id AS id_1, t0.username AS username_2 FROM users t0 WHERE t0.id = $1
-loaded_user = em.find!(User, 1)
-loaded_group = em.find! Group, 1
+# # Later: load user with groups
 
-groups = loaded_user.groups
-# raise "foo" unless groups.is_a? AORM::PersistentCollection
+# # SELECT t0.id AS id_1, t0.username AS username_2 FROM users t0 WHERE t0.id = $1
+# loaded_user = em.find!(User, 1)
+# loaded_group = em.find! Group, 1
 
-pp groups.first.name
-pp loaded_group.name
-# Later on when first accessed
-# SELECT t0.id AS id_1, t0.name AS name_2 FROM groups t0 INNER JOIN user_group ON t0.id = user_group.group_id WHERE user_group.user_id = $
-# loaded_user.groups.each do |group|
-#   puts group.name
-# end
-
+# loaded_user.groups[1].name = "Super Admin"
 # loaded_user.groups.delete loaded_group
 
+# pp loaded_user.groups.map &.name
+
 # em.flush
-# # Remove a group from the relationship
-# loaded_user.groups.delete(group1)
-# em.flush # Updates join table, removes the user_group row

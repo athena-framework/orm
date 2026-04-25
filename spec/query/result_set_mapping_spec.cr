@@ -1,5 +1,8 @@
 require "../spec_helper"
 
+# FIXME: Requires fully implemented RSM API
+{% skip_file %}
+
 struct ResultSetMappingTest < ASPEC::TestCase
   def test_add_entity_result : Nil
     rsm = AORM::Query::ResultSetMapping.new

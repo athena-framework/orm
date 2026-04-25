@@ -131,9 +131,16 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     end
   end
 
+  # Polymorphic entry used by the hydrator, where the static type of *element*
+  # is `AORM::Entity` even though the runtime type matches `T`. The macro guard
+  # keeps non-entity instantiations (e.g. `PersistentCollection(Int32)` used in
+  # tests) from trying to cast `Entity` into a primitive.
   def hydrate_add(element : AORM::Entity) : Nil
-    # Cast and add directly to avoid overload resolution issues
-    @collection << element.as(T)
+    {% if T <= AORM::Entity %}
+      @collection << element.as(T)
+    {% else %}
+      raise "BUG: Entity overload of hydrate_add invoked on non-entity collection"
+    {% end %}
   end
 
   # Adds an element during hydration without marking dirty.
@@ -210,9 +217,22 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     end
   end
 
-  private def restore_new_objects_in_dirty_collection(new_entities : Array(T)) : Nil
+  # Adds back any items that were `<<`'d before the lazy load fired and were not  present in the loaded result.
+  protected def restore_new_objects_in_dirty_collection(new_entities : Array(T)) : Nil
     loaded_objects = self.unwrap.to_a
+    not_loaded = new_entities.reject { |new_entity| collection_contains?(loaded_objects, new_entity) }
 
-    raise "TODO"
+    return if not_loaded.empty?
+
+    not_loaded.each { |entity| @collection << entity }
+    @dirty = true
+  end
+
+  private def collection_contains?(haystack : Array(T), needle : T) : Bool
+    {% if T < Reference %}
+      haystack.any?(&.same?(needle))
+    {% else %}
+      haystack.includes?(needle)
+    {% end %}
   end
 end

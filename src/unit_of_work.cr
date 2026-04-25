@@ -895,9 +895,14 @@ class Athena::ORM::UnitOfWork
 
     # TODO: Invoke listeners
     class_metadata.field_info.each do |name, prop|
-      # Skip collection-valued associations - they are handled separately
-      if assoc = class_metadata.association_mappings[name]?
-        next if assoc.is_a?(Mapping::ToMany)
+      if (assoc = class_metadata.association_mappings[name]?) && assoc.is_a?(Mapping::ToMany)
+        # Promote a user-assigned ArrayCollection (or a PersistentCollection owned by another entity) into a PersistentCollection owned by this entity.
+        next if prop.get_value(entity).nil?
+
+        target_metadata = @em.class_metadata assoc.target_entity
+        p_coll = prop.promote_collection entity, @em, target_metadata, assoc
+        actual_data[name] = prop.create_column_value p_coll
+        next
       end
 
       # TODO: Handle versioning
@@ -934,7 +939,8 @@ class Athena::ORM::UnitOfWork
           if owner.nil?
             actual_value.set_owner entity, assoc
           elsif owner != entity
-            # TODO: Initialize collection?
+            # Force lazy load before cloning so the new owner doesn't share backing state with the original
+            actual_value.initialize_collection
 
             new_value = actual_value.clone
             new_value.owner entity, assoc
@@ -1010,7 +1016,7 @@ class Athena::ORM::UnitOfWork
                         if value.is_a?(AORM::PersistentCollection)
                           value.to_a
                         else
-                          raise "BUG: ToMany value is not iterable"
+                          raise "BUG: ToMany value is not iterable (#{value.class})"
                         end
                       elsif value.is_a?(AORM::Entity)
                         # ToOne: wrap single entity in array
