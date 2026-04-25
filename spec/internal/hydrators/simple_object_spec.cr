@@ -5,7 +5,7 @@ struct SimpleObjectHydratorTest < ASPEC::TestCase
   def test_hydrates_a_single_row_into_one_entity : Nil
     em = MockEntityManager.new(MockConnection.new)
     rsm = AORM::Query::ResultSetMapping.new
-    rsm.add_root_entity CmsPhonenumber, "p"
+    rsm.add_entity_result CmsPhonenumber, "p"
     rsm.add_field_result "p", "p__phonenumber", "phonenumber"
 
     rs = FakeResultSet.new([
@@ -22,7 +22,7 @@ struct SimpleObjectHydratorTest < ASPEC::TestCase
   def test_hydrates_multiple_rows_into_multiple_entities : Nil
     em = MockEntityManager.new(MockConnection.new)
     rsm = AORM::Query::ResultSetMapping.new
-    rsm.add_root_entity CmsPhonenumber, "p"
+    rsm.add_entity_result CmsPhonenumber, "p"
     rsm.add_field_result "p", "p__phonenumber", "phonenumber"
 
     rs = FakeResultSet.new([
@@ -42,7 +42,7 @@ struct SimpleObjectHydratorTest < ASPEC::TestCase
   def test_extra_columns_in_the_result_set_are_ignored : Nil
     em = MockEntityManager.new(MockConnection.new)
     rsm = AORM::Query::ResultSetMapping.new
-    rsm.add_root_entity CmsPhonenumber, "p"
+    rsm.add_entity_result CmsPhonenumber, "p"
     rsm.add_field_result "p", "p__phonenumber", "phonenumber"
 
     rs = FakeResultSet.new([
@@ -63,8 +63,8 @@ struct SimpleObjectHydratorTest < ASPEC::TestCase
   def test_prepare_rejects_an_rsm_with_more_than_one_alias : Nil
     em = MockEntityManager.new(MockConnection.new)
     rsm = AORM::Query::ResultSetMapping.new
-    rsm.add_root_entity CmsPhonenumber, "p"
-    rsm.add_root_entity CmsUser, "u"
+    rsm.add_entity_result CmsPhonenumber, "p"
+    rsm.add_entity_result CmsUser, "u"
 
     rs = FakeResultSet.new([] of Hash(String, DB::Any))
 
@@ -80,7 +80,7 @@ struct SimpleObjectHydratorTest < ASPEC::TestCase
   def test_unmapped_columns_do_not_desync_the_cursor_across_rows : Nil
     em = MockEntityManager.new(MockConnection.new)
     rsm = AORM::Query::ResultSetMapping.new
-    rsm.add_root_entity CmsPhonenumber, "p"
+    rsm.add_entity_result CmsPhonenumber, "p"
     rsm.add_field_result "p", "p__phonenumber", "phonenumber"
 
     # Each row carries an unmapped `rownum` between… no, actually before a

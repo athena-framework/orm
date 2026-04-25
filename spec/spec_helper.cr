@@ -92,6 +92,16 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
   record LoadCall, criteria : Hash(String, Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | Nil | Array(Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | Nil)), limit : Int32?
   getter load_calls : Array(LoadCall) = [] of LoadCall
 
+  # Test fixture: canned array returned by `load_all`. Captures criteria,
+  # order_by, limit, and offset so specs can assert the repo's forwarding.
+  setter mock_load_all_result : Array(AORM::Entity) = [] of AORM::Entity
+  record LoadAllCall,
+    criteria : Hash(String, Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | Nil | Array(Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | Nil)),
+    order_by : Array(String)?,
+    limit : Int32?,
+    offset : Int32?
+  getter load_all_calls : Array(LoadAllCall) = [] of LoadAllCall
+
   def load_by_id(id : Hash(String, Int | String)) : AORM::Entity?
     widened = id.transform_values { |v| v.is_a?(Int) ? v.to_i64.as(Int32 | Int64 | String) : v.as(Int32 | Int64 | String) }
     @load_by_id_calls << widened
@@ -114,6 +124,31 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
     @mock_load_result
   end
 
+  def load_all(
+    criteria : Hash(String, _) = Hash(String, DB::Any).new,
+    order_by : Array(String)? = nil,
+    limit : Int? = nil,
+    offset : Int32? = nil,
+  ) : Array(AORM::Entity)
+    @load_all_calls << LoadAllCall.new(
+      criteria.transform_values { |v| v.as(DB::Any | Array(DB::Any)) },
+      order_by,
+      limit.try(&.to_i32),
+      offset
+    )
+    @mock_load_all_result
+  end
+
+  # Test fixture: canned count returned by `count`. Captures the criteria so
+  # specs can assert what the repository forwarded.
+  setter mock_count_result : Int32 = 0
+  getter count_calls : Array(Hash(String, Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | Nil | Array(Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | Nil))) = [] of Hash(String, Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | Nil | Array(Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | Nil))
+
+  def count(criteria : Hash(String, _) = Hash(String, DB::Any).new) : Int32
+    @count_calls << criteria.transform_values { |v| v.as(DB::Any | Array(DB::Any)) }
+    @mock_count_result
+  end
+
   def reset : Nil
     @execute_insert_call_count = 0
     @exists_called = false
@@ -123,6 +158,8 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
     @deletes.clear
     @load_by_id_calls.clear
     @load_calls.clear
+    @load_all_calls.clear
+    @count_calls.clear
   end
 end
 

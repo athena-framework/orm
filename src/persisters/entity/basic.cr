@@ -67,6 +67,57 @@ class Athena::ORM::Persisters::Entity::Basic
     entities.first?
   end
 
+  def load_all(
+    criteria : Hash(String, _) = Hash(String, DB::Any).new,
+    order_by : Array(String)? = nil,
+    limit : Int? = nil,
+    offset : Int32? = nil,
+  ) : Array(AORM::Entity)
+    self.switch_persister_context offset, limit
+    sql = self.select_sql criteria, nil, nil, limit, offset, order_by
+    params = self.expand_parameters criteria
+
+    hints = Query::Hints.new defer_eager_load: true
+
+    hydrator = @em.hydrator(!@current_persister_context.select_join_sql.empty? ? AORM::HydrationMode::Object : AORM::HydrationMode::SimpleObject)
+
+    entities = [] of AORM::Entity
+
+    @connection.query sql, args: params do |rs|
+      entities = hydrator.hydrate_all(rs, @current_persister_context.rsm, hints)
+    end
+
+    entities
+  end
+
+  def count(criteria : Hash(String, _) = Hash(String, DB::Any).new) : Int32
+    sql = self.count_sql criteria
+    params = self.expand_parameters criteria
+
+    # COUNT(*) is by definition a single scalar value; `scalar` reads exactly
+    # that without round-tripping through a result-set cursor. Drivers report
+    # the count as `Int64`; narrow at the boundary.
+    @connection.scalar(sql, args: params).as(Int64).to_i32
+  end
+
+  # Builds the `SELECT COUNT(*) FROM ... [WHERE ...]` SQL for the given
+  # criteria. Mirrors Doctrine's `BasicEntityPersister::getCountSQL`.
+  def count_sql(criteria : Hash(String, _)) : String
+    quoted_table = @quote_strategy.table_name @class_metadata, @platform
+    table_alias = self.sql_table_alias @class_metadata.entity_class
+
+    condition_sql = criteria.empty? ? "" : self.select_condition_sql(criteria)
+
+    # TODO: Append filter SQL once filter integration lands.
+
+    String.build do |io|
+      io << "SELECT COUNT(*) FROM " << quoted_table << " " << table_alias
+      unless condition_sql.empty?
+        io << " WHERE " << condition_sql
+      end
+    end
+  end
+
   def exists(
     entity : AORM::Entity,
 
@@ -511,7 +562,7 @@ class Athena::ORM::Persisters::Entity::Basic
     end
 
     column_list = [] of String
-    @current_persister_context.rsm.add_root_entity @class_metadata.entity_class, "r"
+    @current_persister_context.rsm.add_entity_result @class_metadata.entity_class, "r"
 
     # Add regular columns
     @class_metadata.field_names.each_value do |field|

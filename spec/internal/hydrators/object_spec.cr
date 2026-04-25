@@ -23,7 +23,7 @@ struct ObjectHydratorTest < ASPEC::TestCase
   def test_id_template_not_mutated_across_rows : Nil
     em = MockEntityManager.new(MockConnection.new)
     rsm = AORM::Query::ResultSetMapping.new
-    rsm.add_root_entity CmsPhonenumber, "p"
+    rsm.add_entity_result CmsPhonenumber, "p"
     rsm.add_field_result "p", "p__phonenumber", "phonenumber"
 
     rs = FakeResultSet.new([
@@ -44,7 +44,7 @@ struct ObjectHydratorTest < ASPEC::TestCase
   def test_simple_entity_query_returns_one_entity_per_distinct_row : Nil
     em = MockEntityManager.new(MockConnection.new)
     rsm = AORM::Query::ResultSetMapping.new
-    rsm.add_root_entity CmsPhonenumber, "p"
+    rsm.add_entity_result CmsPhonenumber, "p"
     rsm.add_field_result "p", "p__phonenumber", "phonenumber"
 
     rs = FakeResultSet.new([
@@ -64,7 +64,7 @@ struct ObjectHydratorTest < ASPEC::TestCase
   def test_repeated_identifier_in_consecutive_rows_resolves_to_one_entity : Nil
     em = MockEntityManager.new(MockConnection.new)
     rsm = AORM::Query::ResultSetMapping.new
-    rsm.add_root_entity CmsPhonenumber, "p"
+    rsm.add_entity_result CmsPhonenumber, "p"
     rsm.add_field_result "p", "p__phonenumber", "phonenumber"
 
     rs = FakeResultSet.new([
@@ -86,7 +86,7 @@ struct ObjectHydratorTest < ASPEC::TestCase
   def test_composite_identifier_uniqueness_across_both_columns : Nil
     em = MockEntityManager.new(MockConnection.new)
     rsm = AORM::Query::ResultSetMapping.new
-    rsm.add_root_entity HydratorCompositeIdEntity, "e"
+    rsm.add_entity_result HydratorCompositeIdEntity, "e"
     rsm.add_field_result "e", "e__id1", "id1"
     rsm.add_field_result "e", "e__id2", "id2"
 

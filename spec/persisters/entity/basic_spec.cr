@@ -180,6 +180,25 @@ struct BasicPersisterTest < ASPEC::TestCase
     persister.expand_parameters({"id" => nil, "username" => nil}).should be_empty
   end
 
+  def test_count_sql_with_no_criteria_omits_where_clause : Nil
+    persister = build_persister
+
+    sql = persister.count_sql(Hash(String, DB::Any).new)
+
+    sql.should match(/^SELECT COUNT\(\*\) FROM forum_users\b/)
+    sql.should_not match(/\bWHERE\b/)
+  end
+
+  def test_count_sql_with_criteria_appends_where_clause : Nil
+    persister = build_persister
+
+    sql = persister.count_sql({"username" => "fred"})
+
+    sql.should match(/^SELECT COUNT\(\*\) FROM forum_users\b/)
+    sql.should match(/\bWHERE\b/)
+    sql.should match(/username = \?/)
+  end
+
   private def build_persister : AORM::Persisters::Entity::Basic
     em = MockEntityManager.new(MockConnection.new)
     AORM::Persisters::Entity::Basic.new em, em.class_metadata(ForumUser)

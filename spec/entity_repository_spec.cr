@@ -85,6 +85,79 @@ struct EntityRepositoryTest < ASPEC::TestCase
     @persister.load_calls.first.criteria.has_key?("phonenumber").should be_true
   end
 
+  def test_find_by_forwards_criteria_order_limit_and_offset : Nil
+    canned = [build_phone("555-1001"), build_phone("555-1002")] of AORM::Entity
+    @persister.mock_load_all_result = canned
+
+    criteria = {"phonenumber" => "555-1001"}.transform_values &.as(DB::Any | Array(DB::Any))
+    result = repository.find_by(criteria, ["phonenumber ASC"], 10, 5)
+
+    result.size.should eq 2
+    @persister.load_all_calls.size.should eq 1
+    call = @persister.load_all_calls.first
+    call.criteria["phonenumber"].should eq "555-1001"
+    call.order_by.should eq ["phonenumber ASC"]
+    call.limit.should eq 10
+    call.offset.should eq 5
+  end
+
+  def test_find_by_returns_empty_array_when_persister_finds_no_matches : Nil
+    @persister.mock_load_all_result = [] of AORM::Entity
+
+    criteria = {"phonenumber" => "missing"}.transform_values &.as(DB::Any | Array(DB::Any))
+    repository.find_by(criteria).should be_empty
+  end
+
+  def test_find_by_with_keyword_args_converts_symbol_keys : Nil
+    @persister.mock_load_all_result = [] of AORM::Entity
+
+    repository.find_by(phonenumber: "555-K")
+
+    @persister.load_all_calls.first.criteria.has_key?("phonenumber").should be_true
+  end
+
+  def test_find_all_calls_load_all_with_no_criteria : Nil
+    canned = [build_phone("555-A"), build_phone("555-B"), build_phone("555-C")] of AORM::Entity
+    @persister.mock_load_all_result = canned
+
+    result = repository.find_all
+
+    result.size.should eq 3
+    # find_all delegates to find_by({}), so the persister sees an empty criteria hash.
+    @persister.load_all_calls.first.criteria.should be_empty
+  end
+
+  def test_count_forwards_criteria_and_returns_persister_result : Nil
+    @persister.mock_count_result = 7
+
+    criteria = {"phonenumber" => "555-X"}.transform_values &.as(DB::Any | Array(DB::Any))
+    repository.count(criteria).should eq 7
+
+    @persister.count_calls.size.should eq 1
+    @persister.count_calls.first["phonenumber"].should eq "555-X"
+  end
+
+  def test_count_with_no_criteria_calls_persister_with_empty_hash : Nil
+    @persister.mock_count_result = 42
+
+    repository.count.should eq 42
+    @persister.count_calls.first.should be_empty
+  end
+
+  def test_count_with_keyword_args_converts_symbol_keys : Nil
+    @persister.mock_count_result = 0
+
+    repository.count(phonenumber: "555-K")
+
+    @persister.count_calls.first.has_key?("phonenumber").should be_true
+  end
+
+  private def build_phone(number : String) : CmsPhonenumber
+    phone = CmsPhonenumber.new
+    phone.phonenumber = number
+    phone
+  end
+
   private def repository : AORM::EntityRepository(CmsPhonenumber)
     AORM::EntityRepository(CmsPhonenumber).new(@em, @em.class_metadata(CmsPhonenumber))
   end
