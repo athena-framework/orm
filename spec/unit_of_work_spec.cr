@@ -740,6 +740,116 @@ struct UnitOfWorkTest < ASPEC::TestCase
     # string for use as the identity-map key.
     AORM::UnitOfWork.id_hash_by_identifier({"a" => 1, "b" => 2}).should eq "1 2"
   end
+
+  # ===== Identity map =====
+
+  def test_add_to_identity_map_returns_true_when_inserting_a_new_entry : Nil
+    phone = managed_phone "555-0001"
+
+    @uow.is_in_identity_map(phone).should be_true
+  end
+
+  def test_add_to_identity_map_is_idempotent_for_the_same_instance : Nil
+    phone = managed_phone "555-0002"
+
+    @uow.add_to_identity_map(phone).should be_false
+  end
+
+  def test_add_to_identity_map_raises_on_collision_with_a_different_instance : Nil
+    managed_phone "555-0003"
+
+    other = CmsPhonenumber.new
+    other.phonenumber = "555-0003"
+    @uow.@entity_identifiers[other] = {"phonenumber" => AORM::Mapping::ColumnValue(String).new("phonenumber", "555-0003").as(AORM::Mapping::Value)}
+
+    expect_raises(Exception, /identity collision/) do
+      @uow.add_to_identity_map other
+    end
+  end
+
+  def test_remove_from_identity_map_returns_true_when_present : Nil
+    phone = managed_phone "555-0004"
+
+    @uow.remove_from_identity_map(phone).should be_true
+    @uow.is_in_identity_map(phone).should be_false
+  end
+
+  def test_remove_from_identity_map_returns_false_when_not_present : Nil
+    phone = managed_phone "555-0005"
+    @uow.remove_from_identity_map phone
+
+    @uow.remove_from_identity_map(phone).should be_false
+  end
+
+  def test_get_by_id_hash_returns_entity_for_known_hash : Nil
+    phone = managed_phone "555-0006"
+
+    @uow.get_by_id_hash("555-0006", CmsPhonenumber).should be phone
+  end
+
+  def test_get_by_id_hash_returns_nil_for_unknown_hash : Nil
+    managed_phone "555-0007"
+
+    @uow.get_by_id_hash("nope", CmsPhonenumber).should be_nil
+  end
+
+  def test_try_get_by_id_yields_the_entity_when_present : Nil
+    phone = managed_phone "555-0008"
+    yielded = nil
+
+    @uow.try_get_by_id({"phonenumber" => "555-0008"}, CmsPhonenumber) do |entity|
+      yielded = entity
+    end
+
+    yielded.should be phone
+  end
+
+  def test_try_get_by_id_does_not_yield_when_absent : Nil
+    managed_phone "555-0009"
+    yielded = false
+
+    @uow.try_get_by_id({"phonenumber" => "missing"}, CmsPhonenumber) { yielded = true }
+
+    yielded.should be_false
+  end
+
+  # ===== Entity state =====
+
+  def test_entity_state_is_managed_after_register_managed : Nil
+    phone = managed_phone "555-1000"
+
+    @uow.entity_state(phone).should eq AORM::UnitOfWork::EntityState::Managed
+  end
+
+  def test_entity_state_returns_assume_when_state_is_unknown : Nil
+    user = ForumUser.new
+
+    @uow.entity_state(user, AORM::UnitOfWork::EntityState::Detached).should eq AORM::UnitOfWork::EntityState::Detached
+  end
+
+  def test_entity_identifier_returns_the_registered_value : Nil
+    phone = managed_phone "555-1001"
+
+    @uow.entity_identifier(phone)["phonenumber"].value.should eq "555-1001"
+  end
+
+  def test_entity_identifier_raises_for_an_unknown_entity : Nil
+    user = ForumUser.new
+
+    expect_raises(Exception, /Unable to find/) do
+      @uow.entity_identifier user
+    end
+  end
+
+  # Helper: create a CmsPhonenumber, register it as managed with the given id,
+  # and return it. Bypasses persistence so identity-map / state tests don't
+  # need persister setup.
+  private def managed_phone(number : String) : CmsPhonenumber
+    phone = CmsPhonenumber.new
+    phone.phonenumber = number
+    @uow.register_managed phone, {"phonenumber" => number}, {"phonenumber" => number}
+    phone
+  end
 end
 
 # Helper persister that throws an exception during execute_inserts

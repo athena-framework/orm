@@ -73,6 +73,59 @@ struct BasicPersisterTest < ASPEC::TestCase
     params.size.should eq 2
   end
 
+  def test_expand_parameters_resolves_an_entity_to_its_identifier_value : Nil
+    persister = build_persister
+
+    avatar = ForumAvatar.new
+    em = persister.@em
+    em.unit_of_work.register_managed avatar, {"id" => 99}, {"id" => 99}
+
+    params = persister.expand_parameters({"avatar" => avatar})
+
+    params.size.should eq 1
+    params.first.should eq 99
+  end
+
+  def test_insert_sql_lists_columns_and_placeholders : Nil
+    persister = build_persister
+
+    sql = persister.insert_sql
+
+    sql.should start_with "INSERT INTO"
+    sql.should match /\bforum_users\b/
+    # ForumUser has username (column) + avatar (FK via @[AORMA::JoinColumn(name: "avatar_id")])
+    sql.should match /\busername\b/
+    sql.should match /\bavatar_id\b/
+    # ID column is identity-strategy → omitted from the explicit column list.
+    sql.should_not match /\(.*\bid\b.*\)/
+  end
+
+  def test_insert_column_list_emits_join_columns_for_to_one_owning_side : Nil
+    persister = build_persister
+
+    columns = persister.insert_column_list
+
+    # ForumUser → avatar is a ToOne owning side mapped to "avatar_id".
+    columns.should contain "avatar_id"
+    columns.should contain "username"
+  end
+
+  def test_select_condition_sql_joins_multiple_predicates_with_and : Nil
+    persister = build_persister
+
+    sql = persister.select_condition_sql({"id" => 1, "username" => "fred"})
+
+    sql.scan(/\bAND\b/).size.should eq 1
+  end
+
+  def test_select_condition_sql_emits_is_null_for_nil_values : Nil
+    persister = build_persister
+
+    sql = persister.select_condition_sql({"username" => nil})
+
+    sql.should match /username\s+IS NULL/
+  end
+
   private def build_persister : AORM::Persisters::Entity::Basic
     em = MockEntityManager.new(MockConnection.new)
     AORM::Persisters::Entity::Basic.new em, em.class_metadata(ForumUser)
