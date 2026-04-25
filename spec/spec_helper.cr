@@ -80,6 +80,40 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
     true
   end
 
+  # Test fixture: canned entity returned by `load_by_id`. Setting it overrides
+  # the real DB-fetching behavior so repo / find tests can exercise the
+  # delegation path without standing up a real result set.
+  setter mock_load_by_id_result : AORM::Entity? = nil
+  getter load_by_id_calls : Array(Hash(String, Int32 | Int64 | String)) = [] of Hash(String, Int32 | Int64 | String)
+
+  # Test fixture: canned entity returned by `load`. Captures every call's
+  # criteria and limit so specs can assert what the repository forwarded.
+  setter mock_load_result : AORM::Entity? = nil
+  record LoadCall, criteria : Hash(String, Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | Nil | Array(Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | Nil)), limit : Int32?
+  getter load_calls : Array(LoadCall) = [] of LoadCall
+
+  def load_by_id(id : Hash(String, Int | String)) : AORM::Entity?
+    widened = id.transform_values { |v| v.is_a?(Int) ? v.to_i64.as(Int32 | Int64 | String) : v.as(Int32 | Int64 | String) }
+    @load_by_id_calls << widened
+    @mock_load_by_id_result
+  end
+
+  def load(
+    criteria : Hash(String, _),
+    entity : AORM::Entity? = nil,
+    association : AORM::Mapping::Association? = nil,
+    hints : AORM::Query::Hints = AORM::Query::Hints.new,
+    lock_mode : AORM::LockMode? = nil,
+    limit : Int? = nil,
+    order_by : Array(String)? = nil,
+  ) : AORM::Entity?
+    @load_calls << LoadCall.new(
+      criteria.transform_values { |v| v.as(DB::Any | Array(DB::Any)) },
+      limit.try(&.to_i32)
+    )
+    @mock_load_result
+  end
+
   def reset : Nil
     @execute_insert_call_count = 0
     @exists_called = false
@@ -87,6 +121,8 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
     @inserts.clear
     @updates.clear
     @deletes.clear
+    @load_by_id_calls.clear
+    @load_calls.clear
   end
 end
 
@@ -131,6 +167,44 @@ class MockConnection < DB::Connection
 
   def last_insert_id
     @last_insert_ids.shift.value
+  end
+end
+
+# Result set that yields a fixed list of `Hash(String, DB::Any)` rows. Implements
+# just enough of `DB::ResultSet` for hydrator code paths (`column_names`, `each`,
+# `read`, `move_next`, `close`). Use this when a spec needs to drive hydration
+# end-to-end with deterministic row data.
+class FakeResultSet < DB::ResultSet
+  def initialize(@rows : Array(Hash(String, DB::Any)))
+    statement = MockStatement.new(MockConnection.new, "")
+    super(statement)
+    @row_idx = -1
+    @col_idx = 0
+    @columns = @rows.empty? ? [] of String : @rows.first.keys
+  end
+
+  def move_next : Bool
+    @row_idx += 1
+    @col_idx = 0
+    @row_idx < @rows.size
+  end
+
+  def column_count : Int32
+    @columns.size
+  end
+
+  def column_name(index : Int32) : String
+    @columns[index]
+  end
+
+  def read
+    val = @rows[@row_idx][@columns[@col_idx]]
+    @col_idx += 1
+    val
+  end
+
+  def next_column_index : Int32
+    @col_idx
   end
 end
 

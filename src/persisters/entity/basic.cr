@@ -113,7 +113,8 @@ class Athena::ORM::Persisters::Entity::Basic
     @queued_inserts.each do |entity|
       insert_data = self.prepare_insert_data entity
 
-      statement.exec args: insert_data[table_name].values
+      # Unwrap at the DB-binding boundary.
+      statement.exec args: insert_data[table_name].values.map(&.value.as(DB::Any))
 
       if is_post_insert_id
         generated_id = id_generator.generate @em, entity
@@ -244,7 +245,7 @@ class Athena::ORM::Persisters::Entity::Basic
   protected def update_table(
     entity : AORM::Entity,
     quoted_table_name : String,
-    update_data : Hash(String, _),
+    update_data : Hash(String, Mapping::Value),
   ) : Nil
     set = [] of String
     params = [] of DB::Any
@@ -264,7 +265,9 @@ class Athena::ORM::Persisters::Entity::Basic
         column = quoted_column_name
       end
 
-      params << value
+      # Unwrap at the DB-binding boundary: callers store wrapped values in the
+      # changeset path, but `connection.exec`'s args slot wants raw `DB::Any`.
+      params << value.value.as(DB::Any)
       set << "#{column} = #{placeholder}"
     end
 
@@ -332,12 +335,12 @@ class Athena::ORM::Persisters::Entity::Basic
     !@connection.exec(sql, args: values).rows_affected.zero?
   end
 
-  private def delete_condition_sql(criteria : Hash)
+  private def delete_condition_sql(criteria : Hash(String, Mapping::Value))
     values = [] of DB::Any
     conditions = [] of String
 
-    criteria.each do |k, v|
-      value = v.is_a?(Mapping::Value) ? v.value : v
+    criteria.each do |k, wrapped|
+      value = wrapped.value
 
       if value.nil?
         conditions << "#{k} IS NULL"
@@ -374,14 +377,14 @@ class Athena::ORM::Persisters::Entity::Basic
     end
   end
 
-  protected def prepare_insert_data(entity : AORM::Entity) : Hash(String, Hash(String, DB::Any))
+  protected def prepare_insert_data(entity : AORM::Entity) : Hash(String, Hash(String, Mapping::Value))
     self.prepare_update_data entity, true
   end
 
-  protected def prepare_update_data(entity : AORM::Entity, is_insert : Bool = false) : Hash(String, Hash(String, DB::Any))
+  protected def prepare_update_data(entity : AORM::Entity, is_insert : Bool = false) : Hash(String, Hash(String, Mapping::Value))
     uow = @em.unit_of_work
-    result = Hash(String, Hash(String, DB::Any)).new do |hash, key|
-      hash[key] = Hash(String, DB::Any).new
+    result = Hash(String, Hash(String, Mapping::Value)).new do |hash, key|
+      hash[key] = Hash(String, Mapping::Value).new
     end
 
     # TODO: Handle versioning
@@ -389,8 +392,6 @@ class Athena::ORM::Persisters::Entity::Basic
     uow.entity_changeset(entity).each do |field, change|
       # TODO: Handle versioning
       # TODO: Handle embedded classes
-
-      new_val = change.new.value
 
       unless assoc = @class_metadata.association_mappings[field]?
         fm = @class_metadata.field_mappings[field]
@@ -405,9 +406,11 @@ class Athena::ORM::Persisters::Entity::Basic
         end
 
         @column_types[column_name] = fm.type
-        if new_val.is_a?(DB::Any)
-          result[self.owning_table field][column_name] = new_val
-        elsif new_val.is_a?(AORM::Entity)
+
+        raw = change.new.value
+        if raw.is_a?(DB::Any)
+          result[self.owning_table field][column_name] = change.new
+        elsif raw.is_a?(AORM::Entity)
           raise "BUG: non-association AORM::Entity value"
         end
 
@@ -584,6 +587,15 @@ class Athena::ORM::Persisters::Entity::Basic
     end
 
     selected_columns.join " AND "
+  end
+
+  # Builds the ORDER BY fragment. Currently only the empty-input case is wired
+  # — full per-field support (with ASC/DESC orientation parsing, association
+  # column resolution, inheritance) needs a follow-up port from Doctrine's
+  # `BasicEntityPersister::getOrderBySQL`.
+  protected def order_by_sql(order_by : Array(String), base_table_alias : String) : String
+    return "" if order_by.empty?
+    raise "TODO: ORDER BY emission for non-empty order_by lists is not yet ported"
   end
 
   protected def select_column_sql(field : String, metadata : Mapping::ClassInterface, col_alias : String = "r") : String

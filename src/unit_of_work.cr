@@ -39,13 +39,21 @@ class Athena::ORM::UnitOfWork
   end
 
   def self.id_hash_by_identifier(identifier : Hash(String | Number, _)) : String
-    identifier.each do |k, v|
-      if v.is_a?(::Enum)
-        identifier[k] = v.value
+    String.build do |io|
+      first = true
+      identifier.each_value do |v|
+        io << ' ' unless first
+        first = false
+
+        raw = v.is_a?(AORM::Mapping::Value) ? v.value : v
+
+        case raw
+        when ::Bool then io << (raw ? "1" : "")
+        when ::Enum then io << raw.value
+        else             io << raw
+        end
       end
     end
-
-    identifier.each_value.join ' '
   end
 
   @identity_map = Hash(AORM::Entity.class, Hash(String, AORM::Entity)).new.compare_by_identity
@@ -939,18 +947,20 @@ class Athena::ORM::UnitOfWork
           next
         end
 
-        if actual_value.is_a? AORM::PersistentCollection
+        actual_inner = actual_value.value
+
+        if actual_inner.is_a? AORM::PersistentCollection
           raise "BUG: Not ToMany assoc" unless assoc.is_a? Mapping::ToMany
-          owner = actual_value.owner
+          owner = actual_inner.owner
 
           if owner.nil?
-            actual_value.set_owner entity, assoc
+            actual_inner.set_owner entity, assoc
           elsif owner != entity
             # Force lazy load before cloning so the new owner doesn't share backing state with the original
-            actual_value.initialize_collection
+            actual_inner.initialize_collection
 
-            new_value = actual_value.clone
-            new_value.owner entity, assoc
+            new_value = actual_inner.clone
+            new_value.set_owner entity, assoc
             class_metadata.field_info[assoc.field_name].set_value entity, new_value
           end
         end

@@ -137,9 +137,10 @@ require "pg"
 # connection = DB.connect "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres"
 # em = AORM::EntityManager.new connection
 
-# # Create entities
+# Create entities
 # user = User.new
 # user.username = "alice"
+# user = em.find!(User, 1)
 
 # group1 = Group.new
 # group1.name = "Admins"

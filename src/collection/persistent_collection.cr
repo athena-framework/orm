@@ -191,6 +191,25 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     @dirty = true
   end
 
+  # Returns a detached copy of this collection. The new instance shares no
+  # backing state with the original: the inner collection is copied, owner is
+  # nilled out (the caller must `set_owner` on the new entity), the snapshot is
+  # cleared, and the copy is marked dirty so it will be persisted on the next
+  # flush. Used by the UnitOfWork when a `PersistentCollection` is reassigned
+  # to a different owner during change-set computation.
+  def clone : self
+    initialize_collection
+    copy = if (em = @em) && (cm = @class_metadata)
+             self.class.new(em, cm, AORM::ArrayCollection(T).new(@collection.to_a))
+           else
+             self.class.new(@collection.to_a)
+           end
+    pointerof(copy.@owner).value = nil
+    pointerof(copy.@snapshot).value = [] of T
+    copy.mark_dirty
+    copy
+  end
+
   # Returns elements that were in the snapshot but are no longer present.
   def delete_diff : Array(T)
     @snapshot.reject { |e| @collection.includes?(e) }
@@ -247,5 +266,9 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     {% else %}
       haystack.includes?(needle)
     {% end %}
+  end
+
+  def inspect(io)
+    io << self.class
   end
 end

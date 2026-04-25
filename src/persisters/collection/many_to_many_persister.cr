@@ -54,9 +54,8 @@ class Athena::ORM::Persisters::Collection::ManyToManyPersister < Athena::ORM::Pe
     owner = collection.owner.not_nil!
     identifier = @uow.entity_identifier(owner)
 
-    mapping.relation_to_source_key_columns.map do |join_col, ref_col|
-      id_value = identifier[ref_col]?
-      id_value.is_a?(AORM::Mapping::Value) ? id_value.value.as(DB::Any) : id_value.as(DB::Any)
+    mapping.relation_to_source_key_columns.map do |_join_col, ref_col|
+      self.bind_value identifier[ref_col]?
     end
   end
 
@@ -100,18 +99,22 @@ class Athena::ORM::Persisters::Collection::ManyToManyPersister < Athena::ORM::Pe
 
     params = [] of DB::Any
 
-    # Source key columns (owner -> join table)
-    mapping.relation_to_source_key_columns.each do |join_col, ref_col|
-      id_value = owner_id[ref_col]?
-      params << (id_value.is_a?(AORM::Mapping::Value) ? id_value.value.as(DB::Any) : id_value.as(DB::Any))
+    mapping.relation_to_source_key_columns.each do |_join_col, ref_col|
+      params << self.bind_value(owner_id[ref_col]?)
     end
 
-    # Target key columns (join table -> element)
-    mapping.relation_to_target_key_columns.each do |join_col, ref_col|
-      id_value = element_id[ref_col]?
-      params << (id_value.is_a?(AORM::Mapping::Value) ? id_value.value.as(DB::Any) : id_value.as(DB::Any))
+    mapping.relation_to_target_key_columns.each do |_join_col, ref_col|
+      params << self.bind_value(element_id[ref_col]?)
     end
 
     params
+  end
+
+  # Unwraps an entity-identifier slot for the DB-binding boundary. The slot is
+  # either a `Mapping::Value` (registered identifier) or `nil` (column missing
+  # from the identifier map — passed through as a NULL parameter).
+  private def bind_value(slot : AORM::Mapping::Value?) : DB::Any
+    return nil if slot.nil?
+    slot.value.as(DB::Any)
   end
 end

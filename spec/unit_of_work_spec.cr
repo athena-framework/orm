@@ -329,8 +329,8 @@ struct UnitOfWorkTest < ASPEC::TestCase
       "empty string, single field"     => {empty_string, ""},
       "non-empty string, single field" => {non_empty_string, "test-id-123"},
       # # two fields
-      "boolean true"  => {bool_true, "true"},
-      "boolean false" => {bool_false, "false"},
+      "boolean true"  => {bool_true, "1"},
+      "boolean false" => {bool_false, ""},
     }
   end
 
@@ -750,12 +750,12 @@ struct UnitOfWorkTest < ASPEC::TestCase
     AORM::UnitOfWork.id_hash_by_identifier({"id1" => "", "id2" => ""}).should eq " "
   end
 
-  def test_id_hash_by_identifier_renders_boolean_true : Nil
-    AORM::UnitOfWork.id_hash_by_identifier({"id" => true}).should eq "true"
+  def test_id_hash_by_identifier_renders_boolean_true_as_1 : Nil
+    AORM::UnitOfWork.id_hash_by_identifier({"id" => true}).should eq "1"
   end
 
-  def test_id_hash_by_identifier_renders_boolean_false : Nil
-    AORM::UnitOfWork.id_hash_by_identifier({"id" => false}).should eq "false"
+  def test_id_hash_by_identifier_renders_boolean_false_as_empty : Nil
+    AORM::UnitOfWork.id_hash_by_identifier({"id" => false}).should eq ""
   end
 
   # ===== Identity map =====

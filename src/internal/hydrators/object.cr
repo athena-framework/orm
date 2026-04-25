@@ -113,7 +113,11 @@ class Athena::ORM::Internal::Hydrators::Object < Athena::ORM::Internal::Hydrator
 
           @result_pointers[alias_name] = element
         else
-          raise "Update result ptr"
+          # Already-seen root: keep the result intact, just point at the
+          # previously-hydrated element so any joined rows that follow can
+          # reference it as their parent.
+          result_key = @identifier_map[alias_name][id[alias_name]]
+          @result_pointers[alias_name] = result[result_key]
         end
       end
     end

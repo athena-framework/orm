@@ -268,6 +268,34 @@ struct PersistentCollectionTest < ASPEC::TestCase
     collection.to_a.size.should eq 1
     collection.dirty?.should be_false
   end
+
+  def test_clone_copies_elements_to_independent_backing : Nil
+    a = TestEntityForRestore.new(1)
+    b = TestEntityForRestore.new(2)
+
+    original = AORM::PersistentCollection(TestEntityForRestore).new([a, b])
+
+    copy = original.clone
+
+    copy.to_a.should eq [a, b]
+    # Mutating one side must not affect the other.
+    copy << TestEntityForRestore.new(3)
+    original.to_a.size.should eq 2
+  end
+
+  def test_clone_drops_owner_and_marks_dirty : Nil
+    original = AORM::PersistentCollection(TestEntityForRestore).new([TestEntityForRestore.new(1)])
+    original.take_snapshot
+    original.dirty?.should be_false
+
+    copy = original.clone
+
+    # The clone is detached: no owner, no snapshot, dirty so the next flush
+    # will persist it for whichever entity becomes the new owner.
+    copy.owner.should be_nil
+    copy.dirty?.should be_true
+    copy.snapshot.should be_empty
+  end
 end
 
 # Plain reference-typed value object so the collection's identity-based dedup

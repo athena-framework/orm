@@ -2,7 +2,7 @@ name: athena-orm
 
 version: 0.1.0
 
-crystal: '>= 0.35.0'
+crystal: '~> 1.20'
 
 license: MIT
 
@@ -14,7 +14,7 @@ description: |
   WIP ORM lib.
 
 authors:
-  - George Dietrich <george@dietrich.app>
+  - George Dietrich <dev@dietrich.pub>
 
 dependencies:
   db:
