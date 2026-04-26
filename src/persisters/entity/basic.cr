@@ -607,10 +607,46 @@ class Athena::ORM::Persisters::Entity::Basic
 
     @current_persister_context.select_join_sql = ""
 
+    # Add ToOne owning-side FK columns as RSM meta results so the hydrator can
+    # surface them in row data for `UnitOfWork#create_entity` to resolve.
+    @class_metadata.association_mappings.each do |assoc_field, assoc|
+      assoc_column_sql = self.select_column_association_sql assoc_field, assoc, @class_metadata
+      column_list << assoc_column_sql unless assoc_column_sql.empty?
+    end
+
     sql = @current_persister_context.select_column_list_sql = column_list.join ", "
     # TODO: Update filter hash
 
     sql
+  end
+
+  # Emits the FK column SQL for a ToOne owning-side association, registering each join column as a meta result on the RSM.
+  # Returns an empty string for any other association shape.
+  protected def select_column_association_sql(
+    field : String,
+    assoc : Mapping::Association,
+    metadata : Mapping::ClassInterface,
+    col_alias : String = "r",
+  ) : String
+    return "" unless assoc.is_a?(Mapping::ToOneOwningSide)
+
+    target_class = @em.class_metadata assoc.target_entity
+    is_identifier = assoc.id? == true
+    table_alias_root = col_alias == "r" ? "" : col_alias
+    table_alias = self.sql_table_alias metadata.entity_class, table_alias_root
+
+    columns = [] of String
+    assoc.join_columns.each do |jc|
+      quoted_column = @quote_strategy.join_column_name jc, metadata, @platform
+      result_column_alias = self.sql_column_alias jc.name
+      type = PersisterHelper.type_of_column jc.referenced_column_name, target_class, @em
+
+      @current_persister_context.rsm.add_meta_result col_alias, result_column_alias, jc.name, is_identifier, type
+
+      columns << "#{table_alias}.#{quoted_column} AS #{result_column_alias}"
+    end
+
+    columns.join ", "
   end
 
   def select_condition_statement_sql(field : String, value : _, association : Mapping::Association? = nil, comparison : String? = nil) : String
@@ -863,6 +899,25 @@ class Athena::ORM::Persisters::Entity::Basic
     rs = self.one_to_many_statement assoc, source_entity
 
     self.load_collection_from_result_set assoc, rs, collection
+  end
+
+  # Loads the target of a ToOne *inverse-side* association — the OWNING-side entity whose FK column points at *source_entity*.
+  # Always eager: ToOne inverse sides have no proxy semantics.
+  #
+  # `self` is the persister for the *target* class (the owning-side entity);
+  # `assoc.mapped_by` names the owning-side association on that class.
+  def load_one_to_one_entity(
+    assoc : Mapping::ToOneInverseSide,
+    source_entity : AORM::Entity,
+  ) : AORM::Entity?
+    owning_assoc = @class_metadata.association_mappings[assoc.mapped_by]?
+    raise "BUG: ToOne inverse side '#{assoc.mapped_by}' not found on '#{@class_metadata.entity_class}'" unless owning_assoc.is_a?(Mapping::ToOneOwningSide)
+
+    # Filter the owning entity's table by its FK association field.
+    # The persister's WHERE expansion converts an entity value here into `<owning_table>.<fk_col> = <source_pk>`
+    criteria = {assoc.mapped_by => source_entity}
+
+    self.load criteria, nil, owning_assoc
   end
 
   private def one_to_many_statement(

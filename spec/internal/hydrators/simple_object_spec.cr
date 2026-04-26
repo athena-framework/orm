@@ -73,6 +73,47 @@ struct SimpleObjectHydratorTest < ASPEC::TestCase
     end
   end
 
+  # ToOne owning-side FK columns are registered in the RSM as meta results.
+  # The hydrator must route them into the per-entity row data hash so
+  # `UnitOfWork#create_entity` can resolve the association. Reusing
+  # MockUnitOfWork here lets us drive the full hydrate → defer → resolve flow
+  # without standing up a real DB connection.
+  def test_meta_column_routes_through_hydrator_into_to_one_resolution : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    uow = MockUnitOfWork.new em
+    em.uow_mock = uow
+
+    canned_avatar = ForumAvatar.new
+    pointerof(canned_avatar.@id).value = 42
+
+    avatar_persister = MockEntityPersister.new em, em.class_metadata(ForumAvatar)
+    avatar_persister.mock_load_result = canned_avatar
+    uow.set_entity_persister ForumAvatar, avatar_persister
+
+    rsm = AORM::Query::ResultSetMapping.new
+    rsm.add_entity_result ForumUser, "u"
+    rsm.add_field_result "u", "u__id", "id"
+    rsm.add_field_result "u", "u__username", "username"
+    rsm.add_meta_result "u", "u__avatar_id", "avatar_id", false, "integer"
+
+    rs = FakeResultSet.new([
+      {
+        "u__id"        => 7.as(DB::Any),
+        "u__username"  => "fred".as(DB::Any),
+        "u__avatar_id" => 42.as(DB::Any),
+      },
+    ])
+
+    result = AORM::Internal::Hydrators::SimpleObject.new(em).hydrate_all(rs, rsm)
+
+    result.size.should eq 1
+    user = result[0].as(ForumUser)
+    user.username.should eq "fred"
+    # `cleanup` ran the deferred resolution — avatar should be populated.
+    user.avatar.should be canned_avatar
+    avatar_persister.load_calls.size.should eq 1
+  end
+
   # Cursor invariant regression: mixing mapped and unmapped columns across
   # multiple rows must not desync the cursor. Specifically, the unmapped-column
   # branch must call `rs.read` to advance — otherwise the next row's columns

@@ -139,7 +139,8 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
   # Test fixture: canned entity returned by `load`. Captures every call's
   # criteria and limit so specs can assert what the repository forwarded.
   setter mock_load_result : AORM::Entity? = nil
-  record LoadCall, criteria : Hash(String, Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | Nil | Array(Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | Nil)), limit : Int32?
+  alias LoadCallValue = Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | AORM::Entity | Nil | Array(Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | Nil)
+  record LoadCall, criteria : Hash(String, LoadCallValue), limit : Int32?
   getter load_calls : Array(LoadCall) = [] of LoadCall
 
   # Test fixture: canned array returned by `load_all`. Captures criteria,
@@ -172,8 +173,8 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
     limit : Int? = nil,
     order_by : Hash(String, String)? = nil,
   ) : AORM::Entity?
-    widened_criteria = Hash(String, DB::Any | Array(DB::Any)).new
-    criteria.each { |k, v| widened_criteria[k] = v.as(DB::Any | Array(DB::Any)) }
+    widened_criteria = Hash(String, LoadCallValue).new
+    criteria.each { |k, v| widened_criteria[k] = v.as(LoadCallValue) }
     @load_calls << LoadCall.new(widened_criteria, limit.try(&.to_i32))
 
     if (data = @mock_refresh_data) && hints.refresh? && entity

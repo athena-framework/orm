@@ -100,6 +100,17 @@ class Athena::ORM::UnitOfWork
   # because the referenced row hasn't been written yet (i.e. cyclic FKs).
   @extra_updates = Hash(AORM::Entity, Hash(String, Change)).new.compare_by_identity
 
+  # ToOne associations whose target wasn't in the identity map at hydration time.
+  # Resolved (eager-loaded) by the hydrator's `cleanup` after the main cursor closes — issuing a SELECT during hydration would conflict with the active result set on the same connection.
+  # `target_id` nil means inverse side (load_one_to_one_entity); non-nil means owning side (find by FK).
+  private record PendingToOneResolution,
+    source : AORM::Entity,
+    field_name : String,
+    target_class : AORM::Entity.class,
+    target_id : Hash(String, DB::Any)?
+
+  @pending_to_one_resolutions = [] of PendingToOneResolution
+
   getter identifier_flattener : AORM::Utility::IdentifierFlattener { AORM::Utility::IdentifierFlattener.new(self, @em.metadata_factory) }
 
   def initialize(@em : AORM::EntityManagerInterface)
@@ -1178,7 +1189,7 @@ class Athena::ORM::UnitOfWork
       target_class_metadata = @em.class_metadata assoc.target_entity
 
       if assoc.is_a? Mapping::ToOne
-        # TODO: Handle ToOne relationships
+        self.handle_to_one_during_hydration(class_metadata, entity, field_name, assoc, data)
       else
         raise "BUG: Assoc is not ToMany" unless assoc.is_a? Mapping::ToMany
 
@@ -1208,12 +1219,146 @@ class Athena::ORM::UnitOfWork
     @entity_identifiers[entity] = id.transform_values { |v, k| class_metadata.field_info[k].create_column_value(v).as Mapping::Value }
     @entity_states[entity] = :managed
 
-    @original_entity_data[entity] = if data.empty?
-                                      Hash(String, Mapping::Value).new
-                                    else
-                                      data.transform_values { |v, k| class_metadata.field_info[k].create_column_value(v).as Mapping::Value }
-                                    end
+    # `data` may contain meta-mapping entries (FK column names) that don't correspond to entity fields — only persist values keyed by something the entity actually has an ivar for.
+    typed_data = Hash(String, Mapping::Value).new
+    data.each do |k, v|
+      next unless class_metadata.field_info.has_key? k
+      typed_data[k] = class_metadata.field_info[k].create_column_value(v).as Mapping::Value
+    end
+    @original_entity_data[entity] = typed_data
+
     self.add_to_identity_map(entity)
+  end
+
+  # Resolves a ToOne association during `create_entity`.
+  # For owning side, reads the FK from the row data; identity-map hits resolve immediately, misses are queued for the hydrator's `cleanup` to avoid running a nested query while the main cursor is still active.
+  # Inverse side is always queued.
+  private def handle_to_one_during_hydration(
+    class_metadata : Mapping::ClassInterface,
+    entity : AORM::Entity,
+    field_name : String,
+    assoc : Mapping::ToOne,
+    data : Hash,
+  ) : Nil
+    if assoc.is_a?(Mapping::ToOneOwningSide)
+      target_class_metadata = @em.class_metadata assoc.target_entity
+      associated_id = self.build_associated_id_from_row_data assoc, target_class_metadata, data
+
+      if associated_id.nil?
+        # FK is null. Property's default value (typed `Target?`) is already nil;
+        # record that in original_entity_data so change tracking sees it.
+        fi = class_metadata.field_info[field_name]
+        @original_entity_data[entity][field_name] = fi.create_column_value entity
+        return
+      end
+
+      # Identity-map hit: resolve inline — no query needed.
+      related_id_hash = self.class.id_hash_by_identifier associated_id
+      if (target_map = @identity_map[target_class_metadata.entity_class]?) && (existing = target_map[related_id_hash]?)
+        self.assign_to_one_target class_metadata, entity, field_name, assoc, existing
+        return
+      end
+
+      # Miss: defer to hydrator cleanup.
+      db_id = associated_id.transform_values do |v|
+        raw = v.is_a?(Mapping::Value) ? v.value : v
+        raise "BUG: associated id value is not DB-compatible: #{raw.inspect}" unless raw.is_a?(DB::Any)
+        raw.as(DB::Any)
+      end
+      @pending_to_one_resolutions << PendingToOneResolution.new(entity, field_name, assoc.target_entity, db_id)
+    else
+      # Inverse side: always eager via persister. Defer the SELECT to cleanup.
+      raise "BUG: ToOne assoc is neither owning nor inverse side" unless assoc.is_a?(Mapping::InverseSide)
+      @pending_to_one_resolutions << PendingToOneResolution.new(entity, field_name, assoc.target_entity, nil)
+    end
+  end
+
+  # Reads FK column values out of *data* (keyed by the FK column name, the way
+  # the hydrator's meta-mapping branch deposited them) and returns the target's
+  # identifier hash, or nil if any column is null (treat the entire FK as null).
+  private def build_associated_id_from_row_data(
+    assoc : Mapping::ToOneOwningSide,
+    target_class_metadata : Mapping::ClassInterface,
+    data : Hash,
+  ) : Hash(String, DB::Any)?
+    associated_id = Hash(String, DB::Any).new
+
+    assoc.target_to_source_key_columns.each do |target_column, source_column|
+      value = data[source_column]?
+      raw = value.is_a?(Mapping::Value) ? value.value : value
+
+      if raw.nil?
+        # If any FK column is null, treat the whole reference as null.
+        return nil
+      end
+
+      target_field_name = target_class_metadata.field_names[target_column]?
+      raise "BUG: Target column '#{target_column}' not mapped on #{target_class_metadata.entity_class}" unless target_field_name
+
+      raise "BUG: associated id value is not DB-compatible: #{raw.inspect}" unless raw.is_a?(DB::Any)
+      associated_id[target_field_name] = raw.as(DB::Any)
+    end
+
+    associated_id.empty? ? nil : associated_id
+  end
+
+  # Walks any ToOne resolutions queued during hydration and writes the loaded target onto its source entity.
+  # Called by the hydrator's `cleanup` once the main result-set cursor has closed.
+  def resolve_pending_to_one_associations : Nil
+    return if @pending_to_one_resolutions.empty?
+
+    pending = @pending_to_one_resolutions
+    @pending_to_one_resolutions = [] of PendingToOneResolution
+
+    pending.each do |resolution|
+      source = resolution.source
+      source_class_metadata = @em.class_metadata source.class
+      assoc = source_class_metadata.association_mappings[resolution.field_name]
+      raise "BUG: pending resolution references non-ToOne association" unless assoc.is_a?(Mapping::ToOne)
+
+      target = if id = resolution.target_id
+                 # An earlier resolution in this batch may have already loaded
+                 # the same target — re-check the identity map before issuing a
+                 # SELECT.
+                 existing : AORM::Entity? = nil
+                 self.try_get_by_id(id, resolution.target_class) { |e| existing = e }
+                 existing || self.entity_persister(resolution.target_class).load(id)
+               else
+                 raise "BUG: inverse-side pending resolution but assoc isn't InverseSide" unless assoc.is_a?(Mapping::InverseSide)
+                 self.entity_persister(assoc.target_entity).load_one_to_one_entity assoc, source
+               end
+
+      next if target.nil?
+
+      self.assign_to_one_target source_class_metadata, source, resolution.field_name, assoc, target
+    end
+  end
+
+  # Writes a resolved ToOne target entity onto its source via the macro-driven
+  # `apply_data` (so the dispatch lands on the right ivar type), updates the
+  # original-data baseline for change tracking, and applies the OneToOne
+  # `inversed_by` back-pointer when relevant.
+  private def assign_to_one_target(
+    source_class_metadata : Mapping::ClassInterface,
+    source : AORM::Entity,
+    field_name : String,
+    assoc : Mapping::Association,
+    target : AORM::Entity,
+  ) : Nil
+    source_class_metadata.apply_data source, {field_name => target}
+
+    fi = source_class_metadata.field_info[field_name]
+    @original_entity_data[source][field_name] = fi.create_column_value source
+
+    # OneToOne owning-side: reflect the bidirectional link on the inverse end.
+    return unless assoc.is_a?(Mapping::OneToOneOwningSide)
+    inversed_by = assoc.inversed_by
+    return unless inversed_by
+
+    target_class_metadata = @em.class_metadata target.class
+    return unless target_class_metadata.field_info.has_key? inversed_by
+
+    target_class_metadata.apply_data target, {inversed_by => source}
   end
 
   def load_collection(collection : AORM::PersistentCollection) : Nil

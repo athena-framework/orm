@@ -23,7 +23,25 @@ class Athena::ORM::EntityRepository(EntityType) < Athena::ORM::RepositoryInterfa
     self.find_by Criteria.new
   end
 
-  def find_by(**criteria) : Array(EntityType)
+  def find_by(**criteria : **T) : Array(EntityType) forall T
+    {%
+      entity_fields = EntityType.instance_vars.select(&.annotation(AORMA::Column)).map do |c|
+        {name: c.name.id, type: c.type.resolve}
+      end
+
+      T.keys.each do |k|
+        type = T[k]
+
+        unless entity_field = entity_fields.find(&.["name"].==(k))
+          k.raise "Unknown field '#{k}' for entity type #{EntityType}."
+        end
+
+        unless type <= entity_field["type"]
+          k.raise "Expected '#{entity_field["type"]}' for field '#{k}', got '#{type}'."
+        end
+      end
+    %}
+
     self.find_by criteria.to_h.transform_keys &.to_s
   end
 
@@ -33,7 +51,25 @@ class Athena::ORM::EntityRepository(EntityType) < Athena::ORM::RepositoryInterfa
     persister.load_all(criteria, order_by, limit, offset).map &.as EntityType
   end
 
-  def find_one_by(**criteria) : EntityType?
+  def find_one_by(**criteria : **T) : EntityType? forall T
+    {%
+      entity_fields = EntityType.instance_vars.select(&.annotation(AORMA::Column)).map do |c|
+        {name: c.name.id, type: c.type.resolve}
+      end
+
+      T.keys.each do |k|
+        type = T[k]
+
+        unless entity_field = entity_fields.find(&.["name"].==(k))
+          k.raise "Unknown field '#{k}' for entity type #{EntityType}."
+        end
+
+        unless type <= entity_field["type"]
+          k.raise "Expected '#{entity_field["type"]}' for field '#{k}', got '#{type}'."
+        end
+      end
+    %}
+
     self.find_one_by criteria.to_h.transform_keys &.to_s
   end
 
@@ -47,7 +83,25 @@ class Athena::ORM::EntityRepository(EntityType) < Athena::ORM::RepositoryInterfa
     self.count Criteria.new
   end
 
-  def count(**criteria) : Int
+  def count(**criteria : **T) : Int forall T
+    {%
+      entity_fields = EntityType.instance_vars.select(&.annotation(AORMA::Column)).map do |c|
+        {name: c.name.id, type: c.type.resolve}
+      end
+
+      T.keys.each do |k|
+        type = T[k]
+
+        unless entity_field = entity_fields.find(&.["name"].==(k))
+          k.raise "Unknown field '#{k}' for entity type #{EntityType}."
+        end
+
+        unless type <= entity_field["type"]
+          k.raise "Expected '#{entity_field["type"]}' for field '#{k}', got '#{type}'."
+        end
+      end
+    %}
+
     self.count criteria.to_h.transform_keys &.to_s
   end
 

@@ -159,6 +159,7 @@ end
 # Use cases: typed wrappers around the generic finders (`find_by_username`), or encapsulating multi-table / native SQL behind a domain method (`find_by_avatar_url`) so callers don't have to know about RSMs and join columns.
 class UserRepository < AORM::EntityRepository(User)
   def find_by_username(username : String) : User?
+    # named argument versions will validate that keys exist on the related entity, and the value is compatible with that field type.
     self.find_one_by username: username
   end
 

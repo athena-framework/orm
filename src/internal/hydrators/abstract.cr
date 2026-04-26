@@ -39,7 +39,7 @@ abstract class Athena::ORM::Internal::Hydrators::Abstract
     @rs : DB::ResultSet,
     @rsm : AORM::Query::ResultSetMapping,
     hints : Query::Hints = Query::Hints.new,
-  ) : Array
+  ) : Array(AORM::Entity)
     @rs = rs
     @rsm = rsm
     @hints = hints
@@ -55,7 +55,7 @@ abstract class Athena::ORM::Internal::Hydrators::Abstract
 
   # Hydrates all rows from the current result set.
   # Children implement this with their specific hydration logic.
-  protected abstract def hydrate_all_data : Array
+  protected abstract def hydrate_all_data : Array(AORM::Entity)
 
   protected def hydrate_column_info(key : String) : ColumnInfo?
     if ci = @cache[key]?
@@ -77,6 +77,14 @@ abstract class Athena::ORM::Internal::Hydrators::Abstract
       # TODO: Handle discriminators
 
       return @cache[key] = column_info
+    end
+
+    if field_name = self.rsm.meta_mappings[key]?
+      owner_map = self.rsm.column_owner_map[key]
+      type = self.rsm.type_mappings[key]?.try { |type_name| Types::Type.get_type type_name }
+      is_identifier = self.rsm.is_identifier_column[owner_map]?.try(&.[key]?) || false
+
+      return @cache[key] = ColumnInfo.new(field_name, type, owner_map, is_identifier)
     end
 
     nil
@@ -146,6 +154,9 @@ abstract class Athena::ORM::Internal::Hydrators::Abstract
     @rsm = nil
     @metadata_cache.clear
     @cache.clear
+
+    # Eager-load any ToOne associations that couldn't be resolved during hydration (FK target not in identity map, or inverse-side load that would have nested a query inside the active cursor).
+    @uow.resolve_pending_to_one_associations
 
     # TODO: Remove onClear event listener
   end

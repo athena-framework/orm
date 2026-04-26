@@ -49,7 +49,7 @@ class Athena::ORM::Internal::Hydrators::Object < Athena::ORM::Internal::Hydrator
     # TODO: Hydration complete trigger
   end
 
-  protected def hydrate_all_data : Array
+  protected def hydrate_all_data : Array(AORM::Entity)
     result = [] of AORM::Entity
 
     self.rs.each do

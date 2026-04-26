@@ -1258,6 +1258,56 @@ struct UnitOfWorkTest < ASPEC::TestCase
     @uow.register_managed phone, {"phonenumber" => number}, {"phonenumber" => number}
     phone
   end
+
+  # ToOne owning-side hydration: when the FK target is already in the identity
+  # map, `create_entity` resolves the property inline — no deferred query.
+  def test_create_entity_resolves_to_one_owning_side_from_identity_map : Nil
+    avatar = ForumAvatar.new
+    pointerof(avatar.@id).value = 42
+    @uow.register_managed avatar, {"id" => 42}, {"id" => 42}
+
+    data = Hash(String, AORM::Mapping::Value).new
+    data["id"] = AORM::Mapping::SingleValue(Int32).new(7)
+    data["username"] = AORM::Mapping::SingleValue(String).new("fred")
+    # The hydrator's meta-mapping branch deposits FK columns under the
+    # column name (not the assoc field name) in the row data hash.
+    data["avatar_id"] = AORM::Mapping::SingleValue(Int32).new(42)
+
+    user = @uow.create_entity(ForumUser, data).as ForumUser
+
+    user.avatar.should be avatar
+    @uow.resolve_pending_to_one_associations
+    user.avatar.should be avatar
+  end
+
+  # ToOne owning-side hydration: when the FK target isn't in the identity map,
+  # the resolution is queued and runs only when the hydrator's `cleanup` fires
+  # (driven here by `resolve_pending_to_one_associations`).
+  # The persister's `load(id_hash)` is what actually fetches the target.
+  def test_create_entity_defers_to_one_owning_side_when_target_not_in_identity_map : Nil
+    canned_avatar = ForumAvatar.new
+    pointerof(canned_avatar.@id).value = 99
+
+    avatar_persister = MockEntityPersister.new @em, @em.class_metadata ForumAvatar
+    avatar_persister.mock_load_result = canned_avatar
+    @uow.set_entity_persister ForumAvatar, avatar_persister
+
+    data = Hash(String, AORM::Mapping::Value).new
+    data["id"] = AORM::Mapping::SingleValue(Int32).new(7)
+    data["username"] = AORM::Mapping::SingleValue(String).new("fred")
+    data["avatar_id"] = AORM::Mapping::SingleValue(Int32).new(99)
+
+    user = @uow.create_entity(ForumUser, data).as ForumUser
+
+    # Inline access during hydration: the FK target hasn't been fetched yet.
+    avatar_persister.load_calls.should be_empty
+
+    # Hydrator's `cleanup` triggers this in real flows; call it directly here.
+    @uow.resolve_pending_to_one_associations
+
+    avatar_persister.load_calls.size.should eq 1
+    user.avatar.should be canned_avatar
+  end
 end
 
 # Helper persister that throws an exception during execute_inserts
