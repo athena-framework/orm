@@ -6,6 +6,41 @@ require "./models/**"
 
 ASPEC.run_all
 
+class MockPlatform < AORM::Platforms::Platform
+  setter db_boolean : Bool?
+  setter crystal_boolean : Bool?
+
+  def initialize(
+    *,
+    @db_boolean : Bool? = nil,
+    @crystal_boolean : Bool? = nil,
+  ); end
+
+  def boolean_type_declaration_sql(column : AORM::Schema::Column) : String
+    "BOOLEAN"
+  end
+
+  def integer_type_declaration_sql(column : AORM::Schema::Column) : String
+    "INTEGER"
+  end
+
+  def big_int_type_declaration_sql(column : AORM::Schema::Column) : String
+    "BIGINT"
+  end
+
+  private def common_integer_type_declaration_sql(column : AORM::Schema::Column) : String
+    ""
+  end
+
+  def convert_booleans_to_db_value(value) : Bool?
+    @db_boolean.try { |v| return v } || super
+  end
+
+  def convert_from_boolean(value) : Bool?
+    @crystal_boolean.try { |v| return v } || super
+  end
+end
+
 class MockUnitOfWork < AORM::UnitOfWork
   @mock_data_changesets = Hash(AORM::Entity, Hash(String, AORM::UnitOfWork::Change)).new.compare_by_identity
   @persister_mock = Hash(AORM::Entity.class, AORM::Persisters::Entity::Interface).new.compare_by_identity
@@ -232,10 +267,8 @@ class MockConnection < DB::Connection
   end
 end
 
-# Result set that yields a fixed list of `Hash(String, DB::Any)` rows. Implements
-# just enough of `DB::ResultSet` for hydrator code paths (`column_names`, `each`,
-# `read`, `move_next`, `close`). Use this when a spec needs to drive hydration
-# end-to-end with deterministic row data.
+# Result set that yields a fixed list of `Hash(String, DB::Any)` rows.
+# Implements just enough of `DB::ResultSet` for hydrator code paths (`column_names`, `each`, `read`, `move_next`, `close`). Use this when a spec needs to drive hydration end-to-end with deterministic row data.
 class FakeResultSet < DB::ResultSet
   def initialize(@rows : Array(Hash(String, DB::Any)))
     statement = MockStatement.new(MockConnection.new, "")

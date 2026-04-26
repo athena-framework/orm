@@ -65,6 +65,7 @@ SCHEMA = [
     CREATE TABLE users (
       id        SERIAL PRIMARY KEY,
       username  VARCHAR(50) NOT NULL,
+      active    BOOLEAN     NOT NULL DEFAULT true,
       avatar_id INTEGER REFERENCES avatars(id) ON DELETE SET NULL
     )
   SQL
@@ -124,6 +125,9 @@ class User < AORM::Entity
 
   @[AORMA::Column(length: 50)]
   property! username : String
+
+  @[AORMA::Column]
+  property? active : Bool = true
 
   # OneToOne, owning side: this entity holds the FK column (`avatar_id`).
   # `cascade: ["persist"]` means persisting a User also persists its Avatar.
@@ -466,12 +470,13 @@ DB.open "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres" do |db|
       show "alice.username (before)", alice.username
 
       alice.username = "alice_renamed"
+      alice.active = false
       em.flush
 
-      reloaded = conn.scalar("SELECT username FROM users WHERE id = $1", alice.id).as(String)
-      show "alice.username (in DB)", reloaded
+      reloaded = conn.query_one("SELECT username, active FROM users WHERE id = $1", alice.id, as: {username: String, active: Bool})
+      show "alice (in DB)", reloaded
 
-      expect("DB row reflects the in-memory change") { reloaded == "alice_renamed" }
+      expect("DB row reflects the in-memory change") { reloaded[:username] == "alice_renamed" && reloaded[:active] == false }
     end
 
     # ---------------------------------------------------------------------

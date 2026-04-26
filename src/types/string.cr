@@ -2,8 +2,8 @@ require "./type"
 
 struct Athena::ORM::Types::String < Athena::ORM::Types::Type
   # :inherit:
-  def sql_declaration(platform : AORM::Platforms::Platform) : ::String
-    platform.varchar_type_declaration_sql
+  def sql_declaration(column : Schema::Column, platform : AORM::Platforms::Platform) : ::String
+    platform.string_type_declaration_sql column
   end
 
   # :inherit:

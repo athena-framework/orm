@@ -2,8 +2,8 @@ require "./type"
 
 abstract struct Athena::ORM::Types::Enum(T) < Athena::ORM::Types::Type
   # :inherit:
-  def sql_declaration(platform : AORM::Platforms::Platform) : ::String
-    platform.guid_type_declaration_sql
+  def sql_declaration(column : Schema::Column, platform : AORM::Platforms::Platform) : ::String
+    platform.guid_type_declaration_sql column
   end
 
   # :inherit:

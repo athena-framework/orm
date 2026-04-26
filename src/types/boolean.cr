@@ -2,24 +2,18 @@ require "./type"
 
 struct Athena::ORM::Types::Boolean < Athena::ORM::Types::Type
   # :inherit:
-  def sql_declaration(platform : AORM::Platforms::Platform) : ::String
-    platform.boolean_type_declaration_sql
+  def sql_declaration(column : Schema::Column, platform : AORM::Platforms::Platform) : ::String
+    platform.boolean_type_declaration_sql column
   end
 
   # :inherit:
   def to_db(value : _, platform : AORM::Platforms::Platform)
-    false
+    platform.convert_booleans_to_db_value(value)
   end
 
   # :inherit:
   def to_crystal_value(value : _, platform : Platforms::Platform) : Bool?
-    # TODO: Move this into `Platform`
-    case value
-    when Nil  then nil
-    when Bool then value
-    when Int  then value != 0 # SQLite stores booleans as 0/1.
-    else           raise "Boolean cannot accept #{value.class}"
-    end
+    platform.convert_from_boolean(value)
   end
 
   # :inherit:

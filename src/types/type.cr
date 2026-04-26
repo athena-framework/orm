@@ -52,7 +52,7 @@ module Athena::ORM::Types
     end
 
     # The SQL used to declare a column of this type
-    abstract def sql_declaration(platform : AORM::Platforms::Platform) : ::String
+    abstract def sql_declaration(column : Schema::Column, platform : AORM::Platforms::Platform) : ::String
 
     # Converts a raw DB value into the Crystal type this `Type` represents.
     # Each subclass defines this once; it is the canonical place for any per-type translation logic (parsing, narrowing, decoding, etc.).
