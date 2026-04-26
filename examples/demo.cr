@@ -114,7 +114,7 @@ class Avatar < AORM::Entity
   property! url : String
 end
 
-@[AORMA::Entity]
+@[AORMA::Entity(repository_class: UserRepository)]
 @[AORMA::Table(name: "users")]
 class User < AORM::Entity
   @[AORMA::Column]
@@ -151,6 +151,32 @@ class User < AORM::Entity
   end
 end
 
+# Custom repository for User. Subclasses of `AORM::EntityRepository(T)` are wired to an entity via `@[AORMA::Entity(repository_class: ...)]`; once that's set, `em.repository(User)` returns this type, so callers get the extra finders without casting.
+# Use cases: typed wrappers around the generic finders (`find_by_username`), or encapsulating multi-table / native SQL behind a domain method (`find_by_avatar_url`) so callers don't have to know about RSMs and join columns.
+class UserRepository < AORM::EntityRepository(User)
+  def find_by_username(username : String) : User?
+    self.find_one_by username: username
+  end
+
+  def find_by_avatar_url(url : String) : Array(User)
+    # TODO: Make this simpler
+    rsm = AORM::Query::ResultSetMapping.new
+    rsm.add_entity_result(User, "u")
+    rsm.add_field_result("u", "id", "id")
+    rsm.add_field_result("u", "username", "username")
+
+    query = @em.create_native_query(<<-SQL, rsm)
+      SELECT u.id, u.username
+      FROM users u
+      JOIN avatars a ON a.id = u.avatar_id
+      WHERE a.url = ?
+    SQL
+    query.set_parameter(1, url)
+
+    query.get_result.map &.as(User)
+  end
+end
+
 @[AORMA::Entity]
 @[AORMA::Table(name: "posts")]
 class Post < AORM::Entity
@@ -162,9 +188,8 @@ class Post < AORM::Entity
   @[AORMA::Column(length: 200)]
   property! title : String
 
-  # ManyToOne, owning side: holds the FK column. We declare the column name
-  # explicitly via @[AORMA::JoinColumn] for visibility (the default naming
-  # strategy would produce the same `user_id` here).
+  # ManyToOne, owning side: holds the FK column.
+  # We declare the column name explicitly via @[AORMA::JoinColumn] for visibility (the default naming strategy would produce the same `user_id` here).
   # `inversed_by` names the property on the inverse side (User#posts).
   @[AORMA::ManyToOne(inversed_by: "posts")]
   @[AORMA::JoinColumn(name: "user_id", referenced_column_name: "id")]
@@ -488,6 +513,55 @@ DB.open "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres" do |db|
 
       expect("user row gone") { remaining == 0 }
       expect("join rows cleaned via FK CASCADE") { join_remaining == 0 }
+    end
+
+    # ---------------------------------------------------------------------
+    # Native SQL queries hydrate entities from arbitrary SQL.
+    # `find_by` / `find_one_by` only filter on the entity's own columns; anything that requires a JOIN, an aggregate, or a vendor-specific construct goes through `em.create_native_query(sql, rsm)`.
+    # The `ResultSetMapping` (RSM) tells the hydrator which result columns map to which entity fields, which alias is the root entity, and so on.
+    # Bind values via `set_parameter(position, value)`; `?` placeholders in the SQL are rewritten to `$1, $2, ...` for the Postgres driver.
+    step 14, "native SQL query with ResultSetMapping (find users by avatar URL)" do
+      em.clear
+
+      rsm = AORM::Query::ResultSetMapping.new
+      rsm.add_entity_result(User, "u")
+      rsm.add_field_result("u", "id", "id")
+      rsm.add_field_result("u", "username", "username")
+
+      query = em.create_native_query(<<-SQL, rsm)
+        SELECT u.id, u.username
+        FROM users u
+        JOIN avatars a ON a.id = u.avatar_id
+        WHERE a.url = ?
+      SQL
+      query.set_parameter(1, "https://example.test/bob.png")
+
+      results = query.get_result
+      show "results.size", results.size
+      show "results.map(&.as(User).username)", results.map(&.as(User).username)
+
+      expect("native query returned exactly the user with the matching avatar URL") { results.size == 1 }
+      expect("hydrated as User entity") { results.first.is_a? User }
+      expect("hydrated user has the right username") { results.first.as(User).username == "bob" }
+    end
+
+    # ---------------------------------------------------------------------
+    # Custom repository class. `@[AORMA::Entity(repository_class: UserRepository)]` on the entity tells the EntityManager that `em.repository(User)` should return a `UserRepository` rather than the generic `EntityRepository(User)`.
+    step 14, "custom repository class via @[AORMA::Entity(repository_class: ...)]" do
+      em.clear
+
+      repo = em.repository(User)
+      show "repo.class", repo.class
+
+      bob = repo.find_by_username("bob")
+      show "bob.try(&.id)", bob.try(&.id)
+
+      avatar_matches = repo.find_by_avatar_url("https://example.test/bob.png")
+      show "avatar_matches.map(&.username)", avatar_matches.map(&.username)
+
+      expect("em.repository(User) returns the custom UserRepository") { repo.is_a? UserRepository }
+      expect("typed find_by_username wrapper works") { bob.try(&.username) == "bob" }
+      expect("native-query-backed find_by_avatar_url works") { avatar_matches.map(&.username) == ["bob"] }
     end
 
     em.close

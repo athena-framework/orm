@@ -54,4 +54,8 @@ class Athena::ORM::EntityRepository(EntityType) < Athena::ORM::RepositoryInterfa
   def count(criteria : Criteria) : Int
     @em.unit_of_work.entity_persister(@entity_class).count criteria
   end
+
+  def inspect(io : IO) : Nil
+    io << self.class
+  end
 end
