@@ -445,6 +445,12 @@ class Athena::ORM::UnitOfWork
   end
 
   private def persist(entity : AORM::Entity, visited : Set(AORM::Entity)) : Nil
+    # Unwrap loaded proxies to their inner entity; skip unloaded proxies (their target is already in DB, nothing to persist).
+    if entity.is_a?(AORM::Proxy)
+      return unless inner = entity.inner?
+      return self.persist inner, visited
+    end
+
     return unless visited.add? entity
 
     class_metadata = @em.class_metadata entity.class
@@ -837,7 +843,7 @@ class Athena::ORM::UnitOfWork
   end
 
   def add_to_identity_map(entity : AORM::Entity) : Bool
-    class_metadata = @em.class_metadata entity.class
+    class_metadata = @em.class_metadata self.metadata_class_for(entity)
     id_hash = self.id_hash_of_entity entity
     entity_class = class_metadata.entity_class
 
@@ -867,7 +873,7 @@ class Athena::ORM::UnitOfWork
   def is_in_identity_map(entity : AORM::Entity) : Bool
     return false if !@entity_identifiers.has_key?(entity) || @entity_identifiers[entity].empty?
 
-    class_metadata = @em.class_metadata entity.class
+    class_metadata = @em.class_metadata self.metadata_class_for(entity)
     id_hash = self.id_hash_of_entity entity
 
     # p({
@@ -882,7 +888,7 @@ class Athena::ORM::UnitOfWork
   end
 
   def remove_from_identity_map(entity : AORM::Entity) : Bool
-    class_metadata = @em.class_metadata entity.class
+    class_metadata = @em.class_metadata self.metadata_class_for(entity)
     id_hash = self.id_hash_of_entity entity
 
     # TODO: Use proper exception type
@@ -1084,20 +1090,20 @@ class Athena::ORM::UnitOfWork
 
   # Compute association changeset
   private def compute_association_changes(assoc : AORM::Mapping::Association, value) : Nil
-    # TODO: Handle proxies
-
     unwrapped_value = if assoc.is_a?(Mapping::ToMany)
-                        # Iterate the backing collection without forcing a lazy
-                        # load — `unwrap` returns the inner ArrayCollection
-                        # whether the PC is initialized or not. Uninitialized
-                        # collections are simply empty.
+                        # Iterate the backing collection without forcing a lazy load via `unwrap` that returns the inner ArrayCollection whether the PC is initialized or not.
+                        # Uninitialized collections are simply empty.
                         if value.is_a?(AORM::PersistentCollection)
                           value.unwrap.to_a
                         else
                           raise "BUG: ToMany value is not iterable (#{value.class})"
                         end
+                      elsif value.is_a?(AORM::Proxy)
+                        # ToOne lazy: walk a loaded proxy's inner entity.
+                        # An unloaded proxy points at an already-persisted target, so there's nothing new to cascade.
+                        (inner = value.inner?) ? [inner.as(AORM::Entity)] : ([] of AORM::Entity)
                       elsif value.is_a?(AORM::Entity)
-                        # ToOne: wrap single entity in array
+                        # ToOne eager: wrap single entity in array
                         [value]
                       else
                         raise "BUG: ToOne value is not an entity"
@@ -1255,16 +1261,34 @@ class Athena::ORM::UnitOfWork
       # Identity-map hit: resolve inline — no query needed.
       related_id_hash = self.class.id_hash_by_identifier associated_id
       if (target_map = @identity_map[target_class_metadata.entity_class]?) && (existing = target_map[related_id_hash]?)
-        self.assign_to_one_target class_metadata, entity, field_name, assoc, existing
+        # On a `AORM::Proxy(T)?`-typed field the ivar can't hold a raw `T`, so wrap the existing entity in a loaded proxy.
+        # The canonical record stays in the identity map untouched; the proxy is a per-field façade.
+        target = assoc.lazy_proxy? ? self.wrap_in_proxy(target_class_metadata.entity_class, existing) : existing
+        self.assign_to_one_target class_metadata, entity, field_name, assoc, target
         return
       end
 
-      # Miss: defer to hydrator cleanup.
       db_id = associated_id.transform_values do |v|
         raw = v.is_a?(Mapping::Value) ? v.value : v
         raise "BUG: associated id value is not DB-compatible: #{raw.inspect}" unless raw.is_a?(DB::Any)
         raw.as(DB::Any)
       end
+
+      # Miss with `Proxy(T)?` typing: install an unloaded proxy and register it as the canonical record under the target's id.
+      # The proxy stays in the identity map until it's first accessed, at which point `Proxy#inner` removes it before the persister loads the real entity (which then re-registers under the same key).
+      if assoc.lazy_proxy?
+        proxy = self.build_proxy @em, target_class_metadata.entity_class, db_id
+        proxy_identifiers = associated_id.transform_values do |v, k|
+          target_class_metadata.field_info[k].create_column_value(v).as Mapping::Value
+        end
+        @entity_identifiers[proxy] = proxy_identifiers
+        @entity_states[proxy] = :managed
+        self.add_to_identity_map proxy
+        self.assign_to_one_target class_metadata, entity, field_name, assoc, proxy
+        return
+      end
+
+      # Miss with plain `Target?`: defer to hydrator cleanup.
       @pending_to_one_resolutions << PendingToOneResolution.new(entity, field_name, assoc.target_entity, db_id)
     else
       # Inverse side: always eager via persister. Defer the SELECT to cleanup.
@@ -1355,6 +1379,9 @@ class Athena::ORM::UnitOfWork
     inversed_by = assoc.inversed_by
     return unless inversed_by
 
+    # Skip when the target is an unloaded proxy: the proxy doesn't carry the inverse-side ivar, and the back-pointer will be resolved when the proxy loads and the real entity hydrates from its own row.
+    return if target.is_a?(AORM::Proxy)
+
     target_class_metadata = @em.class_metadata target.class
     return unless target_class_metadata.field_info.has_key? inversed_by
 
@@ -1402,5 +1429,34 @@ class Athena::ORM::UnitOfWork
     id_arr.each_with_object(Hash(String, Mapping::Value).new) do |id, id_hash|
       id_hash[id.name] = id
     end
+  end
+
+  # Returns the class to look up `ClassMetadata` against.
+  # For proxies this is the wrapped target type; for regular entities it's `entity.class`.
+  private def metadata_class_for(entity : AORM::Entity) : AORM::Entity.class
+    entity.is_a?(AORM::Proxy) ? entity.target_class : entity.class
+  end
+
+  # Builds an unloaded proxy for a ToOne owning-side miss whose target is typed `Proxy(...)?`.
+  private def build_proxy(em : AORM::EntityManagerInterface, target_class : AORM::Entity.class, id : Hash(String, ::DB::Any)) : AORM::Entity
+    raise "BUG: build_proxy called for #{target_class} but no Proxy(#{target_class}) overload was generated"
+  end
+
+  # Wraps an already-loaded entity in a `Proxy(T)` so it can be assigned to a `Proxy(T)?`-typed field on an owner whose lazy_proxy ToOne hit the identity map.
+  # The wrapped proxy is a per-field façade — the canonical record under the target's id stays untouched.
+  private def wrap_in_proxy(target_class : AORM::Entity.class, value : AORM::Entity) : AORM::Entity
+    raise "BUG: wrap_in_proxy called for #{target_class} but no Proxy(#{target_class}) overload was generated"
+  end
+
+  macro finished
+    {% for entity in Athena::ORM::Entity.all_subclasses.reject { |t| t.abstract? || t <= Athena::ORM::Proxy } %}
+      private def build_proxy(em : AORM::EntityManagerInterface, target_class : {{entity.id}}.class, id : Hash(String, ::DB::Any)) : AORM::Entity
+        AORM::Proxy({{entity.id}}).from_id em, id
+      end
+
+      private def wrap_in_proxy(target_class : {{entity.id}}.class, value : AORM::Entity) : AORM::Entity
+        AORM::Proxy({{entity.id}}).wrap value.as({{entity.id}})
+      end
+    {% end %}
   end
 end

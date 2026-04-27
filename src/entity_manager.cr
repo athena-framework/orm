@@ -107,7 +107,7 @@ class Athena::ORM::EntityManager
   end
 
   macro finished
-    {% for entity in Athena::ORM::Entity.all_subclasses.reject &.abstract? %}
+    {% for entity in Athena::ORM::Entity.all_subclasses.reject { |t| t.abstract? || t <= Athena::ORM::Proxy } %}
       {% entity_ann = entity.annotation(AORMA::Entity) %}
       {% repository_class = entity_ann && entity_ann[:repository_class] %}
       {% if repository_class %}

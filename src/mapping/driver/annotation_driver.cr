@@ -42,7 +42,8 @@ module Athena::ORM::Mapping::Driver
     join_table : Hash(String, String)? = nil,
     index_by : String? = nil,
     join_column_defs : Array(JoinColumnDef)? = nil,
-    inverse_join_column_defs : Array(JoinColumnDef)? = nil
+    inverse_join_column_defs : Array(JoinColumnDef)? = nil,
+    lazy_proxy : Bool = false
 
   struct Annotation
     def load_metadata_for_entity(metadata : Class(T)) : Nil forall T

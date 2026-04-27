@@ -28,7 +28,7 @@ struct Athena::ORM::DefaultRepositoryFactory
   end
 
   macro finished
-    {% for entity in Athena::ORM::Entity.all_subclasses.reject &.abstract? %}
+    {% for entity in Athena::ORM::Entity.all_subclasses.reject { |t| t.abstract? || t <= Athena::ORM::Proxy } %}
       private def create_default_repository(em : AORM::EntityManagerInterface, entity_class : {{entity.id}}.class, class_metadata : AORM::Mapping::ClassInterface) : AORM::RepositoryInterface
         AORM::EntityRepository({{entity.id}}).new em, class_metadata
       end

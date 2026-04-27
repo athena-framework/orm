@@ -130,7 +130,10 @@ class Athena::ORM::Mapping::Class(T)
       {% begin %}
         {% ivar_type = IVarType.nilable? ? IVarType.union_types.reject(&.nilable?).first : IVarType %}
 
-        {% if ivar_type <= AORM::Entity? %}
+        {% if ivar_type <= AORM::Proxy %}
+          # Lazy ToOne: `property avatar : AORM::Proxy(Avatar)?` → infer Avatar.
+          mapping = mapping.copy_with target_entity: {{ivar_type.type_vars.first}}, lazy_proxy: true
+        {% elsif ivar_type <= AORM::Entity? %}
           # ToOne: `property avatar : Avatar?` → infer Avatar.
           mapping = mapping.copy_with target_entity: {{ivar_type}}
         {% elsif !ivar_type.type_vars.empty? && ivar_type.type_vars.first <= AORM::Entity %}

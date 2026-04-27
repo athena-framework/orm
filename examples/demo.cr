@@ -131,8 +131,15 @@ class User < AORM::Entity
 
   # OneToOne, owning side: this entity holds the FK column (`avatar_id`).
   # `cascade: ["persist"]` means persisting a User also persists its Avatar.
+  #
+  # `AORM::Proxy(Avatar)?` opts the field into lazy loading: a proxy instance is set when fetching a user instead of executing another query for their avatar eagerly.
+  # A query is made transparently behind the scenes when a non-id avatar field accessed.
+  #
+  # Raw entity assignment requires an explicit wrap: `bob.avatar = AORM::Proxy.wrap(avatar)`.
+  #
+  # Plain `Avatar?` would keep eager loading.
   @[AORMA::OneToOne(cascade: ["persist"])]
-  property avatar : Avatar? = nil
+  property avatar : AORM::Proxy(Avatar)? = nil
 
   # ManyToMany, owning side: writes to the join table happen from here.
   # `inversed_by` names the property on the inverse side (Group#users).
@@ -290,7 +297,7 @@ DB.open "postgres://blog_user:mYAw3s0meB!og@localhost:5435/postgres" do |db|
 
       bob = User.new
       bob.username = "bob"
-      bob.avatar = avatar
+      bob.avatar = AORM::Proxy(Avatar).wrap(avatar)
 
       em.persist bob
       em.flush

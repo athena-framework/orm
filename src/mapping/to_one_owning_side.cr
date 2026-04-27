@@ -99,6 +99,8 @@ abstract class Athena::ORM::Mapping::ToOneOwningSide < Athena::ORM::Mapping::Own
       mapping.cascade,
     )
 
+    instance.lazy_proxy = mapping.lazy_proxy
+
     # TODO: Handle mapping.join_columns
 
     if instance.orphan_removal?
@@ -117,6 +119,11 @@ abstract class Athena::ORM::Mapping::ToOneOwningSide < Athena::ORM::Mapping::Own
 
   property join_columns : Array(JoinColumn) = [] of JoinColumn
   property join_column_field_names : Hash(String, String) = {} of String => String
+
+  # True when the property type carries `Proxy(Target)`.
+  # Owners provide a `Athena::ORM::Proxy(Target)` instance instead of running the deferred-eager fallback.
+  # Set by `apply_type_association_mapping`.
+  property? lazy_proxy : Bool = false
 
   def initialize(
     field_name : String,

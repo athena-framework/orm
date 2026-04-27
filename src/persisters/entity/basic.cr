@@ -472,6 +472,13 @@ class Athena::ORM::Persisters::Entity::Basic
       next unless assoc.is_a? Mapping::ToOneOwningSide
 
       new_value = change.new.value
+      # Loaded proxies don't have their own identifier registered, and should instead fallback on the loaded entity.
+      # Unloaded proxies carry a synthesized identifier (set during hydration) and behave like any other managed entity below.
+      if new_value.is_a?(AORM::Proxy)
+        if inner = new_value.inner?
+          new_value = inner
+        end
+      end
 
       # An associated entity that's still queued for insert hasn't received its
       # identifier yet — null the FK column out for the current INSERT and
