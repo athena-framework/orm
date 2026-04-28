@@ -14,10 +14,6 @@ class Athena::ORM::Persisters::Entity::Basic
     "NIN" => "NOT IN (%s)",
   }
 
-  private abstract struct ParameterBase; end
-
-  private record Parameter(T) < ParameterBase, name : String, value : T, type : AORM::Types::Type
-
   @connection : AORM::Connection
   @platform : AORM::Platforms::Platform
   @quote_strategy : AORM::Mapping::QuoteStrategyInterface
@@ -562,8 +558,8 @@ class Athena::ORM::Persisters::Entity::Basic
       io << " FROM " << table_name << " " << table_alias
       io << @current_persister_context.select_join_sql << join_sql
       io << (condition_sql.empty? ? "" : " WHERE ") << condition_sql
+      io << order_by_sql
       # TODO: Handle lock
-      # TODO: Handle OrderBy
     end
 
     @platform.modify_limit_query query, limit, offset || 0 # TODO: Append lock SQL

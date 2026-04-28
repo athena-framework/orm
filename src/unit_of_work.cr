@@ -522,6 +522,57 @@ class Athena::ORM::UnitOfWork
     @collection_updates << collection
   end
 
+  # Detaches *entity* from the UnitOfWork: drops it from the identity map and clears every state-tracking ivar that referenced it.
+  # The entity itself is not modified — callers that hold the reference can keep using it; it just no longer participates in flush.
+  # Cascades through associations whose mapping has `cascade: ["detach"]`.
+  def detach(entity : AORM::Entity) : Nil
+    visited = Set(AORM::Entity).new
+
+    self.do_detach entity, visited
+  end
+
+  private def do_detach(entity : AORM::Entity, visited : Set(AORM::Entity), no_cascade : Bool = false) : Nil
+    return unless visited.add? entity
+
+    case self.entity_state(entity, :detached)
+    in .managed?
+      self.remove_from_identity_map(entity) if self.is_in_identity_map(entity)
+
+      @entity_insertions.delete entity
+      @entity_updates.delete entity
+      @entity_deletions.delete entity
+      @entity_identifiers.delete entity
+      @entity_states.delete entity
+      @original_entity_data.delete entity
+    in .new?, .detached?
+      return
+    in .removed?
+      # `removed` already implies the entity is on its way out; treat as no-op.
+      return
+    end
+
+    self.cascade_detach(entity, visited) unless no_cascade
+  end
+
+  private def cascade_detach(entity : AORM::Entity, visited : Set(AORM::Entity)) : Nil
+    class_metadata = @em.class_metadata entity.class
+
+    association_mappings = class_metadata.association_mappings.select { |_, v| v.cascade_detach? }
+
+    association_mappings.each_value do |assoc|
+      related_entities = class_metadata.field_info[assoc.field_name].get_value entity
+
+      case related_entities
+      when AORM::PersistentCollection
+        related_entities.unwrap.each { |related_entity| self.do_detach related_entity, visited }
+      when AORM::Collection, Enumerable(AORM::Entity)
+        related_entities.each { |related_entity| self.do_detach related_entity, visited }
+      when AORM::Entity
+        self.do_detach related_entities, visited
+      end
+    end
+  end
+
   # Removes a removed entity from all collections it belongs to.
   # Iterates through all managed entities to find collections containing the removed entity.
   private def cascade_remove(entity : AORM::Entity, visited : Set(AORM::Entity)) : Nil
@@ -555,10 +606,6 @@ class Athena::ORM::UnitOfWork
 
   def initialize_object(entity : AORM::Entity) : Nil
     # TODO: initialize `Ghost` type?
-  end
-
-  def initialize_object(entity : AORM::PersistentCollection) : Nil
-    # TODO: Initialize Collection?
   end
 
   protected def collection_persister(assoc : Mapping::Association)
@@ -795,14 +842,6 @@ class Athena::ORM::UnitOfWork
     end
 
     raise NotImplementedError.new "Unhandleable state"
-  end
-
-  def change_set(entity : AORM::Entity) : Hash(String, Change)
-    unless @entity_change_sets.has_key? entity
-      return Hash(String, Change).new
-    end
-
-    @entity_change_sets[entity]
   end
 
   def entity_identifier(entity : AORM::Entity) : Hash(String, AORM::Mapping::Value)
@@ -1404,15 +1443,6 @@ class Athena::ORM::UnitOfWork
     collection.initialized = true
   end
 
-  private def try_get(id : Hash(String, Mapping::Value), entity_class : AORM::Entity.class, & : AORM::Entity ->) : Nil
-    class_metadata = @em.class_metadata(entity_class)
-    id_hash = identifier_flattener.flatten_identifier(class_metadata, id)
-
-    if (klass = @identity_map[entity_class]?) && (entity = klass[id_hash]?)
-      yield entity
-    end
-  end
-
   private def has_missing_ids_which_are_foreign_keys?(class_metadata : Mapping::ClassInterface, id : Hash(String, _)) : Bool
     id.any? do |id_field, id_field_value|
       value = id_field_value.is_a?(Mapping::Value) ? id_field_value.value : id_field_value
@@ -1423,12 +1453,6 @@ class Athena::ORM::UnitOfWork
 
   private def has_missing_ids_which_are_foreign_keys?(class_metadata : Mapping::ClassInterface, id : _) : Bool
     false
-  end
-
-  private def index_identifiers_by_name(id_arr : Array(Mapping::Value)) : Hash(String, Mapping::Value)
-    id_arr.each_with_object(Hash(String, Mapping::Value).new) do |id, id_hash|
-      id_hash[id.name] = id
-    end
   end
 
   # Returns the class to look up `ClassMetadata` against.

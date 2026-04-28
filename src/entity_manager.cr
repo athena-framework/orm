@@ -90,6 +90,12 @@ class Athena::ORM::EntityManager
     end
   end
 
+  def detach(entity : AORM::Entity) : Nil
+    self.unless_closed do
+      self.unit_of_work.detach entity
+    end
+  end
+
   def flush : Nil
     self.unless_closed do
       self.unit_of_work.commit

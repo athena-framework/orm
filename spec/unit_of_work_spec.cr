@@ -178,6 +178,71 @@ class CustomJoinOwner < AORM::Entity
   property parent : CustomJoinTarget? = nil
 end
 
+# OneToOne owning/inverse pair, used to drive `UnitOfWork#resolve_pending_to_one_associations` through its inverse-side branch (target_id nil → persister.load_one_to_one_entity).
+@[AORMA::Entity]
+@[AORMA::Table(name: "inv_o2o_owners")]
+class InverseO2OOwner < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+
+  @[AORMA::OneToOne(inversed_by: "owner")]
+  @[AORMA::JoinColumn(name: "target_id", referenced_column_id: "id")]
+  property target : InverseO2OTarget? = nil
+end
+
+@[AORMA::Entity]
+@[AORMA::Table(name: "inv_o2o_targets")]
+class InverseO2OTarget < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+
+  @[AORMA::OneToOne(mapped_by: "target")]
+  property owner : InverseO2OOwner? = nil
+end
+
+# CmsUser variant whose `groups` association is configured with cascade: ["remove"], used to drive the cascade-remove walk in `UnitOfWork#cascade_remove`.
+@[AORMA::Entity]
+@[AORMA::Table(name: "cascade_users")]
+class CascadeRemoveUser < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+
+  @[AORMA::Column]
+  property! username : String
+
+  @[AORMA::ManyToMany(target_entity: CmsGroup, cascade: ["remove"])]
+  property groups : AORM::Collection(CmsGroup) = AORM::ArrayCollection(CmsGroup).new
+end
+
+# Cascade-detach pair: walking `parent` from the owner detaches the target alongside it.
+@[AORMA::Entity]
+@[AORMA::Table(name: "detach_owners")]
+class DetachOwner < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property! id : Int32
+
+  @[AORMA::OneToOne(target_entity: DetachTarget, cascade: ["detach"])]
+  @[AORMA::JoinColumn(name: "target_id", referenced_column_id: "id")]
+  property target : DetachTarget? = nil
+end
+
+@[AORMA::Entity]
+@[AORMA::Table(name: "detach_targets")]
+class DetachTarget < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property! id : Int32
+end
+
 @[AORMA::Entity]
 @[AORMA::Table(name: "blog_users")]
 class BlogUser < AORM::Entity
@@ -214,14 +279,31 @@ end
 # the UoW doesn't add them a second time on top of that.
 class CollectionAddingPersister < AORM::Persisters::Entity::Basic
   property canned_entities : Array(AORM::Entity) = [] of AORM::Entity
+  getter? load_many_to_many_called : Bool = false
 
   def load_many_to_many_collection(
     assoc : AORM::Mapping::ManyToMany,
     source_entity : AORM::Entity,
     collection : AORM::PersistentCollection,
   ) : Array
+    @load_many_to_many_called = true
     @canned_entities.each { |e| collection.hydrate_add e }
     @canned_entities
+  end
+end
+
+# Captures `load_one_to_one_entity` calls so the inverse-side resolution path can be asserted without standing up a real persister.
+class CapturingOneToOnePersister < AORM::Persisters::Entity::Basic
+  setter mock_load_one_to_one_result : AORM::Entity? = nil
+  record OneToOneCall, assoc : AORM::Mapping::ToOneInverseSide, source : AORM::Entity
+  getter one_to_one_calls : Array(OneToOneCall) = [] of OneToOneCall
+
+  def load_one_to_one_entity(
+    assoc : AORM::Mapping::ToOneInverseSide,
+    source_entity : AORM::Entity,
+  ) : AORM::Entity?
+    @one_to_one_calls << OneToOneCall.new(assoc, source_entity)
+    @mock_load_one_to_one_result
   end
 end
 
@@ -1307,6 +1389,309 @@ struct UnitOfWorkTest < ASPEC::TestCase
 
     avatar_persister.load_calls.size.should eq 1
     user.avatar.should be canned_avatar
+  end
+
+  # Empty-queue commit hits the early-return in `commit`.
+  # Nothing is registered, so the call must complete without touching any persister or transaction.
+  def test_commit_with_nothing_scheduled_is_a_noop : Nil
+    @uow.commit
+    @uow.scheduled_entity_insertions.should be_empty
+    @uow.scheduled_entity_updates.should be_empty
+    @uow.scheduled_entity_deletions.should be_empty
+  end
+
+  # `persist` must reject entities the UoW knows are detached.
+  # This branch is structurally unreachable from normal flows (`persist` calls `entity_state(entity, :new)`, which short-circuits before the natural-id heuristic), but it's kept as a defensive guard.
+  # The test pokes the stored state directly to exercise the defense.
+  def test_persist_raises_for_detached_entity : Nil
+    user = ForumUser.new
+    user.username = "fred"
+    @uow.@entity_states[user] = AORM::UnitOfWork::EntityState::Detached
+
+    expect_raises(Exception, /detached/) do
+      @uow.persist user
+    end
+  end
+
+  # Persisting a loaded proxy unwraps to its inner entity — the inner is what gets queued for insert, never the proxy.
+  def test_persist_unwraps_loaded_proxy_to_inner_entity : Nil
+    avatar_persister = MockEntityPersister.new @em, @em.class_metadata ForumAvatar
+    @uow.set_entity_persister ForumAvatar, avatar_persister
+    avatar_persister.mock_id_generator = :identity
+
+    avatar = ForumAvatar.new
+    proxy = AORM::Proxy(ForumAvatar).wrap avatar
+
+    @uow.persist proxy
+
+    @uow.scheduled_entity_insertions.includes?(avatar).should be_true
+    @uow.scheduled_entity_insertions.includes?(proxy).should be_false
+  end
+
+  # Persisting an unfaulted proxy is a no-op.
+  # The proxy's target is presumed to already exist in the DB (proxies are only handed out for hydrated rows), so there's nothing to insert.
+  def test_persist_on_unfaulted_proxy_is_a_noop : Nil
+    proxy = AORM::Proxy(ForumAvatar).from_id @em, {"id" => 99.as(::DB::Any)}
+
+    @uow.persist proxy
+
+    @uow.scheduled_entity_insertions.should be_empty
+  end
+
+  # The collection-persister registry only knows about ManyToMany.
+  # Feeding it any other association role must raise rather than silently picking the wrong persister.
+  def test_collection_persister_raises_for_unsupported_role : Nil
+    cm = @em.class_metadata BlogUser
+    assoc = cm.association_mappings["posts"].not_nil!
+
+    expect_raises(Exception, /Unsupported collection persister role/) do
+      @uow.collection_persister_for assoc
+    end
+  end
+
+  # Querying a managed-but-unchanged entity for its changeset returns an empty hash — the entity was never tracked into `@entity_change_sets`.
+  def test_entity_changeset_returns_empty_for_unchanged_managed_entity : Nil
+    phone = managed_phone "555-CS"
+
+    @uow.entity_changeset(phone).should be_empty
+  end
+
+  def test_schedule_orphan_removal_adds_to_orphan_removals_set : Nil
+    phone = CmsPhonenumber.new
+    phone.phonenumber = "555-O"
+
+    @uow.schedule_orphan_removal phone
+
+    @uow.@orphan_removals.includes?(phone).should be_true
+  end
+
+  def test_schedule_collection_deletion_adds_to_collection_deletions : Nil
+    pc = AORM::PersistentCollection(AORM::Entity).new
+
+    @uow.schedule_collection_deletion pc
+
+    @uow.@collection_deletions.includes?(pc).should be_true
+  end
+
+  def test_schedule_collection_update_adds_to_collection_updates : Nil
+    pc = AORM::PersistentCollection(AORM::Entity).new
+
+    @uow.schedule_collection_update pc
+
+    @uow.@collection_updates.includes?(pc).should be_true
+  end
+
+  # `detach` evicts a managed entity from the UoW: identity map drops it, scheduling sets clear, identifier/state/original-data caches are wiped.
+  # The entity object itself is unchanged; callers that hold the reference can keep using it as a plain object.
+  def test_detach_clears_managed_entity_from_unit_of_work : Nil
+    persister = MockEntityPersister.new @em, @em.class_metadata CmsPhonenumber
+    @uow.set_entity_persister CmsPhonenumber, persister
+
+    phone = managed_phone "555-DETACH"
+    @uow.is_in_identity_map(phone).should be_true
+
+    @uow.detach phone
+
+    @uow.is_in_identity_map(phone).should be_false
+    @uow.@entity_states.has_key?(phone).should be_false
+    @uow.@entity_identifiers.has_key?(phone).should be_false
+    @uow.@original_entity_data.has_key?(phone).should be_false
+  end
+
+  # Entities scheduled for insert get unqueued by detach, and a subsequent flush must not insert them — the row never gets written.
+  def test_detach_drops_pending_insert_and_skips_flush : Nil
+    persister = MockEntityPersister.new @em, @em.class_metadata CmsPhonenumber
+    @uow.set_entity_persister CmsPhonenumber, persister
+
+    phone = CmsPhonenumber.new
+    phone.phonenumber = "555-PENDING"
+
+    @uow.persist phone
+    @uow.is_scheduled_for_insert?(phone).should be_true
+
+    @uow.detach phone
+
+    @uow.is_scheduled_for_insert?(phone).should be_false
+    @uow.is_in_identity_map(phone).should be_false
+
+    @uow.commit
+
+    persister.inserts.should be_empty
+  end
+
+  # New entities (never registered) and already-detached entities are no-ops — detach is idempotent.
+  def test_detach_is_a_noop_for_new_entity : Nil
+    phone = CmsPhonenumber.new
+    phone.phonenumber = "555-NEW"
+
+    @uow.detach phone
+
+    @uow.@entity_states.has_key?(phone).should be_false
+  end
+
+  # `add_to_entity_identifier_and_entity_map` reads the entity's already-set ID field, builds an identifier hash, marks the entity managed, populates original entity data, and adds it to the identity map.
+  # Reachable in production only through the FK-as-identifier commit path; tested directly here so the contract is locked in.
+  def test_add_to_entity_identifier_and_entity_map_registers_single_identifier : Nil
+    cm = @em.class_metadata EntityWithStringIdentifier
+    entity = EntityWithStringIdentifier.new
+    entity.id = "natural-key-1"
+
+    @uow.expose_add_to_entity_identifier_and_entity_map cm, entity
+
+    @uow.is_in_identity_map(entity).should be_true
+    @uow.@entity_states[entity].should eq AORM::UnitOfWork::EntityState::Managed
+    @uow.entity_identifier(entity)["id"].value.should eq "natural-key-1"
+    @uow.@original_entity_data[entity]["id"].value.should eq "natural-key-1"
+  end
+
+  # Composite-identifier coverage: every ID field gets its own entry in both `entity_identifiers` and `original_entity_data`.
+  def test_add_to_entity_identifier_and_entity_map_registers_composite_identifier : Nil
+    cm = @em.class_metadata EntityWithCompositeStringIdentifier
+    entity = EntityWithCompositeStringIdentifier.new
+    entity.id1 = "tenant-a"
+    entity.id2 = "item-42"
+
+    @uow.expose_add_to_entity_identifier_and_entity_map cm, entity
+
+    @uow.is_in_identity_map(entity).should be_true
+    identifier = @uow.entity_identifier entity
+    identifier["id1"].value.should eq "tenant-a"
+    identifier["id2"].value.should eq "item-42"
+    @uow.@original_entity_data[entity]["id1"].value.should eq "tenant-a"
+    @uow.@original_entity_data[entity]["id2"].value.should eq "item-42"
+  end
+
+  # Cascade-detach walks associations whose mapping has `cascade: ["detach"]`, pulling related entities out of the UoW alongside the root.
+  def test_detach_cascades_through_cascade_detach_associations : Nil
+    owner_persister = MockEntityPersister.new @em, @em.class_metadata DetachOwner
+    @uow.set_entity_persister DetachOwner, owner_persister
+
+    target_persister = MockEntityPersister.new @em, @em.class_metadata DetachTarget
+    @uow.set_entity_persister DetachTarget, target_persister
+
+    target = DetachTarget.new
+    pointerof(target.@id).value = 100
+
+    owner = DetachOwner.new
+    pointerof(owner.@id).value = 1
+    owner.target = target
+
+    @uow.register_managed owner, {"id" => 1}, {"id" => 1}
+    @uow.register_managed target, {"id" => 100}, {"id" => 100}
+
+    @uow.detach owner
+
+    @uow.is_in_identity_map(owner).should be_false
+    @uow.is_in_identity_map(target).should be_false
+  end
+
+  # `cascade_remove` walks every association tagged with `cascade: ["remove"]` and routes each related entity through the same `remove` path.
+  # Both the root and its cascade-tracked targets land in `entity_deletions`.
+  def test_remove_cascades_to_targets_when_cascade_remove_is_configured : Nil
+    user_persister = MockEntityPersister.new @em, @em.class_metadata CascadeRemoveUser
+    @uow.set_entity_persister CascadeRemoveUser, user_persister
+
+    group_persister = MockEntityPersister.new @em, @em.class_metadata CmsGroup
+    @uow.set_entity_persister CmsGroup, group_persister
+
+    user = CascadeRemoveUser.new
+    user.username = "fred"
+    pointerof(user.@id).value = 1
+
+    g1 = CmsGroup.new
+    g1.name = "admins"
+    pointerof(g1.@id).value = 10
+
+    g2 = CmsGroup.new
+    g2.name = "devs"
+    pointerof(g2.@id).value = 20
+
+    user.groups << g1
+    user.groups << g2
+
+    @uow.register_managed user, {"id" => 1}, {"id" => 1, "username" => "fred"}
+    @uow.register_managed g1, {"id" => 10}, {"id" => 10, "name" => "admins"}
+    @uow.register_managed g2, {"id" => 20}, {"id" => 20, "name" => "devs"}
+
+    @uow.remove user
+
+    @uow.scheduled_entity_deletions.includes?(user).should be_true
+    @uow.scheduled_entity_deletions.includes?(g1).should be_true
+    @uow.scheduled_entity_deletions.includes?(g2).should be_true
+  end
+
+  # `load_collection` delegates to the entity persister's `load_many_to_many_collection` for ManyToMany associations and flips the collection's `initialized` flag once the load returns.
+  def test_load_collection_delegates_to_persister_and_marks_initialized : Nil
+    user_persister = MockEntityPersister.new @em, @em.class_metadata CmsUser
+    @uow.set_entity_persister CmsUser, user_persister
+
+    group_persister = CollectionAddingPersister.new @em, @em.class_metadata(CmsGroup)
+    @uow.set_entity_persister CmsGroup, group_persister
+
+    data = Hash(String, AORM::Mapping::Value).new
+    data["id"] = AORM::Mapping::SingleValue(Int32).new(7)
+    data["username"] = AORM::Mapping::SingleValue(String).new("fred")
+    user = @uow.create_entity(CmsUser, data).as CmsUser
+    pc = user.groups.as(AORM::PersistentCollection(CmsGroup))
+    pc.loaded?.should be_false
+
+    @uow.load_collection pc
+
+    group_persister.load_many_to_many_called?.should be_true
+    pc.loaded?.should be_true
+  end
+
+  # The inverse side of a OneToOne queues a pending resolution with `target_id: nil`.
+  # `resolve_pending_to_one_associations` then dispatches that resolution through `entity_persister(target).load_one_to_one_entity` rather than a primary-key load.
+  def test_resolve_pending_to_one_associations_uses_load_one_to_one_for_inverse_side : Nil
+    target_persister = MockEntityPersister.new @em, @em.class_metadata InverseO2OTarget
+    @uow.set_entity_persister InverseO2OTarget, target_persister
+
+    capturing = CapturingOneToOnePersister.new @em, @em.class_metadata(InverseO2OOwner)
+    @uow.set_entity_persister InverseO2OOwner, capturing
+
+    data = Hash(String, AORM::Mapping::Value).new
+    data["id"] = AORM::Mapping::SingleValue(Int32).new(3)
+    target = @uow.create_entity(InverseO2OTarget, data).as InverseO2OTarget
+
+    capturing.one_to_one_calls.should be_empty
+
+    @uow.resolve_pending_to_one_associations
+
+    capturing.one_to_one_calls.size.should eq 1
+    capturing.one_to_one_calls.first.source.should be target
+    capturing.one_to_one_calls.first.assoc.mapped_by.should eq "target"
+  end
+
+  # Reassigning a managed PersistentCollection from one owner to another must clone it for the new owner and queue the original for deletion, so each owner's join-table rows stay tied to the right owner.
+  def test_compute_change_set_clones_collection_and_schedules_old_for_deletion_on_owner_reassignment : Nil
+    user_persister = MockEntityPersister.new @em, @em.class_metadata CmsUser
+    @uow.set_entity_persister CmsUser, user_persister
+
+    # Empty result so `initialize_collection` (forced before the clone) doesn't crash.
+    group_persister = CollectionAddingPersister.new @em, @em.class_metadata(CmsGroup)
+    @uow.set_entity_persister CmsGroup, group_persister
+
+    data1 = Hash(String, AORM::Mapping::Value).new
+    data1["id"] = AORM::Mapping::SingleValue(Int32).new(1)
+    data1["username"] = AORM::Mapping::SingleValue(String).new("alice")
+    user1 = @uow.create_entity(CmsUser, data1).as CmsUser
+    pc1 = user1.groups.as(AORM::PersistentCollection(CmsGroup))
+
+    data2 = Hash(String, AORM::Mapping::Value).new
+    data2["id"] = AORM::Mapping::SingleValue(Int32).new(2)
+    data2["username"] = AORM::Mapping::SingleValue(String).new("bob")
+    user2 = @uow.create_entity(CmsUser, data2).as CmsUser
+    pc2 = user2.groups.as(AORM::PersistentCollection(CmsGroup))
+
+    # Hand alice's collection to bob — this is the scenario the change-set logic must defend against.
+    user2.groups = pc1
+
+    @uow.compute_changesets
+
+    @uow.@collection_deletions.includes?(pc2).should be_true
+    user2.groups.should_not be pc1
+    user2.groups.as(AORM::PersistentCollection(CmsGroup)).owner.should be user2
   end
 end
 

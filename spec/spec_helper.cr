@@ -57,6 +57,17 @@ class MockUnitOfWork < AORM::UnitOfWork
   def insert_execution_order : Array(AORM::Entity)
     self.compute_insert_execution_order
   end
+
+  # Test access to the protected `collection_persister`.
+  def collection_persister_for(assoc : AORM::Mapping::Association)
+    self.collection_persister assoc
+  end
+
+  # Test access to the private `add_to_entity_identifier_and_entity_map`.
+  # The method only fires through a niche commit path (assigned ID with FK-as-identifier targets), so direct testing is the practical way to lock its behavior in.
+  def expose_add_to_entity_identifier_and_entity_map(class_metadata : AORM::Mapping::ClassInterface, entity : AORM::Entity) : Nil
+    self.add_to_entity_identifier_and_entity_map class_metadata, entity
+  end
 end
 
 class MockEntityManager < AORM::EntityManager
@@ -91,6 +102,7 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
   getter deletes : Array(AORM::Entity) = [] of AORM::Entity
   setter mock_id_generator : AORM::Mapping::GeneratedValueStrategy? = nil
   getter? exists_called : Bool = false
+  property mock_exists_result : Bool = false
 
   @post_insert_ids = Array(PostInsert).new
   @identity_column_counter : Int32 = 0
@@ -118,10 +130,9 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
     @updates << entity
   end
 
-  def exists(entity : AORM::Entity) : Nil
+  def exists(entity : AORM::Entity, extra_conditions = nil) : Bool
     @exists_called = true
-
-    false
+    @mock_exists_result
   end
 
   def delete(entity : AORM::Entity) : Bool

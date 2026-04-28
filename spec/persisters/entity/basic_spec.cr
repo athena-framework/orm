@@ -1,5 +1,48 @@
 require "../../spec_helper"
 
+# Composite-PK fixture for ORDER BY coverage.
+@[AORMA::Entity]
+@[AORMA::Table(name: "composite_pk_items")]
+class CompositePkItem < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property tenant_id : String? = nil
+
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property item_id : String? = nil
+
+  @[AORMA::Column]
+  property! label : String
+end
+
+# OneToMany inverse-side / ManyToOne owning-side pair, used to drive the inverse-side branch in `select_condition_statement_column_sql`.
+@[AORMA::Entity]
+@[AORMA::Table(name: "tag_owners")]
+class TagOwnerWithTags < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+
+  @[AORMA::OneToMany(mapped_by: "owner")]
+  property tags : AORM::Collection(OwnedTag) = AORM::ArrayCollection(OwnedTag).new
+end
+
+@[AORMA::Entity]
+@[AORMA::Table(name: "owned_tags")]
+class OwnedTag < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+
+  @[AORMA::ManyToOne]
+  property owner : TagOwnerWithTags? = nil
+end
+
 struct BasicPersisterTest < ASPEC::TestCase
   def test_select_condition_eq_emits_placeholder : Nil
     persister = build_persister
@@ -293,6 +336,165 @@ struct BasicPersisterTest < ASPEC::TestCase
     expect_raises(Exception, /Unrecognized field/) do
       persister.order_by_sql({"nonexistent" => "ASC"}, "t0")
     end
+  end
+
+  # SELECT shape: bare query against the persister's class without criteria.
+  # Output is a single-table SELECT with the entity's quoted table name and a generated alias.
+  def test_select_sql_emits_select_from_with_table_alias : Nil
+    persister = build_persister
+
+    sql = persister.select_sql(Hash(String, DB::Any).new)
+
+    sql.should match(/^SELECT .+ FROM forum_users t\d+/)
+  end
+
+  # Criteria appended to SELECT route through select_condition_sql to produce a WHERE clause with placeholders.
+  def test_select_sql_appends_where_clause_when_criteria_present : Nil
+    persister = build_persister
+
+    sql = persister.select_sql({"username" => "fred".as(DB::Any)})
+
+    sql.should match(/\bWHERE\b/)
+    sql.should match(/username = \?/)
+  end
+
+  # ORDER BY arg flows into order_by_sql, which uses the table alias the persister already chose.
+  def test_select_sql_appends_order_by_when_present : Nil
+    persister = build_persister
+
+    sql = persister.select_sql(Hash(String, DB::Any).new, order_by: {"username" => "ASC"})
+
+    sql.should match(/ORDER BY t\d+\.username ASC/)
+  end
+
+  # ORDER BY must come AFTER the WHERE clause when both are present, so the splice point in the generated SQL is correct.
+  def test_select_sql_orders_after_where_clause : Nil
+    persister = build_persister
+
+    sql = persister.select_sql({"username" => "fred".as(DB::Any)}, order_by: {"username" => "DESC"})
+
+    sql.index(" WHERE ").not_nil!.should be < sql.index(" ORDER BY ").not_nil!
+  end
+
+  # No order_by argument means no ORDER BY clause — empty string spliced in cleanly.
+  def test_select_sql_omits_order_by_when_not_provided : Nil
+    persister = build_persister
+
+    sql = persister.select_sql(Hash(String, DB::Any).new)
+
+    sql.should_not match(/\bORDER BY\b/)
+  end
+
+  # The persister selects every mapped field as `<alias>.<col> AS <result_alias>`, plus one entry per ToOne owning-side join column for hydrator meta-results.
+  def test_select_columns_sql_lists_field_and_to_one_fk_columns : Nil
+    persister = build_persister
+
+    sql = persister.select_columns_sql
+
+    sql.should match(/t\d+\.username AS \w+/)
+    sql.should match(/t\d+\.avatar_id AS \w+/)
+  end
+
+  # `select_column_association_sql` is the FK-emitting helper for ToOne owning sides.
+  # It registers each join column as a meta-result on the RSM and returns `<alias>.<col> AS <result_alias>`.
+  def test_select_column_association_sql_emits_fk_for_to_one_owning : Nil
+    persister = build_persister
+    cm = persister.@em.class_metadata ForumUser
+    assoc = cm.association_mappings["avatar"].not_nil!
+
+    sql = persister.select_column_association_sql("avatar", assoc, cm)
+
+    sql.should match(/t\d+\.avatar_id AS \w+/)
+  end
+
+  # ToMany associations have no FK column on the owner's table, so the helper returns an empty string.
+  def test_select_column_association_sql_returns_empty_for_to_many : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(CmsUser)
+    cm = em.class_metadata CmsUser
+    assoc = cm.association_mappings["groups"].not_nil!
+
+    persister.select_column_association_sql("groups", assoc, cm).should eq ""
+  end
+
+  # ManyToMany loads emit an INNER JOIN against the join table on the owner's PK to the join table's inverse-side FK column.
+  def test_select_many_to_many_join_sql_emits_inner_join_clause : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(CmsUser)
+    cm = em.class_metadata CmsUser
+    assoc = cm.association_mappings["groups"].not_nil!.as AORM::Mapping::ManyToMany
+
+    sql = persister.select_many_to_many_join_sql assoc
+
+    sql.should start_with " INNER JOIN "
+    sql.should match(/\bON\b/)
+    sql.should match(/t\d+\.\w+ = \w+\.\w+/)
+  end
+
+  # `sql_table_alias` is keyed by entity_class + assoc_name; repeated calls for the same key return the cached alias rather than minting a fresh one.
+  def test_sql_table_alias_caches_per_entity : Nil
+    persister = build_persister
+
+    first = persister.sql_table_alias ForumUser
+    second = persister.sql_table_alias ForumUser
+
+    first.should match(/^t\d+$/)
+    first.should eq second
+  end
+
+  # Distinct entity classes get distinct aliases so multi-table SELECTs don't collide.
+  def test_sql_table_alias_yields_distinct_aliases_for_different_entities : Nil
+    persister = build_persister
+
+    forum_alias = persister.sql_table_alias ForumUser
+    avatar_alias = persister.sql_table_alias ForumAvatar
+
+    forum_alias.should_not eq avatar_alias
+  end
+
+  # `sql_column_alias` rendering is delegated to the quote strategy; it must always return a non-empty identifier safe to splice into SQL.
+  def test_sql_column_alias_returns_non_empty_identifier : Nil
+    persister = build_persister
+
+    alias_name = persister.sql_column_alias("username")
+
+    alias_name.should_not be_empty
+    alias_name.should match(/^\w+$/)
+  end
+
+  # Filtering by a ManyToMany association field is not supported on the persister side.
+  def test_select_condition_statement_sql_raises_for_many_to_many_field : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(CmsUser)
+
+    user = CmsUser.new
+    user.username = "fred"
+
+    expect_raises(Exception, /ManyToMany/) do
+      persister.select_condition_statement_sql("groups", user)
+    end
+  end
+
+  # Filtering by an inverse-side OneToMany must redirect to the owning side; the persister refuses to guess.
+  def test_select_condition_statement_sql_raises_for_inverse_side_field : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(TagOwnerWithTags)
+
+    tag = OwnedTag.new
+
+    expect_raises(Exception, /inverse side/) do
+      persister.select_condition_statement_sql("tags", tag)
+    end
+  end
+
+  # Composite-PK ORDER BY: each PK component gets its own clause separated by commas, alphabetized by the input hash's order.
+  def test_order_by_sql_renders_composite_identifier_fields : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(CompositePkItem)
+
+    sql = persister.order_by_sql({"tenant_id" => "ASC", "item_id" => "DESC"}, "t0")
+
+    sql.should eq " ORDER BY t0.tenant_id ASC, t0.item_id DESC"
   end
 
   private def build_persister : AORM::Persisters::Entity::Basic

@@ -58,6 +58,10 @@ abstract class Athena::ORM::Mapping::Association
     @cascade.includes? "remove"
   end
 
+  def cascade_detach? : Bool
+    @cascade.includes? "detach"
+  end
+
   # TODO: Make this an enum
   def type : String
     # ManyToOne is also ToOne (and a kind of OneToOne in our hierarchy via ToOneOwningSide), so check the more specific markers first.
