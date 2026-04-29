@@ -25,6 +25,8 @@ development_dependencies:
     github: crystal-ameba/ameba
   pg:
     github: will/crystal-pg
+  mysql:
+    github: crystal-lang/crystal-mysql
   athena-spec:
     github: athena-framework/spec
     version: ~> 0.4.0

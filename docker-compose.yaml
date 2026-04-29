@@ -9,3 +9,13 @@ services:
       - POSTGRES_USER=blog_user
       - POSTGRES_PASSWORD=mYAw3s0meB!og
       - POSTGRES_DB=postgres
+  mariadb:
+    image: mariadb
+    container_name: mariadb
+    ports:
+      - 3306:3306
+    environment:
+      - MARIADB_USER=blog_user
+      - MARIADB_ROOT_PASSWORD=mYAw3s0meB!og
+      - MARIADB_PASSWORD=mYAw3s0meB!og
+      - MARIADB_DATABASE=mariadb

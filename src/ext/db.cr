@@ -19,8 +19,10 @@ class DB::Database
   end
 end
 
-# Driver-specific extensions live in their own files so consumers only pay the
-# compile-time cost (and shard requirement) for the DBs they actually use.
 {% if @top_level.has_constant?("PG") %}
   require "./pg"
+{% end %}
+
+{% if @top_level.has_constant?("MySql") %}
+  require "./mysql"
 {% end %}

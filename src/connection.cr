@@ -19,7 +19,7 @@ module Athena::ORM
       Types::Type.get_type(type.not_nil!).to_crystal_value(value, self.database_platform)
     end
 
-    # Required by DB::QueryMethods - parses SQL and returns statement with converted placeholders
+    # Required by DB::QueryMethods - prepares the provided SQL and returns a build statement after any required processing.
     def build(query) : DB::Statement
       @wrapped.prepare(query)
     end
