@@ -26,3 +26,7 @@ end
 {% if @top_level.has_constant?("MySql") %}
   require "./mysql"
 {% end %}
+
+{% if @top_level.has_constant?("SQLite3") %}
+  require "./sqlite3"
+{% end %}
