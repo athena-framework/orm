@@ -1,8 +1,7 @@
 require "./spec_helper"
 require "uuid"
 
-# Inline test entities — kept here rather than under spec/models/ because they
-# only matter to this file's coverage of UnitOfWork edge cases.
+# Inline test entities — kept here rather than under spec/models/ because they only matter to this file's coverage of UnitOfWork edge cases.
 @[AORMA::Entity]
 class VersionedAssignedIdentifierEntity < AORM::Entity
   @[AORMA::Column]

@@ -3,6 +3,10 @@ abstract class Athena::ORM::Platforms::Platform
     %("#{identifier.gsub('"', "\"\"")}")
   end
 
+  def date_time_format_string : String
+    "Y-m-d H:i:s"
+  end
+
   def append_lock_hint(from_clause : String, lock_mode : LockMode) : String
     from_clause
   end

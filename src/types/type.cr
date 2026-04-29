@@ -1,6 +1,7 @@
 module Athena::ORM::Types
   BIGINT     = "bigint"
   BOOLEAN    = "boolean"
+  DATETIME   = "datetime"
   FLOAT      = "float"
   INTEGER    = "integer"
   SMALLFLOAT = "smallfloat"
@@ -9,12 +10,14 @@ module Athena::ORM::Types
   TEXT       = "text"
 
   abstract struct Type
+    # Crystal types are mapped to ORM types in `src/mapping/class.cr`
     private BUILTIN_TYPES_MAP = {
-      Types::STRING  => AORM::Types::String,
-      Types::TEXT    => AORM::Types::String,
-      Types::INTEGER => AORM::Types::Integer,
-      Types::BIGINT  => AORM::Types::BigInt,
-      Types::BOOLEAN => AORM::Types::Boolean,
+      Types::STRING   => AORM::Types::String,
+      Types::TEXT     => AORM::Types::String,
+      Types::INTEGER  => AORM::Types::Integer,
+      Types::BIGINT   => AORM::Types::BigInt,
+      Types::BOOLEAN  => AORM::Types::Boolean,
+      Types::DATETIME => AORM::Types::Datetime,
     }
 
     class_getter type_registry : Athena::ORM::Types::TypeRegistry do

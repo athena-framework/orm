@@ -646,7 +646,11 @@ class Athena::ORM::UnitOfWork
       #
       # TODO: Can we just ignore non-hash IDs?
       if !self.has_missing_ids_which_are_foreign_keys?(class_metadata, id_value) && id_value.is_a?(Hash)
-        result = id_value.transform_values { |v, k| class_metadata.field_info[k].create_column_value v }
+        result = Hash(String, Mapping::Value).new
+        id_value.each do |k, v|
+          result[k] = class_metadata.field_info[k].create_column_value v
+        end
+
         @entity_identifiers[entity] = result
       end
     end

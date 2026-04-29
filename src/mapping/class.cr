@@ -16,6 +16,7 @@ private struct Athena::ORM::Mapping::TypedFieldMapper
     ::Bool   => "boolean",
     ::Int32  => "integer",
     ::Int64  => "bigint",
+    ::Time   => "datetime",
   }
 
   @typed_field_mappings : Hash(String, String)
