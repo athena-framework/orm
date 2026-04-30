@@ -49,7 +49,6 @@ module Athena::ORM::Mapping::Driver
     def load_metadata_for_entity(metadata : Mapping::Class(T)) : Nil forall T
       {% if ann = T.annotation AORMA::Entity %}
         entity_ann = AORM::Mapping::Annotations::Entity.new({{ann.named_args.double_splat}})
-
         if repo_class = entity_ann.repository_class
           metadata.custom_repository_class = repo_class
         end
@@ -70,7 +69,7 @@ module Athena::ORM::Mapping::Driver
       primary_table = nil
 
       {% if ann = T.annotation AORMA::Table %}
-        table_ann = AORM::Mapping::Annotations::Table.new({{ann.named_args.double_splat}})
+        table_ann = AORM::Mapping::Annotations::Table.new({% unless ann.args.empty? %}{{ann.args.splat}},{% end %} {{ann.named_args.double_splat}})
         primary_table = TableMapping.new table_ann.name, table_ann.schema
 
         # TODO: Support table options?
