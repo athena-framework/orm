@@ -46,7 +46,7 @@ module Athena::ORM::Mapping::Driver
     lazy_proxy : Bool = false
 
   struct Annotation
-    def load_metadata_for_entity(metadata : Class(T)) : Nil forall T
+    def load_metadata_for_entity(metadata : Mapping::Class(T)) : Nil forall T
       {% if ann = T.annotation AORMA::Entity %}
         entity_ann = AORM::Mapping::Annotations::Entity.new({{ann.named_args.double_splat}})
 
