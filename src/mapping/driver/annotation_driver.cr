@@ -258,7 +258,45 @@ module Athena::ORM::Mapping::Driver
 
       # TODO: Handle `EntityListeners` annotation
 
-      # TODO: Handle `HasLifecycleCallbacks` annotation
+      {% begin %}
+        {% events = [
+             # annotation, event type
+             {AORMA::PostLoad, AORM::Events::PostLoadEventArgs},
+             {AORMA::PostPersist, AORM::Events::PostPersistEventArgs},
+             {AORMA::PostRemove, AORM::Events::PostRemoveEventArgs},
+             {AORMA::PostUpdate, AORM::Events::PostUpdateEventArgs},
+             {AORMA::PreFlush, AORM::Events::PreFlushEventArgs},
+             {AORMA::PrePersist, AORM::Events::PrePersistEventArgs},
+             {AORMA::PreRemove, AORM::Events::PreRemoveEventArgs},
+             {AORMA::PreUpdate, AORM::Events::PreUpdateEventArgs},
+           ] %}
+
+        {% for ev in events %}
+          {%
+            ann_type, event_type = ev
+
+            expanded_event_type = "#{event_type.name(generic_args: false)}#{event_type.type_vars.size > 0 ? "(#{T})".id : "".id}".id
+          %}
+          {% for callback in T.methods.select(&.annotation(ann_type)) %}
+            {%
+              if callback.args.size > 1
+                m.raise "Expected '#{T.name}##{m.name}' to have 0..1 parameters, got '#{callback.args.size}'."
+              end
+
+              event_arg = callback.args[0]
+
+              if event_arg && !(event_arg.restriction.resolve <= event_type)
+                event_arg.raise "'#{T.name}##{callback.name}': event parameter must have a type restriction of '#{expanded_event_type}', not '#{event_arg.restriction}'."
+              end
+            %}
+
+
+            metadata.add_lifecycle_callback({{expanded_event_type}}, Proc(AORM::Entity, AORM::Events::EventArgs, Nil).new do |obj, event|
+              obj.as({{T}}).{{callback.name.id}}{% if callback.args.size == 1 %} event.as({{expanded_event_type}}){% end %}
+            end)
+          {% end %}
+        {% end %}
+      {% end %}
     end
 
     private def load(entity_class : T.class) : Nil forall T

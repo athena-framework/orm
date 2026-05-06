@@ -19,3 +19,13 @@ services:
       - MARIADB_ROOT_PASSWORD=mYAw3s0meB!og
       - MARIADB_PASSWORD=mYAw3s0meB!og
       - MARIADB_DATABASE=mariadb
+  mysql:
+    image: mysql
+    container_name: mysql
+    ports:
+      - 3307:3306
+    environment:
+      - MYSQL_USER=blog_user
+      - MYSQL_ROOT_PASSWORD=mYAw3s0meB!og
+      - MYSQL_PASSWORD=mYAw3s0meB!og
+      - MYSQL_DATABASE=mysql

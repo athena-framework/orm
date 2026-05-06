@@ -178,6 +178,22 @@ class Athena::ORM::Mapping::Class(T)
     end
   end
 
+  protected def create_post_persist_event(entity : AORM::Entity, em : ORM::EntityManagerInterface) : Events::PostPersistEventArgs(T)
+    Events::PostPersistEventArgs(T).new entity.as(T), em
+  end
+
+  protected def create_post_remove_event(entity : AORM::Entity, em : ORM::EntityManagerInterface) : Events::PostRemoveEventArgs(T)
+    Events::PostRemoveEventArgs(T).new entity.as(T), em
+  end
+
+  protected def create_post_update_event(entity : AORM::Entity, em : ORM::EntityManagerInterface) : Events::PostUpdateEventArgs(T)
+    Events::PostUpdateEventArgs(T).new entity.as(T), em
+  end
+
+  protected def create_pre_update_event(entity : AORM::Entity, em : ORM::EntityManagerInterface) : Events::PreUpdateEventArgs(T)
+    Events::PreUpdateEventArgs(T).new entity.as(T), em
+  end
+
   getter entity_class : AORM::Entity.class
 
   property custom_repository_class : AORM::RepositoryInterface.class | Nil
@@ -188,6 +204,20 @@ class Athena::ORM::Mapping::Class(T)
   property? embedded_class : Bool = false
 
   getter table : TableInfo
+
+  getter lifecycle_callbacks : Hash(AORM::Events::EventArgs.class, Array(Proc(AORM::Entity, AORM::Events::EventArgs, Nil))) do
+    Hash(AORM::Events::EventArgs.class, Array(Proc(AORM::Entity, AORM::Events::EventArgs, Nil))).new do |hash, key|
+      hash[key] = [] of Proc(AORM::Entity, AORM::Events::EventArgs, Nil)
+    end
+  end
+
+  def add_lifecycle_callback(event : AORM::Events::EventArgs.class, callback : Proc(AORM::Entity, AORM::Events::EventArgs, Nil)) : Nil
+    if self.embedded_class?
+      raise "Can't have lifecycle callbacks on embedded classes"
+    end
+
+    self.lifecycle_callbacks[event] << callback
+  end
 
   getter field_mappings : Hash(String, Field) = Hash(String, Field).new
   getter association_mappings : Hash(String, Association) = Hash(String, Association).new

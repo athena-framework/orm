@@ -110,22 +110,29 @@ class Athena::ORM::UnitOfWork
     target_id : Hash(String, DB::Any)?
 
   @pending_to_one_resolutions = [] of PendingToOneResolution
+  @listeners_invoker : AORM::ListenersInvoker
+  @event_dispatcher : ACTR::EventDispatcher::Interface?
 
   getter identifier_flattener : AORM::Utility::IdentifierFlattener { AORM::Utility::IdentifierFlattener.new(self, @em.metadata_factory) }
 
-  def initialize(@em : AORM::EntityManagerInterface)
+  def initialize(
+    @em : AORM::EntityManagerInterface,
+  )
+    @event_dispatcher = @em.event_dispatcher
+    @listeners_invoker = AORM::ListenersInvoker.new @em
   end
 
   def commit : Nil
     # TODO: Ensure connected to primary
 
-    # TODO: Handle eventing (preFlush)
+    self.dispatch_pre_flush_event
 
     self.compute_changesets
 
     # Nothing to do
     if @entity_deletions.empty? && @entity_insertions.empty? && @entity_updates.empty? && @orphan_removals.empty? && @collection_deletions.empty? && @collection_updates.empty?
-      # TODO: Handle eventing (onFlush/postFlush)
+      self.dispatch_on_flush_event
+      self.dispatch_post_flush_event
 
       self.post_commit_cleanup
 
@@ -139,7 +146,7 @@ class Athena::ORM::UnitOfWork
       self.remove orphan
     end
 
-    # TODO: Handle eventing (onFlush)
+    self.dispatch_on_flush_event
 
     @em.transaction do
       # Collection deletions (deletions of complete collections)
@@ -156,7 +163,7 @@ class Athena::ORM::UnitOfWork
         # into account (new entities referring to other new entities), since all other types (entities
         # with updates or scheduled deletions) are currently not a problem, since they are already
         # in the database.
-        self.execute_inserts @em.class_metadata entity.class
+        self.execute_inserts
       end
 
       unless @entity_updates.empty?
@@ -192,9 +199,21 @@ class Athena::ORM::UnitOfWork
       collection.take_snapshot
     end
 
-    # TODO: Handle eventing (postFlush)
+    self.dispatch_post_flush_event
 
     self.post_commit_cleanup
+  end
+
+  private def dispatch_pre_flush_event : Nil
+    @event_dispatcher.try &.dispatch AORM::Events::PreFlushEventArgs.new @em
+  end
+
+  private def dispatch_on_flush_event : Nil
+    @event_dispatcher.try &.dispatch AORM::Events::OnFlushEventArgs.new @em
+  end
+
+  private def dispatch_post_flush_event : Nil
+    @event_dispatcher.try &.dispatch AORM::Events::PostFlushEventArgs.new @em
   end
 
   private def after_transaction_rolled_back : Nil
@@ -265,15 +284,14 @@ class Athena::ORM::UnitOfWork
     @pending_collection_element_removals.clear
   end
 
-  private def execute_inserts(class_metadata : AORM::Mapping::ClassInterface) : Nil
+  private def execute_inserts : Nil
     batched_by_type = InsertBatch.batch_by_entity_type @em, self.compute_insert_execution_order
-    # TODO: Handle eventing
+    events_to_dispatch = Array({AORM::Mapping::ClassInterface, AORM::Entity}).new
 
     batched_by_type.each do |batch|
-      class_metadata = batch.class_metadata
-      # TODO: Handle eventing
+      cm = batch.class_metadata
 
-      persister = self.entity_persister class_metadata.entity_class
+      persister = self.entity_persister cm.entity_class
 
       batch.entities.each do |entity|
         persister.add_insert entity
@@ -284,14 +302,16 @@ class Athena::ORM::UnitOfWork
 
       batch.entities.each do |entity|
         unless @entity_identifiers.has_key? entity
-          self.add_to_entity_identifier_and_entity_map class_metadata, entity
+          self.add_to_entity_identifier_and_entity_map cm, entity
         end
 
-        # TODO: Handle eventing
+        events_to_dispatch << {cm, entity}
       end
     end
 
-    # TODO: Handle eventing (postPersist)
+    events_to_dispatch.each do |(m, e)|
+      @listeners_invoker.invoke m, e, m.create_post_persist_event e, @em
+    end
   end
 
   protected def compute_insert_execution_order : Array(AORM::Entity)
@@ -352,7 +372,10 @@ class Athena::ORM::UnitOfWork
     @entity_updates.each do |entity|
       class_metadata = @em.class_metadata entity.class
       persister = self.entity_persister class_metadata.entity_class
-      # TODO: Handle eventing (preUpdate)
+
+      @listeners_invoker.invoke class_metadata, entity, class_metadata.create_pre_update_event entity, @em
+
+      self.recompute_single_entity_change_set class_metadata, entity
 
       unless @entity_change_sets[entity]?.try &.empty?
         persister.update entity
@@ -360,20 +383,19 @@ class Athena::ORM::UnitOfWork
 
       @entity_updates.delete entity
 
-      # TODO: Handle eventing (postUpdate)
+      @listeners_invoker.invoke class_metadata, entity, class_metadata.create_post_update_event entity, @em
     end
   end
 
   private def execute_deletions : Nil
     entities = self.compute_delete_execution_order
-    # TODO: Handle eventing
+    events_to_dispatch = Array({AORM::Mapping::ClassInterface, AORM::Entity}).new
 
     entities.each do |entity|
       self.remove_from_identity_map entity
 
       class_metadata = @em.class_metadata entity.class
       persister = self.entity_persister class_metadata.entity_class
-      # TODO: Handle eventing
 
       persister.delete entity
 
@@ -388,10 +410,12 @@ class Athena::ORM::UnitOfWork
         class_metadata.field_info[class_metadata.identifier.first].set_value entity, nil
       end
 
-      # TODO: Handle eventing
+      events_to_dispatch << {class_metadata, entity}
     end
 
-    # TODO: Handle eventing
+    events_to_dispatch.each do |(m, e)|
+      @listeners_invoker.invoke m, e, m.create_post_remove_event e, @em
+    end
   end
 
   private def compute_delete_execution_order : Array(AORM::Entity)
@@ -488,10 +512,15 @@ class Athena::ORM::UnitOfWork
     # can cause problems when a lazy proxy has to be initialized for the cascade operation.
     self.cascade_remove entity, visited
 
+    class_metadata = @em.class_metadata entity.class
+
     case self.entity_state entity
-    in .new?, .removed? then return                                 # noop
-    in .managed?        then self.schedule_for_delete entity        # TODO: Handle eventing (preRemove)
-    in .detached?       then raise "Cannot removed detached entity" # TODO: Make this an actual exception
+    in .new?, .removed? then return # noop
+    in .managed?
+      @listeners_invoker.invoke class_metadata, entity, Events::PreRemoveEventArgs.new entity, @em
+
+      self.schedule_for_delete entity
+    in .detached? then raise "Cannot removed detached entity" # TODO: Make this an actual exception
     end
   end
 
@@ -628,6 +657,8 @@ class Athena::ORM::UnitOfWork
 
   private def persist_new(class_metadata : AORM::Mapping::ClassInterface, entity : AORM::Entity) : Nil
     # TODO: Handle eventing
+
+    @listeners_invoker.invoke class_metadata, entity, Events::PrePersistEventArgs.new entity, @em
 
     id_generator = class_metadata.id_generator
 
@@ -767,6 +798,8 @@ class Athena::ORM::UnitOfWork
     @extra_updates.clear
     @visited_collections.clear
     @pending_collection_element_removals.clear
+
+    @event_dispatcher.try &.dispatch Events::OnClearEventArgs.new @em
   end
 
   def single_identifier_value(entity : AORM::Entity)
@@ -1008,6 +1041,7 @@ class Athena::ORM::UnitOfWork
     end
   end
 
+  # ameba:disable Metrics/CyclomaticComplexity
   private def compute_change_set(class_metadata : AORM::Mapping::ClassInterface, entity : AORM::Entity) : Nil
     # TODO: Handle readonly objects
 
@@ -1015,9 +1049,10 @@ class Athena::ORM::UnitOfWork
       class_metadata = @em.class_metadata entity.class
     end
 
+    @listeners_invoker.invoke class_metadata, entity, Events::PreFlushEventArgs.new @em
+
     actual_data = Hash(String, Mapping::Value).new
 
-    # TODO: Invoke listeners
     class_metadata.field_info.each do |name, prop|
       if (assoc = class_metadata.association_mappings[name]?) && assoc.is_a?(Mapping::ToMany)
         # Promote a user-assigned ArrayCollection (or a PersistentCollection owned by another entity) into a PersistentCollection owned by this entity.
@@ -1154,7 +1189,7 @@ class Athena::ORM::UnitOfWork
 
     target_class_metadata = @em.class_metadata assoc.target_entity
 
-    unwrapped_value.each_with_index do |entity, idx|
+    unwrapped_value.each_with_index do |entity, _|
       raise "BUG: unwrapped_value is not an entity" unless entity.is_a? AORM::Entity
 
       case self.entity_state(entity, EntityState::New)
@@ -1183,6 +1218,53 @@ class Athena::ORM::UnitOfWork
       else
         # noop
       end
+    end
+  end
+
+  private def recompute_single_entity_change_set(class_metadata : AORM::Mapping::ClassInterface, entity : AORM::Entity) : Nil
+    raise "Entity is not managed" unless @entity_states[entity]? == EntityState::Managed
+
+    unless class_metadata.inheritance_type.none?
+      class_metadata = @em.class_metadata entity.class
+    end
+
+    actual_data = Hash(String, Mapping::Value).new
+
+    class_metadata.field_info.each do |name, prop|
+      next if (assoc = class_metadata.association_mappings[name]?) && assoc.is_a?(Mapping::ToMany)
+
+      # TODO: Skip version field
+      if !class_metadata.is_identifier(name) || !class_metadata.identifier_identity?
+        actual_data[name] = prop.create_column_value entity
+      end
+    end
+
+    unless original_data = @original_entity_data[entity]?
+      raise "Cannot call recompute_single_entity_change_set before compute_change_set on an entity"
+    end
+
+    change_set = Hash(String, Change).new
+
+    actual_data.each do |prop_name, actual_value|
+      original_value = original_data[prop_name]?.try &.value
+      actual_inner = actual_value.value
+
+      # TODO: Handle enum types
+
+      next if original_value == actual_inner
+
+      change_set[prop_name] = class_metadata.field_info[prop_name].create_change original_value, actual_inner
+    end
+
+    unless change_set.empty?
+      if existing = @entity_change_sets[entity]?
+        @entity_change_sets[entity] = existing.merge change_set
+      elsif !@entity_insertions.includes?(entity)
+        @entity_change_sets[entity] = change_set
+        @entity_updates << entity
+      end
+
+      @original_entity_data[entity] = actual_data
     end
   end
 

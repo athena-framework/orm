@@ -9,8 +9,12 @@ class Athena::ORM::EntityManager
   getter! metadata_factory : AORM::Mapping::ClassFactory
 
   @repository_factory : AORM::RepositoryFactoryInterface
+  getter event_dispatcher : ACTR::EventDispatcher::Interface?
 
-  def initialize(connection : DB::Connection)
+  def initialize(
+    connection : DB::Connection,
+    @event_dispatcher : ACTR::EventDispatcher::Interface? = nil,
+  )
     @connection = AORM::Connection.new(connection)
     @repository_factory = AORM::DefaultRepositoryFactory.new
 

@@ -78,6 +78,10 @@ class MockEntityManager < AORM::EntityManager
     super connection
   end
 
+  def initialize(connection : DB::Connection, event_dispatcher : ACTR::EventDispatcher::Interface)
+    super connection, event_dispatcher
+  end
+
   def unit_of_work : AORM::UnitOfWork
     @uow_mock || super
   end

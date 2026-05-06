@@ -14,4 +14,13 @@ module Athena::ORM::Annotations
   annotation Embeddable; end
   annotation JoinColumn; end
   annotation InverseJoinColumn; end
+
+  annotation PostLoad; end
+  annotation PostPersist; end
+  annotation PostRemove; end
+  annotation PostUpdate; end
+  annotation PreFlush; end
+  annotation PrePersist; end
+  annotation PreRemove; end
+  annotation PreUpdate; end
 end
