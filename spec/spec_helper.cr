@@ -126,7 +126,9 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
     @execute_insert_call_count += 1
 
     @post_insert_ids.each do |pi|
-      @em.unit_of_work.assign_post_insert_id pi.entity, pi.generated_id
+      id_field = @class_metadata.single_identifier_field_name
+      id_hash = {id_field => AORM::Mapping::SingleValue.new(pi.generated_id.as(::DB::Any)).as(AORM::Mapping::Value)}
+      @em.unit_of_work.assign_post_insert_id pi.entity, id_hash
     end
   end
 
@@ -255,15 +257,19 @@ end
 class MockConnection < DB::Connection
   @last_insert_ids : Array(AORM::Mapping::Value) = [] of AORM::Mapping::Value
 
+  getter built_statements : Array(String) = [] of String
+
   def self.new
     new DB::Connection::Options.new
   end
 
   def build_prepared_statement(query) : DB::Statement
+    @built_statements << query
     MockStatement.new self, query
   end
 
   def build_unprepared_statement(query) : DB::Statement
+    @built_statements << query
     MockStatement.new self, query
   end
 
@@ -280,6 +286,34 @@ class MockConnection < DB::Connection
 
   def last_insert_id
     @last_insert_ids.shift.value
+  end
+end
+
+# Variant whose `database_platform` returns a non-RETURNING-supporting platform.
+# Drives the LASTVAL fallback path (`IdentityGenerator` / `BigIntegerIdentityGenerator`).
+class MockMariaConnection < MockConnection
+  getter database_platform : AORM::Platforms::Platform do
+    NoReturningPlatform.new
+  end
+end
+
+# Standalone platform for tests that need `supports_returning? == false` without
+# pulling in MariaDB-specific declaration SQL. Inherits Platform's defaults.
+class NoReturningPlatform < AORM::Platforms::Platform
+  def boolean_type_declaration_sql(column : AORM::Schema::Column) : String
+    "BOOLEAN"
+  end
+
+  def integer_type_declaration_sql(column : AORM::Schema::Column) : String
+    "INTEGER"
+  end
+
+  def big_int_type_declaration_sql(column : AORM::Schema::Column) : String
+    "BIGINT"
+  end
+
+  private def common_integer_type_declaration_sql(column : AORM::Schema::Column) : String
+    ""
   end
 end
 

@@ -18,6 +18,25 @@ class CompositePkItem < AORM::Entity
   property! label : String
 end
 
+# Composite-PK + auto-gen: only viable through the RETURNING path, since
+# `LASTVAL()` can only return a single column.
+@[AORMA::Entity]
+@[AORMA::Table(name: "composite_auto_items")]
+class CompositeAutoItem < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! tenant_id : Int64
+
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! item_id : Int64
+
+  @[AORMA::Column]
+  property! label : String
+end
+
 # OneToMany inverse-side / ManyToOne owning-side pair, used to drive the inverse-side branch in `select_condition_statement_column_sql`.
 @[AORMA::Entity]
 @[AORMA::Table(name: "tag_owners")]
@@ -495,6 +514,49 @@ struct BasicPersisterTest < ASPEC::TestCase
     sql = persister.order_by_sql({"tenant_id" => "ASC", "item_id" => "DESC"}, "t0")
 
     sql.should eq " ORDER BY t0.tenant_id ASC, t0.item_id DESC"
+  end
+
+  def test_execute_inserts_appends_returning_clause_on_supporting_platform : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(CompositeAutoItem)
+
+    item = CompositeAutoItem.new
+    item.label = "widget"
+
+    em.unit_of_work.persist item
+    persister.add_insert item
+    persister.execute_inserts
+
+    insert_sql = connection.built_statements.last
+    insert_sql.should match(/INSERT INTO\s+composite_auto_items\b/)
+    insert_sql.should match(/\bRETURNING\s+tenant_id,\s*item_id\b/)
+    item.tenant_id.should eq 1_i64
+    item.item_id.should eq 1_i64
+  end
+
+  def test_execute_inserts_emits_plain_insert_on_non_returning_platform : Nil
+    connection = MockMariaConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(ForumUser)
+
+    avatar = ForumAvatar.new
+    em.unit_of_work.register_managed avatar, {"id" => 99}, {"id" => 99}
+
+    user = ForumUser.new
+    user.username = "fred"
+    user.avatar = avatar
+
+    connection.push_ids Int32, 42
+
+    em.unit_of_work.persist user
+    persister.add_insert user
+    persister.execute_inserts
+
+    insert_sql = connection.built_statements.last
+    insert_sql.should match(/INSERT INTO\s+forum_users\b/)
+    insert_sql.should_not match(/\bRETURNING\b/)
+    user.id.should eq 42
   end
 
   private def build_persister : AORM::Persisters::Entity::Basic

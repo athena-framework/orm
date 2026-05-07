@@ -32,4 +32,8 @@ class Athena::ORM::Platforms::SQLite < Athena::ORM::Platforms::Platform
 
     super sql, limit, offset
   end
+
+  def supports_returning? : Bool
+    true
+  end
 end

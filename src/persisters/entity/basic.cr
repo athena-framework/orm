@@ -152,23 +152,36 @@ class Athena::ORM::Persisters::Entity::Basic
 
     uow = @em.unit_of_work
     id_generator = @class_metadata.id_generator
-    is_post_insert_id = id_generator.post_insert?
 
-    statement = @connection.build self.insert_sql
+    sql = self.insert_sql
+    if id_generator.is_a?(AORM::ID::RowConsumingGenerator)
+      returning_cols = @class_metadata.identifier.map { |f| @quote_strategy.column_name f, @class_metadata, @platform }
+      sql = "#{sql} #{@platform.returning_keyword_sql} #{returning_cols.join(", ")}"
+    end
+
+    statement = @connection.build sql
     table_name = @class_metadata.table_name
 
     @queued_inserts.each do |entity|
       insert_data = self.prepare_insert_data entity
-
       # Unwrap at the DB-binding boundary.
-      statement.exec args: insert_data[table_name].values.map(&.value.as(DB::Any))
+      params = insert_data[table_name].values.map(&.value.as(DB::Any))
 
-      if is_post_insert_id
+      if id_generator.is_a?(AORM::ID::RowConsumingGenerator)
+        id_hash = statement.query(args: params) do |rs|
+          raise ::DB::NoResultsError.new "INSERT ... RETURNING produced no rows for #{@class_metadata.entity_class}" unless rs.move_next
+          id_generator.consume_row rs, @class_metadata, @platform
+        end
+        uow.assign_post_insert_id entity, id_hash
+        id = id_hash
+      elsif id_generator.post_insert?
+        statement.exec args: params
         generated_id = id_generator.generate @em, entity
-        id = {@class_metadata.identifier.first => generated_id}
-
-        uow.assign_post_insert_id entity, generated_id
+        id_hash = {@class_metadata.identifier.first => Mapping::SingleValue.new(generated_id.as(DB::Any)).as(Mapping::Value)}
+        uow.assign_post_insert_id entity, id_hash
+        id = id_hash
       else
+        statement.exec args: params
         id = @class_metadata.identifier_values entity
       end
 
@@ -259,12 +272,11 @@ class Athena::ORM::Persisters::Entity::Basic
         next
       end
 
-      if !@class_metadata.id_generator_type.identity? || @class_metadata.identifier.first != name
-        next if @class_metadata.field_mappings[name].not_insertable
+      next if @class_metadata.id_generator_type.identity? && @class_metadata.identifier.includes?(name)
+      next if @class_metadata.field_mappings[name].not_insertable
 
-        columns << @quote_strategy.column_name name, @class_metadata, @platform
-        @column_types[name] = @class_metadata.field_mappings[name].type
-      end
+      columns << @quote_strategy.column_name name, @class_metadata, @platform
+      @column_types[name] = @class_metadata.field_mappings[name].type
     end
 
     columns

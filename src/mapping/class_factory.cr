@@ -51,13 +51,14 @@ class Athena::ORM::Mapping::ClassFactory < Athena::ORM::Mapping::AbstractClassFa
 
     case metadata.id_generator_type
     when .identity?
-      sequence_name = nil
-      field_name = !metadata.identifier.empty? ? metadata.single_identifier_field_name : nil
       platform = self.target_platform
 
-      generator = field_name && metadata.field_mappings[field_name].type == "bigint" ? AORM::ID::BigIntegerIdentityGenerator.new : AORM::ID::IdentityGenerator.new
-
-      metadata.id_generator = generator
+      metadata.id_generator = if platform.supports_returning?
+                                AORM::ID::ReturningGenerator.new
+                              else
+                                field_name = metadata.identifier.empty? ? nil : metadata.single_identifier_field_name
+                                field_name && metadata.field_mappings[field_name].type == "bigint" ? AORM::ID::BigIntegerIdentityGenerator.new : AORM::ID::IdentityGenerator.new
+                              end
     when .none?
       metadata.id_generator = AORM::ID::AssignedGenerator.new
     else

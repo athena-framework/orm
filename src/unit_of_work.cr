@@ -236,25 +236,25 @@ class Athena::ORM::UnitOfWork
     @entity_updates
   end
 
-  def assign_post_insert_id(entity : AORM::Entity, id) : Nil
+  def assign_post_insert_id(entity : AORM::Entity, id_hash : Hash(String, Mapping::Value)) : Nil
     class_metadata = @em.class_metadata entity.class
-    id_field = class_metadata.single_identifier_field_name
-    id_value = self.convert_single_field_identifier_to_crystal_value class_metadata, id
+    typed_id_hash = Hash(String, Mapping::Value).new
 
-    class_metadata.assign_identifier entity, id_field, id_value
+    id_hash.each do |id_field, value_wrapper|
+      typed_value = self.convert_field_identifier_to_crystal_value class_metadata, id_field, value_wrapper.value
+      class_metadata.assign_identifier entity, id_field, typed_value
+      typed_id_hash[id_field] = class_metadata.create_column_value(id_field, typed_value).as Mapping::Value
+      @original_entity_data[entity][id_field] = typed_id_hash[id_field]
+    end
 
-    @entity_identifiers[entity] = {id_field => class_metadata.create_column_value(id_field, id_value).as Mapping::Value}
+    @entity_identifiers[entity] = typed_id_hash
     @entity_states[entity] = :managed
-    @original_entity_data[entity][id_field] = class_metadata.create_column_value id_field, id_value
 
     self.add_to_identity_map entity
   end
 
-  private def convert_single_field_identifier_to_crystal_value(class_metadata : Mapping::ClassInterface, value : _)
-    @em.connection.convert_to_crystal_value(
-      value,
-      class_metadata.type_of_field class_metadata.single_identifier_field_name
-    )
+  private def convert_field_identifier_to_crystal_value(class_metadata : Mapping::ClassInterface, field_name : String, value : _)
+    @em.connection.convert_to_crystal_value value, class_metadata.type_of_field(field_name)
   end
 
   private def assert_that_there_are_no_unintentionally_non_persisted_associations : Nil

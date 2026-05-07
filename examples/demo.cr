@@ -92,7 +92,7 @@ DATABASES = {
     ],
   },
   "mariadb" => {
-    connection_string: "mysql://blog_user:mYAw3s0meB!og@localhost:3306/mariadb",
+    connection_string: "mysql://blog_user:mYAw3s0meB!og@localhost:3306/mariadb?ssl-mode=disabled",
     schema:            [
       "DROP TABLE IF EXISTS user_group",
       "DROP TABLE IF EXISTS posts",

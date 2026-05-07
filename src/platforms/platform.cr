@@ -34,6 +34,14 @@ abstract class Athena::ORM::Platforms::Platform
     "INSERT INTO #{quoted_table_name} (#{quoted_identifier_column_name}) VALUES (null)"
   end
 
+  def supports_returning? : Bool
+    false
+  end
+
+  def returning_keyword_sql : String
+    "RETURNING"
+  end
+
   # Passthrough by default: the underlying driver binds `Bool` natively against boolean columns (Postgres `BOOLEAN`, SQLite stored as `INTEGER 0/1`), so there's no value conversion to do at this layer. D
   def convert_booleans_to_db_value(value : Bool?) : Bool?
     value
