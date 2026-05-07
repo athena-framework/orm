@@ -123,7 +123,7 @@ abstract class Athena::ORM::Internal::Hydrators::Abstract
 
       value = type ? type.to_crystal_value(rs, @platform) : rs.read
 
-      row_data.data[alias_name][field_name] = Mapping::SingleValue.new value
+      row_data.data[alias_name][field_name] = Mapping::SingleValue.new value.as(DB::Any)
 
       # TODO: Handle enum types
 

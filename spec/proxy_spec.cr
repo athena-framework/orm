@@ -150,9 +150,9 @@ struct ProxyHydrationTest < ASPEC::TestCase
     @uow.set_entity_persister ProxyAvatar, avatar_persister
 
     data = Hash(String, AORM::Mapping::Value).new
-    data["id"] = AORM::Mapping::SingleValue(Int32).new(1)
-    data["name"] = AORM::Mapping::SingleValue(String).new("alice")
-    data["avatar_id"] = AORM::Mapping::SingleValue(Int32).new(99)
+    data["id"] = AORM::Mapping::SingleValue.new(1)
+    data["name"] = AORM::Mapping::SingleValue.new("alice")
+    data["avatar_id"] = AORM::Mapping::SingleValue.new(99)
 
     owner = @uow.create_entity(ProxyOwner, data).as ProxyOwner
 
@@ -172,9 +172,9 @@ struct ProxyHydrationTest < ASPEC::TestCase
     @uow.register_managed existing.as(AORM::Entity), {"id" => 99}, {"id" => 99}
 
     data = Hash(String, AORM::Mapping::Value).new
-    data["id"] = AORM::Mapping::SingleValue(Int32).new(1)
-    data["name"] = AORM::Mapping::SingleValue(String).new("alice")
-    data["avatar_id"] = AORM::Mapping::SingleValue(Int32).new(99)
+    data["id"] = AORM::Mapping::SingleValue.new(1)
+    data["name"] = AORM::Mapping::SingleValue.new("alice")
+    data["avatar_id"] = AORM::Mapping::SingleValue.new(99)
 
     owner = @uow.create_entity(ProxyOwner, data).as ProxyOwner
 
@@ -199,9 +199,9 @@ struct ProxyHydrationTest < ASPEC::TestCase
     avatar_persister.mock_load_result = canned
 
     data = Hash(String, AORM::Mapping::Value).new
-    data["id"] = AORM::Mapping::SingleValue(Int32).new(1)
-    data["name"] = AORM::Mapping::SingleValue(String).new("alice")
-    data["avatar_id"] = AORM::Mapping::SingleValue(Int32).new(99)
+    data["id"] = AORM::Mapping::SingleValue.new(1)
+    data["name"] = AORM::Mapping::SingleValue.new("alice")
+    data["avatar_id"] = AORM::Mapping::SingleValue.new(99)
 
     owner = @uow.create_entity(ProxyOwner, data).as ProxyOwner
     proxy = owner.avatar.as AORM::Proxy(ProxyAvatar)

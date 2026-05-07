@@ -436,8 +436,8 @@ struct UnitOfWorkTest < ASPEC::TestCase
     group_persister.canned_entities = [build_cms_group(1, "admins"), build_cms_group(2, "devs")] of AORM::Entity
 
     data = Hash(String, AORM::Mapping::Value).new
-    data["id"] = AORM::Mapping::SingleValue(Int32).new(7)
-    data["username"] = AORM::Mapping::SingleValue(String).new("fred")
+    data["id"] = AORM::Mapping::SingleValue.new(7)
+    data["username"] = AORM::Mapping::SingleValue.new("fred")
     user = @uow.create_entity(CmsUser, data).as CmsUser
     pc = user.groups.as(AORM::PersistentCollection(CmsGroup))
 
@@ -461,8 +461,8 @@ struct UnitOfWorkTest < ASPEC::TestCase
     # Drive the hydration path so the user gets an injected (uninitialized)
     # PersistentCollection for `groups`, the same as a real `find!` would.
     data = Hash(String, AORM::Mapping::Value).new
-    data["id"] = AORM::Mapping::SingleValue(Int32).new(1)
-    data["username"] = AORM::Mapping::SingleValue(String).new("fred")
+    data["id"] = AORM::Mapping::SingleValue.new(1)
+    data["username"] = AORM::Mapping::SingleValue.new("fred")
     user = @uow.create_entity(CmsUser, data).as CmsUser
     pc = user.groups.as(AORM::PersistentCollection(CmsGroup))
     pc.loaded?.should be_false
@@ -481,8 +481,8 @@ struct UnitOfWorkTest < ASPEC::TestCase
 
     avatar1 = ForumAvatar.new
     avatar2 = ForumAvatar.new
-    val1 = AORM::Mapping::SingleValue(AORM::Entity?).new(avatar1)
-    val2 = AORM::Mapping::SingleValue(AORM::Entity?).new(avatar2)
+    val1 = AORM::Mapping::SingleValue.new(avatar1)
+    val2 = AORM::Mapping::SingleValue.new(avatar2)
 
     @uow.schedule_extra_update user, {"avatar" => AORM::UnitOfWork::Change.new(nil, val1)}
     @uow.schedule_extra_update user, {"username" => AORM::UnitOfWork::Change.new(nil, val2)}
@@ -508,7 +508,7 @@ struct UnitOfWorkTest < ASPEC::TestCase
     # The cycle-style write would normally be wired via a persister, but here we
     # poke the UoW directly to verify the update fires after the main inserts.
     @uow.persist user
-    avatar_value = AORM::Mapping::SingleValue(AORM::Entity?).new(avatar)
+    avatar_value = AORM::Mapping::SingleValue.new(avatar)
     @uow.schedule_extra_update user, {"avatar" => AORM::UnitOfWork::Change.new(nil, avatar_value)}
 
     @uow.commit
@@ -659,27 +659,27 @@ struct UnitOfWorkTest < ASPEC::TestCase
     {
       "nil string" => {
         EntityWithStringIdentifier.new,
-        {"id" => AORM::Mapping::ColumnValue(String?).new("id", nil).as(AORM::Mapping::Value)},
+        {"id" => AORM::Mapping::ColumnValue.new("id", nil).as(AORM::Mapping::Value)},
       },
       "composite, both nil" => {
         EntityWithCompositeStringIdentifier.new,
         {
-          "id1" => AORM::Mapping::ColumnValue(String?).new("id1", nil).as(AORM::Mapping::Value),
-          "id2" => AORM::Mapping::ColumnValue(String?).new("id2", nil).as(AORM::Mapping::Value),
+          "id1" => AORM::Mapping::ColumnValue.new("id1", nil).as(AORM::Mapping::Value),
+          "id2" => AORM::Mapping::ColumnValue.new("id2", nil).as(AORM::Mapping::Value),
         },
       },
       "composite, first field nil" => {
         EntityWithCompositeStringIdentifier.new,
         {
-          "id1" => AORM::Mapping::ColumnValue(String?).new("id1", nil).as(AORM::Mapping::Value),
-          "id2" => AORM::Mapping::ColumnValue(String?).new("id2", "bar").as(AORM::Mapping::Value),
+          "id1" => AORM::Mapping::ColumnValue.new("id1", nil).as(AORM::Mapping::Value),
+          "id2" => AORM::Mapping::ColumnValue.new("id2", "bar").as(AORM::Mapping::Value),
         },
       },
       "composite, second field nil" => {
         EntityWithCompositeStringIdentifier.new,
         {
-          "id1" => AORM::Mapping::ColumnValue(String?).new("id1", "foo").as(AORM::Mapping::Value),
-          "id2" => AORM::Mapping::ColumnValue(String?).new("id2", nil).as(AORM::Mapping::Value),
+          "id1" => AORM::Mapping::ColumnValue.new("id1", "foo").as(AORM::Mapping::Value),
+          "id2" => AORM::Mapping::ColumnValue.new("id2", nil).as(AORM::Mapping::Value),
         },
       },
     }
@@ -1249,7 +1249,7 @@ struct UnitOfWorkTest < ASPEC::TestCase
 
     other = CmsPhonenumber.new
     other.phonenumber = "555-0003"
-    @uow.@entity_identifiers[other] = {"phonenumber" => AORM::Mapping::ColumnValue(String).new("phonenumber", "555-0003").as(AORM::Mapping::Value)}
+    @uow.@entity_identifiers[other] = {"phonenumber" => AORM::Mapping::ColumnValue.new("phonenumber", "555-0003").as(AORM::Mapping::Value)}
 
     expect_raises(Exception, /identity collision/) do
       @uow.add_to_identity_map other
@@ -1348,11 +1348,11 @@ struct UnitOfWorkTest < ASPEC::TestCase
     @uow.register_managed avatar, {"id" => 42}, {"id" => 42}
 
     data = Hash(String, AORM::Mapping::Value).new
-    data["id"] = AORM::Mapping::SingleValue(Int32).new(7)
-    data["username"] = AORM::Mapping::SingleValue(String).new("fred")
+    data["id"] = AORM::Mapping::SingleValue.new(7)
+    data["username"] = AORM::Mapping::SingleValue.new("fred")
     # The hydrator's meta-mapping branch deposits FK columns under the
     # column name (not the assoc field name) in the row data hash.
-    data["avatar_id"] = AORM::Mapping::SingleValue(Int32).new(42)
+    data["avatar_id"] = AORM::Mapping::SingleValue.new(42)
 
     user = @uow.create_entity(ForumUser, data).as ForumUser
 
@@ -1374,9 +1374,9 @@ struct UnitOfWorkTest < ASPEC::TestCase
     @uow.set_entity_persister ForumAvatar, avatar_persister
 
     data = Hash(String, AORM::Mapping::Value).new
-    data["id"] = AORM::Mapping::SingleValue(Int32).new(7)
-    data["username"] = AORM::Mapping::SingleValue(String).new("fred")
-    data["avatar_id"] = AORM::Mapping::SingleValue(Int32).new(99)
+    data["id"] = AORM::Mapping::SingleValue.new(7)
+    data["username"] = AORM::Mapping::SingleValue.new("fred")
+    data["avatar_id"] = AORM::Mapping::SingleValue.new(99)
 
     user = @uow.create_entity(ForumUser, data).as ForumUser
 
@@ -1628,8 +1628,8 @@ struct UnitOfWorkTest < ASPEC::TestCase
     @uow.set_entity_persister CmsGroup, group_persister
 
     data = Hash(String, AORM::Mapping::Value).new
-    data["id"] = AORM::Mapping::SingleValue(Int32).new(7)
-    data["username"] = AORM::Mapping::SingleValue(String).new("fred")
+    data["id"] = AORM::Mapping::SingleValue.new(7)
+    data["username"] = AORM::Mapping::SingleValue.new("fred")
     user = @uow.create_entity(CmsUser, data).as CmsUser
     pc = user.groups.as(AORM::PersistentCollection(CmsGroup))
     pc.loaded?.should be_false
@@ -1650,7 +1650,7 @@ struct UnitOfWorkTest < ASPEC::TestCase
     @uow.set_entity_persister InverseO2OOwner, capturing
 
     data = Hash(String, AORM::Mapping::Value).new
-    data["id"] = AORM::Mapping::SingleValue(Int32).new(3)
+    data["id"] = AORM::Mapping::SingleValue.new(3)
     target = @uow.create_entity(InverseO2OTarget, data).as InverseO2OTarget
 
     capturing.one_to_one_calls.should be_empty
@@ -1672,14 +1672,14 @@ struct UnitOfWorkTest < ASPEC::TestCase
     @uow.set_entity_persister CmsGroup, group_persister
 
     data1 = Hash(String, AORM::Mapping::Value).new
-    data1["id"] = AORM::Mapping::SingleValue(Int32).new(1)
-    data1["username"] = AORM::Mapping::SingleValue(String).new("alice")
+    data1["id"] = AORM::Mapping::SingleValue.new(1)
+    data1["username"] = AORM::Mapping::SingleValue.new("alice")
     user1 = @uow.create_entity(CmsUser, data1).as CmsUser
     pc1 = user1.groups.as(AORM::PersistentCollection(CmsGroup))
 
     data2 = Hash(String, AORM::Mapping::Value).new
-    data2["id"] = AORM::Mapping::SingleValue(Int32).new(2)
-    data2["username"] = AORM::Mapping::SingleValue(String).new("bob")
+    data2["id"] = AORM::Mapping::SingleValue.new(2)
+    data2["username"] = AORM::Mapping::SingleValue.new("bob")
     user2 = @uow.create_entity(CmsUser, data2).as CmsUser
     pc2 = user2.groups.as(AORM::PersistentCollection(CmsGroup))
 

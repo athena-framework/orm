@@ -7,7 +7,7 @@ struct Athena::ORM::ID::AssignedGenerator < Athena::ORM::ID::AbstractGenerator
     identifier = Hash(String, Mapping::Value).new
 
     class_metadata.identifier.each do |id_field|
-      value = class_metadata.field_info[id_field].create_column_value entity
+      value = class_metadata.create_column_value_from_entity id_field, entity
 
       if value.nil?
         raise "entity missing assigned ID"

@@ -1,4 +1,6 @@
 abstract class Athena::ORM::Entity
+  include Athena::ORM::Storable
+
   macro inherited
     # :nodoc:
     #

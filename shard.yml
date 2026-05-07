@@ -29,10 +29,13 @@ development_dependencies:
     github: crystal-ameba/ameba
   pg:
     github: will/crystal-pg
+    commit: c16d54814405e2b9748d9bddc3d8ce0d41d2190f
   mysql:
     github: crystal-lang/crystal-mysql
+    version: ~> 0.17.0
   sqlite3:
     github: crystal-lang/crystal-sqlite3
+    version: ~> 0.23.0
   athena-spec:
     github: athena-framework/spec
     version: ~> 0.4.0

@@ -397,8 +397,8 @@ struct MappingClassTest < ASPEC::TestCase
     entity = SinglePkFixture.allocate
 
     metadata.apply_data entity, {
-      "id"    => AORM::Mapping::ColumnValue(Int64).new("id", 9_i64),
-      "label" => AORM::Mapping::ColumnValue(String).new("label", "wrapped"),
+      "id"    => AORM::Mapping::ColumnValue.new("id", 9_i64),
+      "label" => AORM::Mapping::ColumnValue.new("label", "wrapped"),
     }
 
     entity.id.should eq 9_i64

@@ -19,13 +19,13 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
   getter! back_ref_field_name : String
   @collection : AORM::ArrayCollection(T)
   @em : AORM::EntityManagerInterface?
-  @class_metadata : Mapping::ClassInterface?
+  @class_metadata : AORM::Mapping::ClassInterface?
 
   # Creates a PersistentCollection backed by an ArrayCollection.
   # Used by the ORM when loading entities.
   def initialize(
     em : AORM::EntityManagerInterface,
-    class_metadata : Mapping::ClassInterface,
+    class_metadata : AORM::Mapping::ClassInterface,
     collection : Athena::ORM::ArrayCollection(T),
   )
     @em = em

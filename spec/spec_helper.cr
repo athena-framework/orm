@@ -274,7 +274,7 @@ class MockConnection < DB::Connection
 
   def push_ids(type : T.class, *ids) : Nil forall T
     ids.each do |id|
-      @last_insert_ids << AORM::Mapping::ColumnValue(T).new "id", id
+      @last_insert_ids << AORM::Mapping::ColumnValue.new "id", id
     end
   end
 

@@ -243,9 +243,9 @@ class Athena::ORM::UnitOfWork
 
     class_metadata.assign_identifier entity, id_field, id_value
 
-    @entity_identifiers[entity] = {id_field => class_metadata.field_info[id_field].create_column_value(id_value).as Mapping::Value}
+    @entity_identifiers[entity] = {id_field => class_metadata.create_column_value(id_field, id_value).as Mapping::Value}
     @entity_states[entity] = :managed
-    @original_entity_data[entity][id_field] = class_metadata.field_info[id_field].create_column_value id_value
+    @original_entity_data[entity][id_field] = class_metadata.create_column_value id_field, id_value
 
     self.add_to_identity_map entity
   end
@@ -351,7 +351,7 @@ class Athena::ORM::UnitOfWork
     identifier = Hash(String, AORM::Mapping::Value).new
 
     class_metadata.identifier.each do |id_field|
-      orig_value = class_metadata.field_info[id_field].get_value entity
+      orig_value = class_metadata.get_field_value entity, id_field
 
       value = nil
       if class_metadata.association_mappings.has_key?(id_field) && orig_value.is_a?(AORM::Entity)
@@ -407,7 +407,7 @@ class Athena::ORM::UnitOfWork
       # This entity after deletion treated as NEW, even if the obtained by a new entity because the old one went out of scope.
       # @entityStates[entity] = :new
       unless class_metadata.identifier_natural?
-        class_metadata.field_info[class_metadata.identifier.first].set_value entity, nil
+        class_metadata.set_field_value entity, class_metadata.identifier.first, nil
       end
 
       events_to_dispatch << {class_metadata, entity}
@@ -589,7 +589,7 @@ class Athena::ORM::UnitOfWork
     association_mappings = class_metadata.association_mappings.select { |_, v| v.cascade_detach? }
 
     association_mappings.each_value do |assoc|
-      related_entities = class_metadata.field_info[assoc.field_name].get_value entity
+      related_entities = class_metadata.get_field_value entity, assoc.field_name
 
       case related_entities
       when AORM::PersistentCollection
@@ -616,7 +616,7 @@ class Athena::ORM::UnitOfWork
     entities_to_cascade = [] of AORM::Entity
 
     association_mappings.each_value do |assoc|
-      related_entities = class_metadata.field_info[assoc.field_name].get_value entity
+      related_entities = class_metadata.get_field_value entity, assoc.field_name
 
       case related_entities
       when AORM::Collection, Enumerable(AORM::Entity)
@@ -667,7 +667,7 @@ class Athena::ORM::UnitOfWork
 
       unless id_generator.is_a? ID::AssignedGenerator
         id_key = class_metadata.single_identifier_field_name
-        id_value = {id_key => class_metadata.field_info[id_key].create_column_value id_value}
+        id_value = {id_key => class_metadata.create_column_value(id_key, id_value)}
 
         class_metadata.set_identifier_values entity, id_value
       end
@@ -679,7 +679,7 @@ class Athena::ORM::UnitOfWork
       if !self.has_missing_ids_which_are_foreign_keys?(class_metadata, id_value) && id_value.is_a?(Hash)
         result = Hash(String, Mapping::Value).new
         id_value.each do |k, v|
-          result[k] = class_metadata.field_info[k].create_column_value v
+          result[k] = class_metadata.create_column_value k, v
         end
 
         @entity_identifiers[entity] = result
@@ -700,7 +700,7 @@ class Athena::ORM::UnitOfWork
     class_metadata = @em.class_metadata entity.class
 
     class_metadata.association_mappings.select { |_, v| v.cascade_persist? }.each_value do |assoc|
-      related_entities = class_metadata.field_info[assoc.field_name].get_value entity
+      related_entities = class_metadata.get_field_value entity, assoc.field_name
 
       if related_entities.is_a? PersistentCollection
         related_entities = related_entities.unwrap
@@ -1053,20 +1053,20 @@ class Athena::ORM::UnitOfWork
 
     actual_data = Hash(String, Mapping::Value).new
 
-    class_metadata.field_info.each do |name, prop|
+    class_metadata.field_info.each do |name, _prop|
       if (assoc = class_metadata.association_mappings[name]?) && assoc.is_a?(Mapping::ToMany)
         # Promote a user-assigned ArrayCollection (or a PersistentCollection owned by another entity) into a PersistentCollection owned by this entity.
-        next if prop.get_value(entity).nil?
+        next if class_metadata.get_field_value(entity, name).nil?
 
         target_metadata = @em.class_metadata assoc.target_entity
-        p_coll = prop.promote_collection entity, @em, target_metadata, assoc
-        actual_data[name] = prop.create_column_value p_coll
+        p_coll = class_metadata.promote_collection name, entity, @em, target_metadata, assoc
+        actual_data[name] = class_metadata.create_column_value name, p_coll
         next
       end
 
       # TODO: Handle versioning
       if (!class_metadata.is_identifier(name) || !class_metadata.identifier_identity?) && true
-        actual_data[name] = prop.create_column_value entity
+        actual_data[name] = class_metadata.create_column_value_from_entity name, entity
       end
     end
 
@@ -1086,7 +1086,7 @@ class Athena::ORM::UnitOfWork
 
         # Regular field
         unless assoc = class_metadata.association_mappings[prop_name]?
-          change_set[prop_name] = class_metadata.field_info[prop_name].create_change original_value, actual_inner
+          change_set[prop_name] = class_metadata.create_change prop_name, original_value, actual_inner
 
           next
         end
@@ -1103,7 +1103,8 @@ class Athena::ORM::UnitOfWork
 
             new_value = actual_inner.clone
             new_value.set_owner entity, assoc
-            class_metadata.field_info[assoc.field_name].set_value entity, new_value
+            # Widen to `Mapping::ValueAny` here so `set_field_value` doesn't fan out to one specialization per `PersistentCollection(T)` member of `actual_inner.clone`'s inferred return union.
+            class_metadata.set_field_value entity, assoc.field_name, new_value.as(Mapping::ValueAny)
           end
         end
 
@@ -1117,7 +1118,7 @@ class Athena::ORM::UnitOfWork
 
         if assoc.is_a? Mapping::ToOne
           if assoc.is_a? Mapping::OwningSide
-            change_set[prop_name] = class_metadata.field_info[prop_name].create_change original_value, actual_inner
+            change_set[prop_name] = class_metadata.create_change prop_name, original_value, actual_inner
           end
 
           if original_value.is_a?(AORM::Entity) && assoc.orphan_removal?
@@ -1128,25 +1129,25 @@ class Athena::ORM::UnitOfWork
 
       unless change_set.empty?
         @entity_change_sets[entity] = change_set
-        @original_entity_data[entity] = actual_data.transform_values { |v, k| class_metadata.field_info[k].create_column_value v }
+        @original_entity_data[entity] = actual_data.transform_values { |v, k| class_metadata.create_column_value k, v }
         @entity_updates << entity
       end
     else
       # Entity is NEW or MANAGED but not yet fully persisted (only has an id).
       # These result in an INSERT
 
-      @original_entity_data[entity] = actual_data.transform_values { |v, k| class_metadata.field_info[k].create_column_value v }
+      @original_entity_data[entity] = actual_data.transform_values { |v, k| class_metadata.create_column_value k, v }
       change_set = Hash(String, Change).new
 
       actual_data.each do |prop_name, actual_value|
         unless assoc = class_metadata.association_mappings[prop_name]?
-          change_set[prop_name] = class_metadata.field_info[prop_name].create_change nil, actual_value.value
+          change_set[prop_name] = class_metadata.create_change prop_name, nil, actual_value.value
 
           next
         end
 
         if assoc.is_a? Mapping::ToOneOwningSide
-          change_set[prop_name] = class_metadata.field_info[prop_name].create_change nil, actual_value.value
+          change_set[prop_name] = class_metadata.create_change prop_name, nil, actual_value.value
         end
       end
 
@@ -1154,7 +1155,7 @@ class Athena::ORM::UnitOfWork
     end
 
     class_metadata.association_mappings.each do |field, assoc|
-      value = class_metadata.field_info[field].get_value entity
+      value = class_metadata.get_field_value entity, field
       next if value.nil?
 
       self.compute_association_changes assoc, value
@@ -1230,12 +1231,12 @@ class Athena::ORM::UnitOfWork
 
     actual_data = Hash(String, Mapping::Value).new
 
-    class_metadata.field_info.each do |name, prop|
+    class_metadata.field_info.each do |name, _prop|
       next if (assoc = class_metadata.association_mappings[name]?) && assoc.is_a?(Mapping::ToMany)
 
       # TODO: Skip version field
       if !class_metadata.is_identifier(name) || !class_metadata.identifier_identity?
-        actual_data[name] = prop.create_column_value entity
+        actual_data[name] = class_metadata.create_column_value_from_entity name, entity
       end
     end
 
@@ -1253,7 +1254,7 @@ class Athena::ORM::UnitOfWork
 
       next if original_value == actual_inner
 
-      change_set[prop_name] = class_metadata.field_info[prop_name].create_change original_value, actual_inner
+      change_set[prop_name] = class_metadata.create_change prop_name, original_value, actual_inner
     end
 
     unless change_set.empty?
@@ -1297,7 +1298,7 @@ class Athena::ORM::UnitOfWork
         # the changeset baseline so the EM no longer sees pending changes.
         class_metadata.apply_data entity, data
         @original_entity_data[entity] = data.transform_values do |v, k|
-          class_metadata.field_info[k].create_column_value(v).as Mapping::Value
+          class_metadata.create_column_value(k, v).as Mapping::Value
         end
         @entity_change_sets.delete entity
         @entity_updates.delete entity
@@ -1328,13 +1329,11 @@ class Athena::ORM::UnitOfWork
 
         # Do this here so `T` can be properly resolved
         # pp entity.class, target_class_metadata.class, assoc.class
-        # pp class_metadata.field_info[field_name]
-        fi = class_metadata.field_info[field_name]
-        p_coll = fi.inject_collection entity, @em, target_class_metadata, assoc
+        p_coll = class_metadata.inject_collection field_name, entity, @em, target_class_metadata, assoc
 
         # TODO: Handle eager fetching hints
 
-        @original_entity_data[entity][field_name] = fi.create_column_value p_coll
+        @original_entity_data[entity][field_name] = class_metadata.create_column_value field_name, p_coll
       end
     end
 
@@ -1347,14 +1346,14 @@ class Athena::ORM::UnitOfWork
   def register_managed(entity : AORM::Entity, id : Hash(String, _), data : Hash(String, _)) : Nil
     class_metadata = @em.class_metadata(entity.class)
 
-    @entity_identifiers[entity] = id.transform_values { |v, k| class_metadata.field_info[k].create_column_value(v).as Mapping::Value }
+    @entity_identifiers[entity] = id.transform_values { |v, k| class_metadata.create_column_value(k, v).as Mapping::Value }
     @entity_states[entity] = :managed
 
     # `data` may contain meta-mapping entries (FK column names) that don't correspond to entity fields — only persist values keyed by something the entity actually has an ivar for.
     typed_data = Hash(String, Mapping::Value).new
     data.each do |k, v|
       next unless class_metadata.field_info.has_key? k
-      typed_data[k] = class_metadata.field_info[k].create_column_value(v).as Mapping::Value
+      typed_data[k] = class_metadata.create_column_value(k, v).as Mapping::Value
     end
     @original_entity_data[entity] = typed_data
 
@@ -1378,8 +1377,7 @@ class Athena::ORM::UnitOfWork
       if associated_id.nil?
         # FK is null. Property's default value (typed `Target?`) is already nil;
         # record that in original_entity_data so change tracking sees it.
-        fi = class_metadata.field_info[field_name]
-        @original_entity_data[entity][field_name] = fi.create_column_value entity
+        @original_entity_data[entity][field_name] = class_metadata.create_column_value_from_entity field_name, entity
         return
       end
 
@@ -1404,7 +1402,7 @@ class Athena::ORM::UnitOfWork
       if assoc.lazy_proxy?
         proxy = self.build_proxy @em, target_class_metadata.entity_class, db_id
         proxy_identifiers = associated_id.transform_values do |v, k|
-          target_class_metadata.field_info[k].create_column_value(v).as Mapping::Value
+          target_class_metadata.create_column_value(k, v).as Mapping::Value
         end
         @entity_identifiers[proxy] = proxy_identifiers
         @entity_states[proxy] = :managed
@@ -1496,8 +1494,7 @@ class Athena::ORM::UnitOfWork
   ) : Nil
     source_class_metadata.apply_data source, {field_name => target}
 
-    fi = source_class_metadata.field_info[field_name]
-    @original_entity_data[source][field_name] = fi.create_column_value source
+    @original_entity_data[source][field_name] = source_class_metadata.create_column_value_from_entity field_name, source
 
     # OneToOne owning-side: reflect the bidirectional link on the inverse end.
     return unless assoc.is_a?(Mapping::OneToOneOwningSide)

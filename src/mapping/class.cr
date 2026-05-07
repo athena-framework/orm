@@ -8,6 +8,13 @@ module Athena::ORM::Mapping::ClassInterface
   abstract def new_instance(data : Hash(String, DB::Any?)) : AORM::Entity
   abstract def apply_data(instance : AORM::Entity, data : Hash(String, _)) : Nil
   abstract def assign_identifier(entity : AORM::Entity, id_field : String, id_value) : Nil
+  abstract def get_field_value(entity : AORM::Entity, field_name : String)
+  abstract def set_field_value(entity : AORM::Entity, field_name : String, value) : Nil
+  abstract def create_column_value(field_name : String, value) : Mapping::Value
+  abstract def create_column_value_from_entity(field_name : String, entity : AORM::Entity) : Mapping::Value
+  abstract def create_change(field_name : String, old_value, new_value) : AORM::UnitOfWork::Change
+  abstract def inject_collection(field_name : String, entity : AORM::Entity, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
+  abstract def promote_collection(field_name : String, entity : AORM::Entity, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
 end
 
 private struct Athena::ORM::Mapping::TypedFieldMapper
@@ -35,18 +42,14 @@ private struct Athena::ORM::Mapping::TypedFieldMapper
     @typed_field_mappings = typed_field_mappings
   end
 
-  def validate_and_complete(mapping : Driver::ColumnMapping, info : Class::FieldInfo(_, T, _)) : Driver::ColumnMapping forall T
+  def validate_and_complete(mapping : Driver::ColumnMapping, info : Class::FieldInfo) : Driver::ColumnMapping
     return mapping unless mapping.type.nil?
 
-    if type = @typed_field_mappings[{{ T.nilable? ? T.union_types.reject(&.nilable?).first.stringify : T.stringify }}]?
+    if type = @typed_field_mappings[info.type_name]?
       mapping = mapping.copy_with type: type
     end
 
     mapping
-  end
-
-  def validate_and_complete(mapping : Driver::ColumnMapping, info : Class::FieldInfoBase) : NoReturn
-    raise "BUG: Invoked wrong overload"
   end
 end
 
@@ -57,124 +60,25 @@ class Athena::ORM::Mapping::Class(T)
   record TableInfo, name : String? = nil, schema : String? = nil, indexes : Array(String)? = nil, unique_constraints : Array(String)? = nil, quoted : Bool = false
 
   # :nodoc:
-  abstract struct FieldInfoBase; end
-
-  # :nodoc:
-  record FieldInfo(OwningEntity, IVarType, Idx) < FieldInfoBase, name : String, has_default : Bool, default : IVarType? do
+  #
+  # Static, type-erased metadata for a single ivar.
+  # Typed read/write/wrap operations live on `Class(T)` (see `get_field_value`, `set_field_value`, `create_column_value`, etc.) so that one set of methods per entity covers every ivar — instead of one specialization per (entity × ivar-type × ivar-position) triple.
+  record FieldInfo,
+    name : String,
+    type_name : String,
+    inferred_target_entity : AORM::Entity.class | Nil = nil,
+    lazy_proxy : Bool = false do
     def apply_type_mapping(mapper : TypedFieldMapper, mapping : Driver::ColumnMapping) : Driver::ColumnMapping
-      mapper.validate_and_complete(mapping, self) # self has concrete type here
+      mapper.validate_and_complete mapping, self
     end
 
-    def inject_collection(entity : OwningEntity, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
-      {% if IVarType <= Athena::ORM::Collection %}
-        {% collection_element_type = OwningEntity.instance_vars[Idx].default_value.receiver.type_vars.first %}
-        p_coll = AORM::PersistentCollection({{collection_element_type}}).new em, metadata, AORM::ArrayCollection({{collection_element_type}}).new
-        p_coll.set_owner entity, assoc
-        p_coll.initialized = false
-
-        self.set_value entity, p_coll
-        p_coll
-      {% else %}
-        raise "BUG: Didn't set collection"
-      {% end %}
-    end
-
-    def inject_collection(entity : _, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
-      raise "BUG: Invoked wrong overload"
-    end
-
-    # FIXME: Is there a better way to handle this?
-    def promote_collection(entity : OwningEntity, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
-      {% if IVarType <= Athena::ORM::Collection %}
-        {% collection_element_type = OwningEntity.instance_vars[Idx].default_value.receiver.type_vars.first %}
-
-        current = self.get_value entity
-
-        if current.is_a?(AORM::PersistentCollection({{collection_element_type}})) && current.owner == entity
-          return current
-        end
-
-        items = current.is_a?(AORM::Collection({{collection_element_type}})) ? current.to_a : Array({{collection_element_type}}).new
-        backing = AORM::ArrayCollection({{collection_element_type}}).new items
-        p_coll = AORM::PersistentCollection({{collection_element_type}}).new em, metadata, backing
-        p_coll.set_owner entity, assoc
-        p_coll.mark_dirty unless backing.empty?
-
-        self.set_value entity, p_coll
-        p_coll
-      {% else %}
-        raise "BUG: Not a collection field"
-      {% end %}
-    end
-
-    def promote_collection(entity : _, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
-      raise "BUG: Invoked wrong overload"
-    end
-
-    def create_column_value(value : Mapping::Value) : Mapping::Value
-      value
-    end
-
-    def create_column_value(value : IVarType) : Mapping::Value
-      Mapping::ColumnValue(IVarType).new @name, value
-    end
-
-    def create_column_value(value : _) : NoReturn
-      raise "BUG: Invoked wrong overload"
-    end
-
-    def create_column_value(entity : AORM::Entity) : Mapping::Value
-      Mapping::ColumnValue(IVarType).new @name, self.get_value(entity)
-    end
-
-    def apply_type_association_mapping(mapper : TypedFieldMapper, mapping : Driver::ColumnMapping) : Driver::ColumnMapping
-      {% begin %}
-        {% ivar_type = IVarType.nilable? ? IVarType.union_types.reject(&.nilable?).first : IVarType %}
-
-        {% if ivar_type <= AORM::Proxy %}
-          # Lazy ToOne: `property avatar : AORM::Proxy(Avatar)?` → infer Avatar.
-          mapping = mapping.copy_with target_entity: {{ivar_type.type_vars.first}}, lazy_proxy: true
-        {% elsif ivar_type <= AORM::Entity? %}
-          # ToOne: `property avatar : Avatar?` → infer Avatar.
-          mapping = mapping.copy_with target_entity: {{ivar_type}}
-        {% elsif !ivar_type.type_vars.empty? && ivar_type.type_vars.first <= AORM::Entity %}
-          # ToMany: `property groups : AORM::Collection(Group)` → infer Group from the collection's element type.
-          mapping = mapping.copy_with target_entity: {{ivar_type.type_vars.first}}
-        {% end %}
-      {% end %}
+    def apply_type_association_mapping(mapping : Driver::ColumnMapping) : Driver::ColumnMapping
+      if target = @inferred_target_entity
+        mapping = mapping.copy_with target_entity: target
+        mapping = mapping.copy_with(lazy_proxy: true) if @lazy_proxy
+      end
 
       mapping
-    end
-
-    def create_change(old_value : IVarType?, new_value : IVarType) : Athena::ORM::UnitOfWork::Change
-      Athena::ORM::UnitOfWork::Change.new(
-        old_value ? self.create_column_value(old_value) : nil,
-        self.create_column_value(new_value),
-      )
-    end
-
-    def create_change(old_value : _, new_value : _) : Athena::ORM::UnitOfWork::Change
-      raise "BUG: Invoked wrong overload"
-    end
-
-    def get_value(entity : OwningEntity) : IVarType
-      {% begin %}
-        entity.@{{OwningEntity.instance_vars[Idx].name.id}}
-      {% end %}
-    end
-
-    def get_value(entity : _) : NoReturn
-      raise "BUG: Invoked wrong overload"
-    end
-
-    def set_value(entity : OwningEntity, value : IVarType) : Nil
-      {% begin %}
-        pointerof(entity.@{{OwningEntity.instance_vars[Idx].name.id}}).value = value
-      {% end %}
-    end
-
-    def set_value(entity : _, value : _) : Nil
-      raise "BUG: Invoked wrong overload"
     end
   end
 
@@ -225,8 +129,8 @@ class Athena::ORM::Mapping::Class(T)
   # Maps column name => field name
   getter field_names : Hash(String, String) = Hash(String, String).new
 
-  # This is internal references to each ivar
-  protected getter field_info = Hash(String, FieldInfoBase).new
+  # Per-ivar metadata. Typed read/write/wrap operations are on the enclosing `Class(T)` (see `get_field_value`, `set_field_value`, etc.) — `FieldInfo` itself is just data.
+  protected getter field_info = Hash(String, FieldInfo).new
 
   # Fields that make up the primary key
   getter identifier : Set(String) = Set(String).new
@@ -245,8 +149,172 @@ class Athena::ORM::Mapping::Class(T)
     @table = TableInfo.new @entity_class.to_s.split("::").last.underscore
     @naming_strategy = naming_strategy || DefaultNamingStrategy.new
 
-    {% for ivar, idx in T.instance_vars %}
-      @field_info[{{ivar.name.id.stringify}}] = FieldInfo({{T}}, {{ivar.type}}, {{idx}}).new({{ivar.name.id.stringify}}, {{ivar.has_default_value?}}, {{ivar.default_value}})
+    {% for ivar in T.instance_vars %}
+      {% ivar_base_type = ivar.type.nilable? ? ivar.type.union_types.reject(&.nilable?).first : ivar.type %}
+      {% if ivar_base_type <= AORM::Proxy %}
+        {% inferred_target = ivar_base_type.type_vars.first %}
+      {% elsif ivar_base_type <= AORM::Entity %}
+        {% inferred_target = ivar_base_type %}
+      {% elsif !ivar_base_type.type_vars.empty? && ivar_base_type.type_vars.first <= AORM::Entity %}
+        {% inferred_target = ivar_base_type.type_vars.first %}
+      {% else %}
+        {% inferred_target = nil %}
+      {% end %}
+
+      @field_info[{{ivar.name.id.stringify}}] = FieldInfo.new(
+        name: {{ivar.name.id.stringify}},
+        type_name: {{ ivar_base_type.stringify }},
+        inferred_target_entity: {{ inferred_target ? inferred_target : nil }},
+        lazy_proxy: {{ ivar_base_type <= AORM::Proxy }},
+      )
+    {% end %}
+  end
+
+  def get_field_value(entity : AORM::Entity, field_name : String)
+    return get_field_value_typed(entity, field_name) if entity.is_a?(T)
+    raise "BUG: entity type mismatch on Class(#{T})#get_field_value: got #{entity.class}"
+  end
+
+  private def get_field_value_typed(entity : T, field_name : String)
+    {% begin %}
+      case field_name
+      {% for ivar in T.instance_vars %}
+      when {{ivar.name.stringify}}
+        entity.@{{ivar.id}}
+      {% end %}
+      else
+        raise "Unknown field '#{field_name}' on #{T}"
+      end
+    {% end %}
+  end
+
+  def set_field_value(entity : AORM::Entity, field_name : String, value) : Nil
+    return set_field_value_typed(entity, field_name, value) if entity.is_a?(T)
+    raise "BUG: entity type mismatch on Class(#{T})#set_field_value: got #{entity.class}"
+  end
+
+  private def set_field_value_typed(entity : T, field_name : String, value) : Nil
+    {% begin %}
+      case field_name
+      {% for ivar in T.instance_vars %}
+      when {{ivar.name.stringify}}
+        if value.is_a?({{ivar.type}})
+          # Explicit `.as` because narrowing through a `ValueAny` caller doesn't always refine `value` to exactly `ivar.type` — Crystal may keep `Storable | Nil` instead of e.g. `Avatar | Nil`.
+          pointerof(entity.@{{ivar.id}}).value = value.as({{ivar.type}})
+        else
+          raise "Type mismatch for '#{field_name}' on #{T}: got #{value.class}"
+        end
+      {% end %}
+      else
+        raise "Unknown field '#{field_name}' on #{T}"
+      end
+    {% end %}
+  end
+
+  # Wraps an already-extracted value as a `Mapping::Value` for *field_name*.
+  # Pass-through if *value* is already a `Mapping::Value`.
+  def create_column_value(field_name : String, value) : Mapping::Value
+    return value if value.is_a?(Mapping::Value)
+
+    {% begin %}
+      case field_name
+      {% for ivar in T.instance_vars %}
+      when {{ivar.name.stringify}}
+        if value.is_a?({{ivar.type}})
+          Mapping::ColumnValue.new(field_name, value)
+        else
+          raise "Type mismatch for '#{field_name}' on #{T}: got #{value.class}"
+        end
+      {% end %}
+      else
+        raise "Unknown field '#{field_name}' on #{T}"
+      end
+    {% end %}
+  end
+
+  # Reads *field_name* off *entity* and wraps it as a `Mapping::Value`.
+  def create_column_value_from_entity(field_name : String, entity : AORM::Entity) : Mapping::Value
+    return create_column_value_from_entity_typed(field_name, entity) if entity.is_a?(T)
+    raise "BUG: entity type mismatch on Class(#{T})#create_column_value_from_entity: got #{entity.class}"
+  end
+
+  private def create_column_value_from_entity_typed(field_name : String, entity : T) : Mapping::Value
+    {% begin %}
+      case field_name
+      {% for ivar in T.instance_vars %}
+      when {{ivar.name.stringify}}
+        Mapping::ColumnValue.new(field_name, entity.@{{ivar.id}})
+      {% end %}
+      else
+        raise "Unknown field '#{field_name}' on #{T}"
+      end
+    {% end %}
+  end
+
+  def create_change(field_name : String, old_value, new_value) : AORM::UnitOfWork::Change
+    AORM::UnitOfWork::Change.new(
+      old_value ? self.create_column_value(field_name, old_value) : nil,
+      self.create_column_value(field_name, new_value),
+    )
+  end
+
+  def inject_collection(field_name : String, entity : AORM::Entity, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
+    return inject_collection_typed(field_name, entity, em, metadata, assoc) if entity.is_a?(T)
+    raise "BUG: entity type mismatch on Class(#{T})#inject_collection: got #{entity.class}"
+  end
+
+  private def inject_collection_typed(field_name : String, entity : T, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
+    {% begin %}
+      case field_name
+      {% for ivar, idx in T.instance_vars %}
+        {% if ivar.type <= Athena::ORM::Collection %}
+          when {{ivar.name.stringify}}
+            {% element_type = T.instance_vars[idx].default_value.receiver.type_vars.first %}
+            p_coll = AORM::PersistentCollection({{element_type}}).new em, metadata, AORM::ArrayCollection({{element_type}}).new
+            p_coll.set_owner entity, assoc
+            p_coll.initialized = false
+
+            pointerof(entity.@{{ivar.id}}).value = p_coll
+            p_coll
+        {% end %}
+      {% end %}
+      else
+        raise "BUG: Not a collection field: #{field_name} on #{T}"
+      end
+    {% end %}
+  end
+
+  def promote_collection(field_name : String, entity : AORM::Entity, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
+    return promote_collection_typed(field_name, entity, em, metadata, assoc) if entity.is_a?(T)
+    raise "BUG: entity type mismatch on Class(#{T})#promote_collection: got #{entity.class}"
+  end
+
+  private def promote_collection_typed(field_name : String, entity : T, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
+    {% begin %}
+      case field_name
+      {% for ivar, idx in T.instance_vars %}
+        {% if ivar.type <= Athena::ORM::Collection %}
+          when {{ivar.name.stringify}}
+            {% element_type = T.instance_vars[idx].default_value.receiver.type_vars.first %}
+            current = entity.@{{ivar.id}}
+
+            if current.is_a?(AORM::PersistentCollection({{element_type}})) && current.owner == entity
+              current
+            else
+              items = current.is_a?(AORM::Collection({{element_type}})) ? current.to_a : Array({{element_type}}).new
+              backing = AORM::ArrayCollection({{element_type}}).new items
+              p_coll = AORM::PersistentCollection({{element_type}}).new em, metadata, backing
+              p_coll.set_owner entity, assoc
+              p_coll.mark_dirty unless backing.empty?
+
+              pointerof(entity.@{{ivar.id}}).value = p_coll
+              p_coll
+            end
+        {% end %}
+      {% end %}
+      else
+        raise "BUG: Not a collection field: #{field_name} on #{T}"
+      end
     {% end %}
   end
 
@@ -301,12 +369,8 @@ class Athena::ORM::Mapping::Class(T)
     self.column_name(self.single_identifier_field_name)
   end
 
-  def field_value(entity : T, field_name : String)
-    @field_info[field_name].get_value entity
-  end
-
-  def field_value(entity : _, field_name : String) : NoReturn
-    raise "BUG: Invoked wrong overload"
+  def field_value(entity : AORM::Entity, field_name : String)
+    self.get_field_value entity, field_name
   end
 
   def is_identifier(field_name : String) : Bool
@@ -325,7 +389,7 @@ class Athena::ORM::Mapping::Class(T)
     end
 
     id = @identifier.first
-    value = @field_info[id].get_value entity
+    value = self.get_field_value entity, id
 
     if value.nil?
       return {} of String => NoReturn
@@ -341,17 +405,10 @@ class Athena::ORM::Mapping::Class(T)
     raise "BUG: Invoked wrong overload"
   end
 
-  def set_identifier_values(entity : T, id : Hash(String, _)) : Nil
+  def set_identifier_values(entity : AORM::Entity, id : Hash(String, _)) : Nil
     id.each do |id_field, id_value|
-      @field_info[id_field].set_value entity, id_value
+      self.set_field_value entity, id_field, id_value
     end
-  end
-
-  # :nodoc:
-  #
-  # TODO: Is there a better way to handle this?
-  def set_identifier_values(entity : _, id : Hash(String, _)) : NoReturn
-    raise "BUG: Invoked wrong overload"
   end
 
   def assign_identifier(entity : AORM::Entity, id_field : String, id_value) : Nil
@@ -476,7 +533,7 @@ class Athena::ORM::Mapping::Class(T)
     # TODO: Handle unsetting things?
 
     mapping = mapping.copy_with is_owning_side: true, source_entity: @entity_class
-    mapping = @field_info[mapping.field_name].apply_type_association_mapping TypedFieldMapper.new, mapping
+    mapping = @field_info[mapping.field_name].apply_type_association_mapping mapping
 
     if "many_to_one" == mapping.type && mapping.orphan_removal
       raise "illegal orphan removal"

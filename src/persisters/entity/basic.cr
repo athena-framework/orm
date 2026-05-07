@@ -505,7 +505,7 @@ class Athena::ORM::Persisters::Entity::Basic
         column_value = if new_value_id && (target_field = target_class.field_names[target_column]?)
                          new_value_id[target_field]
                        else
-                         Mapping::SingleValue(DB::Any).new(nil)
+                         Mapping::SingleValue.new(nil)
                        end
 
         result[owning_table][source_column] = column_value.as Mapping::Value
@@ -945,8 +945,7 @@ class Athena::ORM::Persisters::Entity::Basic
       field_name = source_class_metadata.field_names[source_pk_column]?
       raise "BUG: source PK column '#{source_pk_column}' has no mapped field on '#{source_class_metadata.entity_class}'" unless field_name
 
-      fi = source_class_metadata.field_info[field_name]
-      value = fi.create_column_value fi.get_value source_entity
+      value = source_class_metadata.create_column_value_from_entity field_name, source_entity
 
       quoted_target_column = @quote_strategy.column_name field_name, source_class_metadata, @platform
       criteria["#{table_alias}.#{target_fk_column}"] = value
@@ -993,8 +992,7 @@ class Athena::ORM::Persisters::Entity::Basic
       # TODO: Handle foreign identifiers
 
       value = if field_name = source_class_metadata.field_names[source_key_column]?
-                fi = source_class_metadata.field_info[field_name]
-                fi.create_column_value fi.get_value source_entity
+                source_class_metadata.create_column_value_from_entity field_name, source_entity
               else
                 raise "Join column doesn't point to mapped field"
               end
