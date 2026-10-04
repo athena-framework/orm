@@ -40,6 +40,24 @@ struct ObjectHydratorTest < ASPEC::TestCase
     hydrator.id_template["p"].should eq ""
   end
 
+  # Field values are produced by the field's type, so they may be any Crystal type rather than only the driver's scalars.
+  def test_hydrates_value_object_fields_through_their_type : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    rsm = AORM::Query::ResultSetMapping.new
+    rsm.add_entity_result CustomIdObjectTypeParent, "p"
+    rsm.add_field_result "p", "p__id", "id"
+    rsm.add_field_result "p", "p__other_id", "other_id"
+
+    rs = FakeResultSet.new([
+      {"p__id" => "abc".as(DB::Any), "p__other_id" => "def".as(DB::Any)},
+    ])
+
+    parent = AORM::Internal::Hydrators::Object.new(em).hydrate_all(rs, rsm).first.as(CustomIdObjectTypeParent)
+
+    parent.id.should eq CustomIdObject.new("abc")
+    parent.other_id.should eq CustomIdObject.new("def")
+  end
+
   # Multiple distinct rows for the same root alias produce one entity per row in source order.
   def test_simple_entity_query_returns_one_entity_per_distinct_row : Nil
     em = MockEntityManager.new(MockConnection.new)

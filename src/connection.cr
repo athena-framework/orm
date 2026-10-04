@@ -15,7 +15,10 @@ module Athena::ORM
       @platform
     end
 
+    # Boxed values already hold a type's Crystal-side value, so they pass through unchanged.
     def convert_to_crystal_value(value : _, type : String?)
+      return value if value.is_a?(Mapping::Opaque)
+
       Types::Type.get_type(type.not_nil!).to_crystal_value(value, self.database_platform)
     end
 
@@ -54,9 +57,22 @@ module Athena::ORM
     end
 
     # The driver picks each parameter's encoding from its runtime class, so only the value is converted; there is no separate binding type.
+    # Parameters may be wrapped in a `Mapping::Value`, and converting is what narrows them to something the driver can bind.
     private def convert_parameters(params : Array, types : Array(String?)) : Array(DB::Any)
       Array(DB::Any).new(params.size) do |idx|
-        self.convert_to_database_value(params[idx], types[idx]?).as DB::Any
+        param = params[idx]
+        value = param.is_a?(Mapping::Value) ? param.value : param
+        converted = if value.is_a?(Mapping::Opaque)
+                      value.to_db types[idx]?.try { |type| Types::Type.get_type type }, self.database_platform
+                    else
+                      self.convert_to_database_value value, types[idx]?
+                    end
+
+        unless converted.is_a?(DB::Any)
+          raise "Cannot bind parameter #{idx + 1}: #{types[idx]? ? "type '#{types[idx]?}'" : "no type"} converted #{value.class} to #{converted.class}, which the driver cannot bind."
+        end
+
+        converted
       end
     end
 

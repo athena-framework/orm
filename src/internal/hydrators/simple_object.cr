@@ -25,7 +25,7 @@ class Athena::ORM::Internal::Hydrators::SimpleObject < Athena::ORM::Internal::Hy
   # `Abstract#gather_row_data` applies: every column must be consumed.
   protected def hydrate_row_data(result : Array(AORM::Entity)) : Nil
     entity_class = self.class_metadata.entity_class
-    data = Hash(String, DB::Any).new
+    data = Hash(String, Mapping::Value).new
 
     # TODO: Handle discriminator mappings
     unless self.class_metadata.inheritance_type.none?
@@ -48,15 +48,13 @@ class Athena::ORM::Internal::Hydrators::SimpleObject < Athena::ORM::Internal::Hy
       # TODO: Handle discriminator values
 
       type = cache_key_info.type
-      value = type ? type.to_crystal_value(self.rs, @platform) : self.rs.read
-
-      # TODO: Handle enum types
+      value = type ? type.read_value(self.rs, @platform) : self.rs.read.as(DB::Any)
 
       field_name = cache_key_info.field_name
 
       # Prevent overwrite in case of inherit classes using same property name (See AbstractHydrator)
       if !data.has_key?(field_name) && !value.nil?
-        data[field_name] = value.as DB::Any
+        data[field_name] = Mapping::SingleValue.new value
       end
     end
 

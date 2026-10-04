@@ -94,7 +94,7 @@ module Athena::ORM
     end
 
     private def self.convert_individual_value(value : ::Enum, em : AORM::EntityManagerInterface)
-      [value.value]
+      [Mapping::EnumConversion.from_enum(value)]
     end
 
     private def self.convert_individual_value(value : AORM::Entity, em : AORM::EntityManagerInterface) : Array

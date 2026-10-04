@@ -72,6 +72,19 @@ class TimestampedItem < AORM::Entity
   property! created_at : Time
 end
 
+# Binary column, whose `Bytes` values must bind as a single parameter rather than an IN list.
+@[AORMA::Entity]
+@[AORMA::Table(name: "binary_items")]
+class BinaryItem < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property! id : Int32
+
+  @[AORMA::Column]
+  property! data : Bytes
+end
+
 # OneToMany inverse-side / ManyToOne owning-side pair, used to drive the inverse-side branch in `select_condition_statement_column_sql`.
 @[AORMA::Entity]
 @[AORMA::Table(name: "tag_owners")]
@@ -102,6 +115,24 @@ struct BasicPersisterTest < ASPEC::TestCase
     persister = build_persister
 
     persister.select_condition_statement_sql("id", 1).should match(/id = \?/)
+  end
+
+  # Only arrays expand into an IN list; `Bytes` is a single binary value even though it's enumerable.
+  def test_select_condition_binary_value_emits_a_single_placeholder : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(BinaryItem)
+
+    persister.select_condition_statement_sql("data", Bytes[1, 2, 3]).should match(/data = \?$/)
+  end
+
+  def test_expand_parameters_binds_a_binary_value_as_one_parameter : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(BinaryItem)
+
+    params, _types = persister.expand_parameters({"data" => Bytes[1, 2, 3]})
+
+    params.size.should eq 1
+    params.first.value.should eq Bytes[1, 2, 3]
   end
 
   def test_select_condition_eq_nil_emits_is_null : Nil
@@ -183,7 +214,7 @@ struct BasicPersisterTest < ASPEC::TestCase
     params, _types = persister.expand_parameters({"avatar" => avatar})
 
     params.size.should eq 1
-    params.first.should eq 99
+    params.first.value.should eq 99
   end
 
   def test_prepare_insert_data_writes_to_one_owning_side_fk_column : Nil
@@ -314,8 +345,8 @@ struct BasicPersisterTest < ASPEC::TestCase
     })
 
     params.size.should eq 2
-    params.includes?(42).should be_true
-    params.includes?("fred").should be_true
+    params.map(&.value).includes?(42).should be_true
+    params.map(&.value).includes?("fred").should be_true
   end
 
   def test_expand_parameters_returns_empty_for_all_nil_criteria : Nil
@@ -689,7 +720,7 @@ struct BasicPersisterTest < ASPEC::TestCase
 
     params, types = persister.expand_parameters({"secret" => "hello"})
 
-    params.should eq ["hello"]
+    params.map(&.value).should eq ["hello"]
     types.should eq ["rot13"]
   end
 
@@ -702,7 +733,7 @@ struct BasicPersisterTest < ASPEC::TestCase
 
     params, types = persister.expand_parameters({"avatar" => avatar})
 
-    params.should eq [99]
+    params.map(&.value).should eq [99]
     types.should eq ["integer"]
   end
 
@@ -712,7 +743,7 @@ struct BasicPersisterTest < ASPEC::TestCase
 
     params, types = persister.expand_parameters({"secret" => ["a", nil, "b"]})
 
-    params.should eq ["a", "b"]
+    params.map(&.value).should eq ["a", "b"]
     types.should eq ["rot13", "rot13"]
   end
 
@@ -812,6 +843,83 @@ struct BasicPersisterTest < ASPEC::TestCase
     persister.load_many_to_many_collection assoc, owner, collection
 
     connection.executed_statements.last[1].should eq ["nop"]
+  end
+
+  def test_execute_inserts_binds_value_object_fields_converted_through_their_type : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(CustomIdObjectTypeParent)
+
+    parent = CustomIdObjectTypeParent.new
+    parent.id = CustomIdObject.new "abc"
+    parent.other_id = CustomIdObject.new "def"
+
+    em.unit_of_work.persist parent
+    em.unit_of_work.compute_changesets
+    persister.add_insert parent
+    persister.execute_inserts
+
+    connection.executed_statements.last.should eq({"INSERT INTO custom_id_type_parent (id, other_id) VALUES (?, ?)", ["abc", "def"]})
+  end
+
+  def test_execute_inserts_reads_back_a_generated_value_object_identifier : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(CustomIdObjectTypeGenerated)
+
+    item = CustomIdObjectTypeGenerated.new
+    item.name = "widget"
+
+    em.unit_of_work.persist item
+    em.unit_of_work.compute_changesets
+    persister.add_insert item
+
+    connection.queue_result [{"id" => "generated"} of String => DB::Any]
+    persister.execute_inserts
+
+    item.id.should eq CustomIdObject.new("generated")
+  end
+
+  def test_update_binds_value_object_field_and_identifier_converted_through_their_type : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(CustomIdObjectTypeParent)
+
+    parent = CustomIdObjectTypeParent.new
+    parent.id = CustomIdObject.new "abc"
+    parent.other_id = CustomIdObject.new "def"
+    em.unit_of_work.register_managed parent, {"id" => parent.id}, {"id" => parent.id, "other_id" => parent.other_id}
+
+    parent.other_id = CustomIdObject.new "xyz"
+    em.unit_of_work.compute_changesets
+    persister.update parent
+
+    connection.executed_statements.last.should eq({"UPDATE custom_id_type_parent SET other_id = ? WHERE id = ?", ["xyz", "abc"]})
+  end
+
+  def test_delete_binds_value_object_identifier_converted_through_its_type : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(CustomIdObjectTypeParent)
+
+    parent = CustomIdObjectTypeParent.new
+    parent.id = CustomIdObject.new "abc"
+    em.unit_of_work.register_managed parent, {"id" => parent.id}, {"id" => parent.id}
+
+    persister.delete parent
+
+    connection.executed_statements.last.should eq({"DELETE FROM custom_id_type_parent WHERE id = ?", ["abc"]})
+  end
+
+  def test_load_binds_value_object_criteria_converted_through_their_type : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(CustomIdObjectTypeParent)
+
+    connection.queue_result [] of Hash(String, DB::Any)
+    persister.load({"other_id" => CustomIdObject.new("def")})
+
+    connection.executed_statements.last[1].should eq ["def"]
   end
 
   private def build_persister : AORM::Persisters::Entity::Basic

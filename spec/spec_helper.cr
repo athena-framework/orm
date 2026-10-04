@@ -157,7 +157,7 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
   # Test fixture: canned entity returned by `load`. Captures every call's
   # criteria and limit so specs can assert what the repository forwarded.
   setter mock_load_result : AORM::Entity? = nil
-  alias LoadCallValue = Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | AORM::Entity | Nil | Array(Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | Nil)
+  alias LoadCallValue = AORM::Mapping::ValueAny | AORM::Entity | Array(Bool | Float32 | Float64 | Int32 | Int64 | Slice(UInt8) | String | Time | Nil)
   record LoadCall, criteria : Hash(String, LoadCallValue), limit : Int32?
   getter load_calls : Array(LoadCall) = [] of LoadCall
 

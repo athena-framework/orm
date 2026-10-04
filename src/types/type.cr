@@ -77,5 +77,11 @@ module Athena::ORM::Types
     def to_db(value : _, platform : AORM::Platforms::Platform)
       value
     end
+
+    # Reads the next column with this type, boxing values that are neither driver scalars nor ORM references.
+    # Called on each concrete type, so its own `#to_crystal_value` return type is what gets boxed.
+    def read_value(rs : DB::ResultSet, platform : Platforms::Platform) : Mapping::ValueAny
+      Mapping.box self.to_crystal_value(rs, platform)
+    end
   end
 end

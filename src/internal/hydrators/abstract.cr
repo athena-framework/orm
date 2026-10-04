@@ -121,11 +121,9 @@ abstract class Athena::ORM::Internal::Hydrators::Abstract
 
       # TODO: Handle isNewObjectParameter / isScalar / discriminator collisions / inheritance overwrites
 
-      value = type ? type.to_crystal_value(rs, @platform) : rs.read
+      value = type ? type.read_value(rs, @platform) : rs.read.as(DB::Any)
 
-      row_data.data[alias_name][field_name] = Mapping::SingleValue.new value.as(DB::Any)
-
-      # TODO: Handle enum types
+      row_data.data[alias_name][field_name] = Mapping::SingleValue.new value
 
       if cache_key_info.is_identifier && !value.nil?
         id[alias_name] += "|#{value}"

@@ -20,8 +20,7 @@ struct Athena::ORM::ID::ReturningGenerator < Athena::ORM::ID::AbstractGenerator
 
     class_metadata.identifier.each do |field_name|
       column_type = class_metadata.field_mappings[field_name].type
-      raw_value = AORM::Types::Type.get_type(column_type).to_crystal_value(rs, platform)
-      id_hash[field_name] = Mapping::SingleValue.new raw_value.as(DB::Any)
+      id_hash[field_name] = Mapping::SingleValue.new AORM::Types::Type.get_type(column_type).read_value(rs, platform)
     end
 
     id_hash

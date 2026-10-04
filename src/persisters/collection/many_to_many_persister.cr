@@ -51,7 +51,7 @@ class Athena::ORM::Persisters::Collection::ManyToManyPersister < Athena::ORM::Pe
   end
 
   # Gets parameters for deleting all rows for an owner.
-  protected def get_delete_sql_params(collection : AORM::PersistentCollection, mapping : AORM::Mapping::ManyToManyOwningSide) : Array(DB::Any)
+  protected def get_delete_sql_params(collection : AORM::PersistentCollection, mapping : AORM::Mapping::ManyToManyOwningSide) : Array(AORM::Mapping::Value)
     owner = collection.owner.not_nil!
     identifier = @uow.entity_identifier(owner)
 
@@ -74,7 +74,7 @@ class Athena::ORM::Persisters::Collection::ManyToManyPersister < Athena::ORM::Pe
   end
 
   # Gets parameters for deleting a row.
-  protected def get_delete_row_sql_params(collection : AORM::PersistentCollection, element : AORM::Entity, mapping : AORM::Mapping::ManyToManyOwningSide) : Array(DB::Any)
+  protected def get_delete_row_sql_params(collection : AORM::PersistentCollection, element : AORM::Entity, mapping : AORM::Mapping::ManyToManyOwningSide) : Array(AORM::Mapping::Value)
     self.collect_join_table_column_params(collection, element, mapping)
   end
 
@@ -111,18 +111,18 @@ class Athena::ORM::Persisters::Collection::ManyToManyPersister < Athena::ORM::Pe
   end
 
   # Gets parameters for inserting a row.
-  protected def get_insert_row_sql_params(collection : AORM::PersistentCollection, element : AORM::Entity, mapping : AORM::Mapping::ManyToManyOwningSide) : Array(DB::Any)
+  protected def get_insert_row_sql_params(collection : AORM::PersistentCollection, element : AORM::Entity, mapping : AORM::Mapping::ManyToManyOwningSide) : Array(AORM::Mapping::Value)
     self.collect_join_table_column_params(collection, element, mapping)
   end
 
   # Collects parameters for join table operations in column order.
-  private def collect_join_table_column_params(collection : AORM::PersistentCollection, element : AORM::Entity, mapping : AORM::Mapping::ManyToManyOwningSide) : Array(DB::Any)
+  private def collect_join_table_column_params(collection : AORM::PersistentCollection, element : AORM::Entity, mapping : AORM::Mapping::ManyToManyOwningSide) : Array(AORM::Mapping::Value)
     owner = collection.owner.not_nil!
 
     owner_id = @uow.entity_identifier(owner)
     element_id = @uow.entity_identifier(element)
 
-    params = [] of DB::Any
+    params = [] of AORM::Mapping::Value
 
     mapping.relation_to_source_key_columns.each do |_join_col, ref_col|
       params << self.bind_value(owner_id[ref_col]?)
@@ -135,11 +135,10 @@ class Athena::ORM::Persisters::Collection::ManyToManyPersister < Athena::ORM::Pe
     params
   end
 
-  # Unwraps an entity-identifier slot for the DB-binding boundary. The slot is
+  # Returns the parameter bound for an entity-identifier slot. The slot is
   # either a `Mapping::Value` (registered identifier) or `nil` (column missing
-  # from the identifier map — passed through as a NULL parameter).
-  private def bind_value(slot : AORM::Mapping::Value?) : DB::Any
-    return nil if slot.nil?
-    slot.value.as(DB::Any)
+  # from the identifier map — bound as a NULL parameter).
+  private def bind_value(slot : AORM::Mapping::Value?) : AORM::Mapping::Value
+    slot || AORM::Mapping::SingleValue.new(nil)
   end
 end

@@ -43,6 +43,10 @@ private struct Athena::ORM::Mapping::TypedFieldMapper
   end
 
   def validate_and_complete(mapping : Driver::ColumnMapping, info : Class::FieldInfo) : Driver::ColumnMapping
+    if (enum_type = info.enum_type) && mapping.enum_type.nil?
+      mapping = mapping.copy_with enum_type: enum_type
+    end
+
     return mapping unless mapping.type.nil?
 
     if type = @typed_field_mappings[info.type_name]?
@@ -63,11 +67,13 @@ class Athena::ORM::Mapping::Class(T)
   #
   # Static, type-erased metadata for a single ivar.
   # Typed read/write/wrap operations live on `Class(T)` (see `get_field_value`, `set_field_value`, `create_column_value`, etc.) so that one set of methods per entity covers every ivar — instead of one specialization per (entity × ivar-type × ivar-position) triple.
+  # *type_name* is the name of the Crystal type the field's values are tracked as, which for enum fields is the integer type they're stored as.
   record FieldInfo,
     name : String,
     type_name : String,
     inferred_target_entity : AORM::Entity.class | Nil = nil,
-    lazy_proxy : Bool = false do
+    lazy_proxy : Bool = false,
+    enum_type : String? = nil do
     def apply_type_mapping(mapper : TypedFieldMapper, mapping : Driver::ColumnMapping) : Driver::ColumnMapping
       mapper.validate_and_complete mapping, self
     end
@@ -163,7 +169,12 @@ class Athena::ORM::Mapping::Class(T)
 
       @field_info[{{ivar.name.id.stringify}}] = FieldInfo.new(
         name: {{ivar.name.id.stringify}},
-        type_name: {{ ivar_base_type.stringify }},
+        {% if ivar_base_type < ::Enum %}
+          type_name: typeof(AORM::Mapping::EnumConversion.from_enum({{ivar_base_type}}.new(0))).name,
+          enum_type: {{ ivar_base_type.stringify }},
+        {% else %}
+          type_name: {{ ivar_base_type.stringify }},
+        {% end %}
         inferred_target_entity: {{ inferred_target ? inferred_target : nil }},
         lazy_proxy: {{ ivar_base_type <= AORM::Proxy }},
       )
@@ -175,12 +186,18 @@ class Athena::ORM::Mapping::Class(T)
     raise "BUG: entity type mismatch on Class(#{T})#get_field_value: got #{entity.class}"
   end
 
+  # Enum fields read as the integer they're stored as.
   private def get_field_value_typed(entity : T, field_name : String)
     {% begin %}
       case field_name
       {% for ivar in T.instance_vars %}
+        {% ivar_base_type = ivar.type.nilable? ? ivar.type.union_types.reject(&.nilable?).first : ivar.type %}
       when {{ivar.name.stringify}}
-        entity.@{{ivar.id}}
+        {% if ivar_base_type < ::Enum %}
+          entity.@{{ivar.id}}.try { |member| AORM::Mapping::EnumConversion.from_enum member }
+        {% else %}
+          AORM::Mapping.box entity.@{{ivar.id}}
+        {% end %}
       {% end %}
       else
         raise "Unknown field '#{field_name}' on #{T}"
@@ -193,11 +210,26 @@ class Athena::ORM::Mapping::Class(T)
     raise "BUG: entity type mismatch on Class(#{T})#set_field_value: got #{entity.class}"
   end
 
+  # Enum fields also accept the integer they're stored as.
   private def set_field_value_typed(entity : T, field_name : String, value) : Nil
     {% begin %}
       case field_name
       {% for ivar in T.instance_vars %}
+        {% ivar_base_type = ivar.type.nilable? ? ivar.type.union_types.reject(&.nilable?).first : ivar.type %}
       when {{ivar.name.stringify}}
+        {% if ivar_base_type < ::Enum %}
+          if value.is_a?(Int)
+            pointerof(entity.@{{ivar.id}}).value = {{ivar_base_type}}.from_value(value)
+            return
+          end
+        {% end %}
+
+        {% for member in ivar.type.union_types %}
+          {% unless member == Nil || member <= ::DB::Any || member <= AORM::Storable %}
+            value = value.value if value.is_a?(AORM::Mapping::OpaqueValue({{member}}))
+          {% end %}
+        {% end %}
+
         if value.is_a?({{ivar.type}})
           # Explicit `.as` because narrowing through a `ValueAny` caller doesn't always refine `value` to exactly `ivar.type` — Crystal may keep `Storable | Nil` instead of e.g. `Avatar | Nil`.
           pointerof(entity.@{{ivar.id}}).value = value.as({{ivar.type}})
@@ -213,15 +245,28 @@ class Athena::ORM::Mapping::Class(T)
 
   # Wraps an already-extracted value as a `Mapping::Value` for *field_name*.
   # Pass-through if *value* is already a `Mapping::Value`.
+  # Enum fields are wrapped as the integer they're stored as, whether given a member or that integer.
   def create_column_value(field_name : String, value) : Mapping::Value
     return value if value.is_a?(Mapping::Value)
 
     {% begin %}
       case field_name
       {% for ivar in T.instance_vars %}
+        {% ivar_base_type = ivar.type.nilable? ? ivar.type.union_types.reject(&.nilable?).first : ivar.type %}
       when {{ivar.name.stringify}}
+        {% if ivar_base_type < ::Enum %}
+          return Mapping::ColumnValue.new(field_name, AORM::Mapping::EnumConversion.from_enum(value)) if value.is_a?({{ivar_base_type}})
+          return Mapping::ColumnValue.new(field_name, value) if value.is_a?(Int)
+        {% end %}
+
+        {% for member in ivar.type.union_types %}
+          {% unless member == Nil || member <= ::DB::Any || member <= AORM::Storable %}
+            return Mapping::ColumnValue.new(field_name, value) if value.is_a?(AORM::Mapping::OpaqueValue({{member}}))
+          {% end %}
+        {% end %}
+
         if value.is_a?({{ivar.type}})
-          Mapping::ColumnValue.new(field_name, value)
+          Mapping::ColumnValue.new(field_name, AORM::Mapping.box(value))
         else
           raise "Type mismatch for '#{field_name}' on #{T}: got #{value.class}"
         end
@@ -242,8 +287,13 @@ class Athena::ORM::Mapping::Class(T)
     {% begin %}
       case field_name
       {% for ivar in T.instance_vars %}
+        {% ivar_base_type = ivar.type.nilable? ? ivar.type.union_types.reject(&.nilable?).first : ivar.type %}
       when {{ivar.name.stringify}}
-        Mapping::ColumnValue.new(field_name, entity.@{{ivar.id}})
+        {% if ivar_base_type < ::Enum %}
+          Mapping::ColumnValue.new(field_name, entity.@{{ivar.id}}.try { |member| AORM::Mapping::EnumConversion.from_enum member })
+        {% else %}
+          Mapping::ColumnValue.new(field_name, AORM::Mapping.box(entity.@{{ivar.id}}))
+        {% end %}
       {% end %}
       else
         raise "Unknown field '#{field_name}' on #{T}"
@@ -345,6 +395,17 @@ class Athena::ORM::Mapping::Class(T)
 
           raw = raw.is_a?(Mapping::Value) ? raw.value : raw
 
+          {% ivar_base_type = ivar.type.nilable? ? ivar.type.union_types.reject(&.nilable?).first : ivar.type %}
+          {% if ivar_base_type < ::Enum %}
+            raw = {{ivar_base_type}}.from_value(raw) if raw.is_a?(Int)
+          {% end %}
+
+          {% for member in ivar.type.union_types %}
+            {% unless member == Nil || member <= ::DB::Any || member <= AORM::Storable %}
+              raw = raw.value if raw.is_a?(AORM::Mapping::OpaqueValue({{member}}))
+            {% end %}
+          {% end %}
+
           if raw && raw.is_a?({{ivar.type}})
             pointerof(typed_instance.@{{ ivar.id }}).value = raw.not_nil!.as({{ ivar.type }})
           end
@@ -417,6 +478,19 @@ class Athena::ORM::Mapping::Class(T)
       {% for ivar in T.instance_vars %}
         if id_field == {{ivar.name.id.stringify}}
           {% ivar_base_type = ivar.type.nilable? ? ivar.type.union_types.reject(&.nilable?).first : ivar.type %}
+          {% if ivar_base_type < ::Enum %}
+            if id_value.is_a?(Int)
+              pointerof(typed_entity.@{{ ivar.id }}).value = {{ivar_base_type}}.from_value(id_value)
+              return
+            end
+          {% end %}
+
+          {% for member in ivar.type.union_types %}
+            {% unless member == Nil || member <= ::DB::Any || member <= AORM::Storable %}
+              id_value = id_value.value if id_value.is_a?(AORM::Mapping::OpaqueValue({{member}}))
+            {% end %}
+          {% end %}
+
           if id_value.is_a?({{ ivar_base_type }})
             pointerof(typed_entity.@{{ ivar.id }}).value = id_value
             return
@@ -492,7 +566,16 @@ class Athena::ORM::Mapping::Class(T)
 
     # TODO: Handle `generated` property
 
-    # TODO: Handle `enum_type` property
+    if enum_type = mapping.enum_type
+      unless @field_info[mapping.field_name].enum_type == enum_type
+        raise "Attempting to map a non-enum type '#{enum_type}' as an enum: #{T}##{mapping.field_name}"
+      end
+
+      # Enum fields are always tracked and bound as their integer value.
+      unless mapping.type.in?(Types::INTEGER, Types::BIGINT)
+        raise "Enum field '#{mapping.field_name}' on #{T} must be mapped to an integer type, got '#{mapping.type}'"
+      end
+    end
 
     mapping
   end

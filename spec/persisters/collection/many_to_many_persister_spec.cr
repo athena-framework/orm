@@ -71,7 +71,7 @@ struct ManyToManyPersisterTest < ASPEC::TestCase
 
     params = persister.public_get_delete_sql_params collection, mapping
 
-    params.should eq [100]
+    params.map(&.value).should eq [100]
   end
 
   def test_get_delete_row_sql_params_pairs_owner_then_element_ids : Nil
@@ -86,7 +86,7 @@ struct ManyToManyPersisterTest < ASPEC::TestCase
 
     # Source key columns precede target key columns — must match the order in
     # the generated SQL so positional placeholders bind correctly.
-    params.should eq [7, 99]
+    params.map(&.value).should eq [7, 99]
   end
 
   def test_get_insert_row_sql_params_uses_same_ordering_as_delete : Nil
@@ -99,7 +99,7 @@ struct ManyToManyPersisterTest < ASPEC::TestCase
 
     params = persister.public_get_insert_row_sql_params collection, group, mapping
 
-    params.should eq [1, 2]
+    params.map(&.value).should eq [1, 2]
   end
 
   # ===== Value conversion =====
@@ -130,6 +130,26 @@ struct ManyToManyPersisterTest < ASPEC::TestCase
     build_persister.delete collection
 
     @connection.executed_statements.last.should eq({"DELETE FROM vct_xref_manytomany WHERE owning_id = ?", ["nop"]})
+  end
+
+  def test_update_binds_value_object_identifiers_converted_through_their_type : Nil
+    mapping = @em.class_metadata(CustomIdObjectTypeParent).association_mappings["tags"].as(AORM::Mapping::ManyToManyOwningSide)
+
+    parent = CustomIdObjectTypeParent.new
+    parent.id = CustomIdObject.new "abc"
+    @uow.register_managed parent, {"id" => parent.id}, {"id" => parent.id}
+
+    tag = CustomIdObjectTypeTag.new
+    tag.id = CustomIdObject.new "red"
+    @uow.register_managed tag, {"id" => tag.id}, {"id" => tag.id}
+
+    collection = AORM::PersistentCollection(CustomIdObjectTypeTag).new
+    collection.set_owner parent, mapping
+    collection << tag
+
+    build_persister.update collection
+
+    @connection.executed_statements.last.should eq({"INSERT INTO custom_id_type_parent_tag (parent_id, tag_id) VALUES (?, ?)", ["abc", "red"]})
   end
 
   # ===== Setup helpers =====

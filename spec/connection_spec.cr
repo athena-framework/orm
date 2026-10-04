@@ -23,6 +23,15 @@ struct ConnectionTest < ASPEC::TestCase
     @wrapped.executed_statements.last.should eq({"UPDATE t SET a = ?, b = ? WHERE c = ?", ["nop", 7, "klm"]})
   end
 
+  # A boxed value object converts through its type before binding.
+  def test_execute_statement_binds_boxed_values_converted_through_their_types : Nil
+    param = AORM::Mapping::SingleValue.new AORM::Mapping.box(CustomIdObject.new("abc"))
+
+    @connection.execute_statement "UPDATE t SET a = ?", [param], [CustomIdObjectType::NAME]
+
+    @wrapped.executed_statements.last.should eq({"UPDATE t SET a = ?", ["abc"]})
+  end
+
   def test_execute_statement_returns_the_affected_row_count : Nil
     @connection.execute_statement("DELETE FROM t", [] of DB::Any, [] of String?).should eq 1
   end

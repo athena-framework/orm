@@ -66,12 +66,21 @@ class FullColumnFixture < AORM::Entity
     index: true,
     column_definition: "DECIMAL(10,4)",
     generated: "ALWAYS",
-    enum_type: "MyEnum",
   )]
   property amount : String? = nil
 
   @[AORMA::Column(updatable: false, insertable: false)]
   property locked : String? = nil
+end
+
+@[AORMA::Entity]
+class NonEnumWithEnumTypeFixture < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  property id : Int64? = nil
+
+  @[AORMA::Column(enum_type: "MyEnum")]
+  property amount : String? = nil
 end
 
 @[AORMA::Entity]
@@ -301,7 +310,12 @@ struct AnnotationDriverTest < ASPEC::TestCase
     field.index.should be_true
     field.column_definition.should eq "DECIMAL(10,4)"
     field.generated.should eq "ALWAYS"
-    field.enum_type.should eq "MyEnum"
+  end
+
+  def test_enum_type_on_a_non_enum_field_is_rejected : Nil
+    expect_raises(Exception, "Attempting to map a non-enum type 'MyEnum' as an enum: NonEnumWithEnumTypeFixture#amount") do
+      load NonEnumWithEnumTypeFixture
+    end
   end
 
   def test_updatable_false_translates_to_not_updatable : Nil

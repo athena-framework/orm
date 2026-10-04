@@ -19,6 +19,24 @@ struct SimpleObjectHydratorTest < ASPEC::TestCase
     result[0].as(CmsPhonenumber).phonenumber.should eq "555-0100"
   end
 
+  # Field values are produced by the field's type, so they may be any Crystal type rather than only the driver's scalars.
+  def test_hydrates_value_object_fields_through_their_type : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    rsm = AORM::Query::ResultSetMapping.new
+    rsm.add_entity_result CustomIdObjectTypeParent, "p"
+    rsm.add_field_result "p", "p__id", "id"
+    rsm.add_field_result "p", "p__other_id", "other_id"
+
+    rs = FakeResultSet.new([
+      {"p__id" => "abc".as(DB::Any), "p__other_id" => "def".as(DB::Any)},
+    ])
+
+    parent = AORM::Internal::Hydrators::SimpleObject.new(em).hydrate_all(rs, rsm).first.as(CustomIdObjectTypeParent)
+
+    parent.id.should eq CustomIdObject.new("abc")
+    parent.other_id.should eq CustomIdObject.new("def")
+  end
+
   def test_hydrates_multiple_rows_into_multiple_entities : Nil
     em = MockEntityManager.new(MockConnection.new)
     rsm = AORM::Query::ResultSetMapping.new

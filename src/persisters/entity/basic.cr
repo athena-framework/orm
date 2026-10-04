@@ -162,12 +162,11 @@ class Athena::ORM::Persisters::Entity::Basic
 
     @queued_inserts.each do |entity|
       insert_data = self.prepare_insert_data entity
-      params = [] of DB::Any
+      params = [] of Mapping::Value
       types = [] of String?
 
       insert_data[table_name].each do |column, value|
-        # Unwrap at the DB-binding boundary.
-        params << value.value.as(DB::Any)
+        params << value
         types << @column_types[column]?
       end
 
@@ -202,19 +201,19 @@ class Athena::ORM::Persisters::Entity::Basic
   end
 
   # Returns the parameters bound for *criteria*, along with the type name each one is converted through.
-  def expand_parameters(criteria : Hash(String, _)) : {Array(DB::Any), Array(String?)}
-    params = [] of DB::Any
+  def expand_parameters(criteria : Hash(String, _)) : {Array(Mapping::Value), Array(String?)}
+    params = [] of Mapping::Value
     types = [] of String?
 
     criteria.each do |field, value|
       next if value.nil?
 
       # IN clause: bind each non-null element as its own parameter, typed like the field itself.
-      items = value.is_a?(Indexable) ? value.to_a.compact : [value]
+      items = value.is_a?(Array) ? value.compact : [value]
 
       items.each do |item|
         types.concat PersisterHelper.infer_parameter_types(field, item, @class_metadata, @em)
-        PersisterHelper.convert_to_parameter_value(item, @em).each { |converted| params << converted.as(DB::Any) }
+        PersisterHelper.convert_to_parameter_value(item, @em).each { |converted| params << Mapping::SingleValue.new(Mapping.box(converted)) }
       end
     end
 
@@ -318,7 +317,7 @@ class Athena::ORM::Persisters::Entity::Basic
     update_data : Hash(String, Mapping::Value),
   ) : Nil
     set = [] of String
-    params = [] of DB::Any
+    params = [] of Mapping::Value
     types = [] of String?
 
     update_data.each do |column_name, value|
@@ -336,9 +335,7 @@ class Athena::ORM::Persisters::Entity::Basic
         column = quoted_column_name
       end
 
-      # Unwrap at the DB-binding boundary: callers store wrapped values in the
-      # changeset path, but `connection.execute_statement`'s params slot wants raw `DB::Any`.
-      params << value.value.as(DB::Any)
+      params << value
       types << @column_types[column_name]?
       set << "#{column} = #{placeholder}"
     end
@@ -350,14 +347,11 @@ class Athena::ORM::Persisters::Entity::Basic
       unless assoc = @class_metadata.association_mappings[id_field]?
         id_value = identifier[id_field].value
 
-        if id_value.is_a?(DB::Any)
-          params << id_value
-          types << @class_metadata.field_mappings[id_field].type
-        elsif id_value.is_a?(AORM::Entity)
-          raise "BUG: non-association AORM::Entity value"
-        elsif id_value.is_a?(Collection)
-          raise "BUG: collection cannot be identifier"
-        end
+        raise "BUG: non-association AORM::Entity value" if id_value.is_a?(AORM::Entity)
+        raise "BUG: collection cannot be identifier" if id_value.is_a?(Collection)
+
+        params << identifier[id_field]
+        types << @class_metadata.field_mappings[id_field].type
 
         where << @quote_strategy.column_name id_field, @class_metadata, @platform
 
@@ -410,7 +404,7 @@ class Athena::ORM::Persisters::Entity::Basic
 
   # *types* holds the type of each criterion, in the same order as *criteria*.
   private def delete_condition_sql(criteria : Hash(String, Mapping::Value), types : Array(String))
-    values = [] of DB::Any
+    values = [] of Mapping::Value
     value_types = [] of String?
     conditions = [] of String
 
@@ -431,11 +425,9 @@ class Athena::ORM::Persisters::Entity::Basic
         raise "BUG: collection in delete condition"
       end
 
-      if value.is_a?(DB::Any)
-        values << value
-        value_types << types[idx]?
-        conditions << "#{k} = ?"
-      end
+      values << wrapped
+      value_types << types[idx]?
+      conditions << "#{k} = ?"
     end
 
     {values, value_types, conditions}
@@ -483,12 +475,9 @@ class Athena::ORM::Persisters::Entity::Basic
 
         @column_types[column_name] = fm.type
 
-        raw = change.new.value
-        if raw.is_a?(DB::Any)
-          result[self.owning_table field][column_name] = change.new
-        elsif raw.is_a?(AORM::Entity)
-          raise "BUG: non-association AORM::Entity value"
-        end
+        raise "BUG: non-association AORM::Entity value" if change.new.value.is_a?(AORM::Entity)
+
+        result[self.owning_table field][column_name] = change.new
 
         next
       end
@@ -683,7 +672,7 @@ class Athena::ORM::Persisters::Entity::Basic
 
   def select_condition_statement_sql(field : String, value : _, association : Mapping::Association? = nil, comparison : String? = nil) : String
     value = value.is_a?(Mapping::Value) ? value.value : value
-    comparison ||= value.is_a?(Enumerable) ? "IN" : "="
+    comparison ||= value.is_a?(Array) ? "IN" : "="
 
     selected_columns = [] of String
     columns = self.select_condition_statement_column_sql field, association
@@ -713,7 +702,7 @@ class Athena::ORM::Persisters::Entity::Basic
       end
 
       if comparison == "IN" || comparison == "NIN"
-        elements = value.is_a?(Indexable) ? value.to_a : [value]
+        elements = value.is_a?(Array) ? value : [value]
 
         if elements.empty?
           selected_columns << "1=0"
@@ -1036,8 +1025,8 @@ class Athena::ORM::Persisters::Entity::Basic
     @connection.execute_query sql, params, types
   end
 
-  private def expand_to_many_parameters(parameters : Array(CollectionParameter)) : {Array(DB::Any), Array(String?)}
-    params = [] of DB::Any
+  private def expand_to_many_parameters(parameters : Array(CollectionParameter)) : {Array(Mapping::Value), Array(String?)}
+    params = [] of Mapping::Value
     types = [] of String?
 
     parameters.each do |param|
@@ -1045,7 +1034,7 @@ class Athena::ORM::Persisters::Entity::Basic
       next if value.nil?
 
       types.concat PersisterHelper.infer_parameter_types(param.field, value, param.source_class_metadata, @em)
-      PersisterHelper.convert_to_parameter_value(value, @em).each { |converted| params << converted.as(DB::Any) }
+      PersisterHelper.convert_to_parameter_value(value, @em).each { |converted| params << Mapping::SingleValue.new(Mapping.box(converted)) }
     end
 
     {params, types}

@@ -42,7 +42,7 @@ class Athena::ORM::EntityRepository(EntityType) < Athena::ORM::RepositoryInterfa
       end
     %}
 
-    self.find_by criteria.to_h.transform_keys &.to_s
+    self.find_by self.named_criteria(criteria)
   end
 
   def find_by(criteria : Criteria = Criteria.new, order_by : Hash(String, String) = Hash(String, String).new, limit : Int? = nil, offset : Int? = nil) : Array(EntityType)
@@ -70,7 +70,7 @@ class Athena::ORM::EntityRepository(EntityType) < Athena::ORM::RepositoryInterfa
       end
     %}
 
-    self.find_one_by criteria.to_h.transform_keys &.to_s
+    self.find_one_by self.named_criteria(criteria)
   end
 
   def find_one_by(criteria : Criteria, order_by : Hash(String, String) = Hash(String, String).new) : EntityType?
@@ -102,11 +102,19 @@ class Athena::ORM::EntityRepository(EntityType) < Athena::ORM::RepositoryInterfa
       end
     %}
 
-    self.count criteria.to_h.transform_keys &.to_s
+    self.count self.named_criteria(criteria)
   end
 
   def count(criteria : Criteria) : Int
     @em.unit_of_work.entity_persister(@entity_class).count criteria
+  end
+
+  # Builds the criteria hash for the named-argument finders.
+  # Enum values are given as the integer enum fields are stored as.
+  private def named_criteria(criteria : NamedTuple) : Hash
+    criteria.to_h.transform_keys(&.to_s).transform_values do |value|
+      value.is_a?(::Enum) ? Mapping::EnumConversion.from_enum(value) : value
+    end
   end
 
   def inspect(io : IO) : Nil

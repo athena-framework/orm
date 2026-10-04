@@ -49,7 +49,6 @@ class Athena::ORM::UnitOfWork
 
         case raw
         when ::Bool then io << (raw ? "1" : "")
-        when ::Enum then io << raw.value
         else             io << raw
         end
       end
@@ -1114,8 +1113,8 @@ class Athena::ORM::UnitOfWork
 
             new_value = actual_inner.clone
             new_value.set_owner entity, assoc
-            # Widen to `Mapping::ValueAny` here so `set_field_value` doesn't fan out to one specialization per `PersistentCollection(T)` member of `actual_inner.clone`'s inferred return union.
-            class_metadata.set_field_value entity, assoc.field_name, new_value.as(Mapping::ValueAny)
+            # Widen to `AORM::Storable` here so `set_field_value` doesn't fan out to one specialization per `PersistentCollection(T)` member of `actual_inner.clone`'s inferred return union.
+            class_metadata.set_field_value entity, assoc.field_name, new_value.as(AORM::Storable)
           end
         end
 
