@@ -22,7 +22,8 @@ abstract class Athena::ORM::Mapping::ToOneOwningSide < Athena::ORM::Mapping::Own
       instance.join_columns.replace(defs.map { |d|
         JoinColumn.new(
           name: d.name || naming_strategy.join_column_name(instance.field_name, entity_class),
-          referenced_column_name: d.referenced_column_name || naming_strategy.reference_column_name
+          referenced_column_name: d.referenced_column_name || naming_strategy.reference_column_name,
+          nullable: d.nullable
         )
       })
     elsif instance.join_columns.empty?
@@ -40,8 +41,8 @@ abstract class Athena::ORM::Mapping::ToOneOwningSide < Athena::ORM::Mapping::Own
       if instance.id?
         raise "cannot set nullable field for join columns in a to-one association" unless jc.nullable.nil?
 
-        jc.nullable = true
-      else
+        jc.nullable = false
+      elsif jc.nullable.nil?
         jc.nullable = true
       end
 

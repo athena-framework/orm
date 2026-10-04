@@ -21,7 +21,11 @@ module Athena::ORM::SQL
     private BACKTICK_IDENTIFIER = /`(?:``|[^`])*`/
 
     # Square bracket identifiers (SQL Server style): [identifier]
-    private BRACKET_IDENTIFIER = /\[[^\]]*\]/
+    # Excludes PostgreSQL `ARRAY[...]` constructors, whose contents may hold parameters.
+    private BRACKET_IDENTIFIER = /(?<!\b(?i:ARRAY))\[[^\]]*\]/
+
+    # Runs of two or more colons, such as PostgreSQL's `::` cast operator, which must not be read as a named parameter.
+    private MULTICHAR = /:{2,}/
 
     # Single-line comments: -- ...
     private LINE_COMMENT = /--[^\r\n]*/
@@ -46,6 +50,7 @@ module Athena::ORM::SQL
         "|(?<dquote>#{DOUBLE_QUOTED_IDENTIFIER.source})" \
         "|(?<backtick>#{BACKTICK_IDENTIFIER.source})" \
         "|(?<bracket>#{BRACKET_IDENTIFIER.source})" \
+        "|(?<multichar>#{MULTICHAR.source})" \
         "|(?<linecomment>#{LINE_COMMENT.source})" \
         "|(?<blockcomment>#{BLOCK_COMMENT.source})" \
         "|(?<named>#{NAMED_PARAMETER.source})" \

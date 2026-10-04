@@ -369,7 +369,7 @@ class Athena::ORM::UnitOfWork
   end
 
   private def execute_updates : Nil
-    @entity_updates.each do |entity|
+    self.compute_update_execution_order.each do |entity|
       class_metadata = @em.class_metadata entity.class
       persister = self.entity_persister class_metadata.entity_class
 
@@ -416,6 +416,12 @@ class Athena::ORM::UnitOfWork
     events_to_dispatch.each do |(m, e)|
       @listeners_invoker.invoke m, e, m.create_post_remove_event e, @em
     end
+  end
+
+  # Orders updates by class name, then by identifier hash, so concurrent flushes touching the same rows acquire row locks in the same order and cannot deadlock each other.
+  # Identifier hashes compare as strings, so numeric ids sort lexically; only a consistent order matters here.
+  private def compute_update_execution_order : Array(AORM::Entity)
+    @entity_updates.to_a.sort_by! { |entity| {entity.class.name, self.id_hash_of_entity(entity)} }
   end
 
   private def compute_delete_execution_order : Array(AORM::Entity)
@@ -788,9 +794,12 @@ class Athena::ORM::UnitOfWork
   def clear : Nil
     @identity_map.clear
     @entity_identifiers.clear
+    @original_entity_data.clear
+    @entity_change_sets.clear
     @entity_states.clear
-    @entity_deletions.clear
     @entity_insertions.clear
+    @entity_updates.clear
+    @entity_deletions.clear
     @entity_persisters.clear
     @non_cascaded_new_detected_entities.clear
     @collection_deletions.clear
@@ -798,6 +807,8 @@ class Athena::ORM::UnitOfWork
     @extra_updates.clear
     @visited_collections.clear
     @pending_collection_element_removals.clear
+    @pending_to_one_resolutions.clear
+    @orphan_removals.clear
 
     @event_dispatcher.try &.dispatch Events::OnClearEventArgs.new @em
   end

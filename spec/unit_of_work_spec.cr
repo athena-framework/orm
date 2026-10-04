@@ -291,6 +291,64 @@ class CollectionAddingPersister < AORM::Persisters::Entity::Basic
   end
 end
 
+# Pair of entities whose class names sort in the opposite order to how the specs register them.
+@[AORMA::Entity]
+class UpdateOrderAlpha < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property! id : Int32
+
+  @[AORMA::Column]
+  property! name : String
+end
+
+@[AORMA::Entity]
+class UpdateOrderBeta < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property! id : Int32
+
+  @[AORMA::Column]
+  property! name : String
+end
+
+# Insert cycle where only one edge may be broken: `head.tail` is nullable while `tail.head` is NOT NULL.
+@[AORMA::Entity]
+class NullableCycleHead < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+
+  @[AORMA::OneToOne]
+  property tail : NullableCycleTail? = nil
+end
+
+@[AORMA::Entity]
+class NullableCycleTail < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue]
+  property! id : Int32
+
+  @[AORMA::ManyToOne]
+  @[AORMA::JoinColumn(nullable: false)]
+  property head : NullableCycleHead? = nil
+end
+
+# Records `update` calls into a log shared across persisters so the cross-class execution order can be asserted.
+class UpdateLoggingPersister < AORM::Persisters::Entity::Basic
+  def initialize(em : AORM::EntityManagerInterface, class_metadata : AORM::Mapping::ClassInterface, @log : Array(AORM::Entity))
+    super em, class_metadata
+  end
+
+  def update(entity : AORM::Entity) : Nil
+    @log << entity
+  end
+end
+
 # Captures `load_one_to_one_entity` calls so the inverse-side resolution path can be asserted without standing up a real persister.
 class CapturingOneToOnePersister < AORM::Persisters::Entity::Basic
   setter mock_load_one_to_one_result : AORM::Entity? = nil
@@ -516,6 +574,92 @@ struct UnitOfWorkTest < ASPEC::TestCase
     user_persister.updates.size.should eq 1
     user_persister.updates.first.should be user
     @uow.extra_update_for(user).should be_empty
+  end
+
+  # Concurrent flushes touching the same rows must acquire row locks in the same order to avoid deadlocks.
+  def test_commit_executes_updates_ordered_by_class_name : Nil
+    log = [] of AORM::Entity
+    @uow.set_entity_persister UpdateOrderBeta, UpdateLoggingPersister.new(@em, @em.class_metadata(UpdateOrderBeta), log)
+    @uow.set_entity_persister UpdateOrderAlpha, UpdateLoggingPersister.new(@em, @em.class_metadata(UpdateOrderAlpha), log)
+
+    beta = UpdateOrderBeta.new
+    beta.id = 1
+    beta.name = "before"
+    @uow.register_managed beta, {"id" => 1}, {"id" => 1, "name" => "before"}
+
+    alpha = UpdateOrderAlpha.new
+    alpha.id = 1
+    alpha.name = "before"
+    @uow.register_managed alpha, {"id" => 1}, {"id" => 1, "name" => "before"}
+
+    beta.name = "after"
+    alpha.name = "after"
+
+    @uow.commit
+
+    log.map(&.class).should eq [UpdateOrderAlpha, UpdateOrderBeta]
+  end
+
+  # Within a single class, UPDATEs are ordered by identifier hash rather than by when the entities were loaded.
+  def test_commit_executes_updates_ordered_by_identifier_within_a_class : Nil
+    log = [] of AORM::Entity
+    @uow.set_entity_persister UpdateOrderAlpha, UpdateLoggingPersister.new(@em, @em.class_metadata(UpdateOrderAlpha), log)
+
+    {2, 1, 3}.each do |id|
+      entity = UpdateOrderAlpha.new
+      entity.id = id
+      entity.name = "before"
+      @uow.register_managed entity, {"id" => id}, {"id" => id, "name" => "before"}
+      entity.name = "after"
+    end
+
+    @uow.commit
+
+    log.map(&.as(UpdateOrderAlpha).id).should eq [1, 2, 3]
+  end
+
+  # `clear` discards all pending work, so nothing computed or scheduled beforehand may reach the database on the next commit.
+  def test_clear_discards_pending_updates_change_sets_and_orphan_removals : Nil
+    log = [] of AORM::Entity
+    @uow.set_entity_persister UpdateOrderAlpha, UpdateLoggingPersister.new(@em, @em.class_metadata(UpdateOrderAlpha), log)
+
+    entity = UpdateOrderAlpha.new
+    entity.id = 1
+    entity.name = "before"
+    @uow.register_managed entity, {"id" => 1}, {"id" => 1, "name" => "before"}
+    entity.name = "after"
+    @uow.compute_changesets
+
+    orphan = UpdateOrderAlpha.new
+    orphan.id = 2
+    orphan.name = "orphan"
+    @uow.register_managed orphan, {"id" => 2}, {"id" => 2, "name" => "orphan"}
+    @uow.schedule_orphan_removal orphan
+
+    @uow.clear
+
+    @uow.scheduled_entity_updates.should be_empty
+    @uow.entity_changeset(entity).should be_empty
+
+    @uow.commit
+
+    log.should be_empty
+  end
+
+  # A NOT NULL foreign key cannot be deferred to an extra update, so the cycle must be broken on the nullable edge.
+  def test_insert_execution_order_breaks_cycles_on_nullable_join_columns_only : Nil
+    head = NullableCycleHead.new
+    tail = NullableCycleTail.new
+    head.tail = tail
+    tail.head = head
+
+    @uow.persist head
+    @uow.persist tail
+    @uow.compute_changesets
+
+    order = @uow.insert_execution_order
+
+    order.index!(head).should be < order.index!(tail)
   end
 
   def test_insert_execution_order_places_to_one_owning_side_target_first : Nil

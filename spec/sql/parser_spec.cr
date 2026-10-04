@@ -192,6 +192,46 @@ describe Athena::ORM::SQL::Parser do
       visitor.parameter_map.should be_empty
     end
 
+    it "does not treat PostgreSQL casts as named parameters" do
+      visitor = Athena::ORM::SQL::ConvertParameters.new
+      parser = Athena::ORM::SQL::Parser.new
+
+      parser.parse("SELECT foo::date as date FROM Foo WHERE bar > :start_date AND baz > :start_date", visitor)
+
+      visitor.sql.should eq "SELECT foo::date as date FROM Foo WHERE bar > $1 AND baz > $1"
+      visitor.parameter_map.should eq({":start_date" => 1})
+    end
+
+    it "detects positional parameters inside ARRAY constructors" do
+      visitor = Athena::ORM::SQL::ConvertParameters.new
+      parser = Athena::ORM::SQL::Parser.new
+
+      parser.parse("SELECT * FROM foo WHERE jsonb_exists_any(foo.bar, ARRAY[?])", visitor)
+
+      visitor.sql.should eq "SELECT * FROM foo WHERE jsonb_exists_any(foo.bar, ARRAY[$1])"
+      visitor.parameter_map.should eq({1 => 1})
+    end
+
+    it "detects named parameters inside lowercase array constructors" do
+      visitor = Athena::ORM::SQL::ConvertParameters.new
+      parser = Athena::ORM::SQL::Parser.new
+
+      parser.parse("SELECT * FROM foo WHERE jsonb_exists_any(foo.bar, array[:foo])", visitor)
+
+      visitor.sql.should eq "SELECT * FROM foo WHERE jsonb_exists_any(foo.bar, array[$1])"
+      visitor.parameter_map.should eq({":foo" => 1})
+    end
+
+    it "leaves casted ARRAY literals untouched" do
+      visitor = Athena::ORM::SQL::ConvertParameters.new
+      parser = Athena::ORM::SQL::Parser.new
+
+      parser.parse("SELECT table.column1, ARRAY['3']::integer[] FROM schema.table table WHERE table.f1 = :foo AND ARRAY['3']::integer[]", visitor)
+
+      visitor.sql.should eq "SELECT table.column1, ARRAY['3']::integer[] FROM schema.table table WHERE table.f1 = $1 AND ARRAY['3']::integer[]"
+      visitor.parameter_map.should eq({":foo" => 1})
+    end
+
     describe "with MySQL string escaping" do
       it "handles backslash-escaped quotes in strings" do
         visitor = Athena::ORM::SQL::ConvertParameters.new

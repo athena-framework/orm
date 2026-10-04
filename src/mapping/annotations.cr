@@ -20,7 +20,7 @@ module Athena::ORM::Mapping::Annotations
     referenced_column_name : String? = nil,
     deferrable : Bool = false,
     unique : Bool = false,
-    nullable : Bool = false,
+    nullable : Bool? = nil,
     column_definition : String? = nil,
     field_name : String? = nil
   # on_delete : Any

@@ -37,6 +37,16 @@ class CompositeAutoItem < AORM::Entity
   property! label : String
 end
 
+# Identifier whose column name differs from its field name.
+@[AORMA::Entity]
+@[AORMA::Table(name: "renamed_pk_items")]
+class RenamedPkItem < AORM::Entity
+  @[AORMA::Column(name: "item_pk")]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property! id : Int32
+end
+
 # OneToMany inverse-side / ManyToOne owning-side pair, used to drive the inverse-side branch in `select_condition_statement_column_sql`.
 @[AORMA::Entity]
 @[AORMA::Table(name: "tag_owners")]
@@ -557,6 +567,21 @@ struct BasicPersisterTest < ASPEC::TestCase
     insert_sql.should match(/INSERT INTO\s+forum_users\b/)
     insert_sql.should_not match(/\bRETURNING\b/)
     user.id.should eq 42
+  end
+
+  # The WHERE clause must target identifier columns, not identifier field names.
+  def test_delete_conditions_on_identifier_column_names : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(RenamedPkItem)
+
+    item = RenamedPkItem.new
+    item.id = 7
+    em.unit_of_work.register_managed item, {"id" => 7}, {"id" => 7}
+
+    persister.delete(item).should be_true
+
+    connection.built_statements.last.should eq "DELETE FROM renamed_pk_items WHERE item_pk = ?"
   end
 
   private def build_persister : AORM::Persisters::Entity::Basic

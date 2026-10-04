@@ -4,7 +4,7 @@ abstract class Athena::ORM::Platforms::Platform
   end
 
   def date_time_format_string : String
-    "Y-m-d H:i:s"
+    "%F %T"
   end
 
   def append_lock_hint(from_clause : String, lock_mode : LockMode) : String

@@ -380,7 +380,7 @@ class Athena::ORM::Persisters::Entity::Basic
 
     self.delete_join_table_records identifier, types
 
-    values, conditions = self.delete_condition_sql identifier
+    values, conditions = self.delete_condition_sql id
 
     sql = String.build do |io|
       io << "DELETE FROM " << table_name

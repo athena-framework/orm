@@ -11,7 +11,8 @@ module Athena::ORM::Mapping::Driver
   # Holds join column definition from annotation for passing to mapping constructors.
   record JoinColumnDef,
     name : String?,
-    referenced_column_name : String?
+    referenced_column_name : String?,
+    nullable : Bool? = nil
 
   record ColumnMapping,
     field_name : String,
@@ -134,7 +135,8 @@ module Athena::ORM::Mapping::Driver
             {% for jc_ann in join_col_anns %}
               join_col_defs << JoinColumnDef.new(
                 name: {{jc_ann[:name]}},
-                referenced_column_name: {{jc_ann[:referenced_column_name]}}
+                referenced_column_name: {{jc_ann[:referenced_column_name]}},
+                nullable: {{jc_ann[:nullable]}}
               )
             {% end %}
             mapping = mapping.copy_with(join_column_defs: join_col_defs)
@@ -184,7 +186,8 @@ module Athena::ORM::Mapping::Driver
             {% for jc_ann in join_col_anns %}
               join_col_defs << JoinColumnDef.new(
                 name: {{jc_ann[:name]}},
-                referenced_column_name: {{jc_ann[:referenced_column_name]}}
+                referenced_column_name: {{jc_ann[:referenced_column_name]}},
+                nullable: {{jc_ann[:nullable]}}
               )
             {% end %}
             mapping = mapping.copy_with(join_column_defs: join_col_defs)

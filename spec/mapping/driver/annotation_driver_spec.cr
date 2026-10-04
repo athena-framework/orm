@@ -203,6 +203,29 @@ class FkAsIdFixture < AORM::Entity
   property owner : DriverAssocTarget? = nil
 end
 
+@[AORMA::Entity]
+class NotNullableJoinColumnFixture < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  property id : Int64? = nil
+
+  @[AORMA::ManyToOne]
+  @[AORMA::JoinColumn(name: "parent_id", referenced_column_name: "id", nullable: false)]
+  property parent : DriverAssocTarget? = nil
+end
+
+@[AORMA::Entity]
+class NullableIdJoinColumnFixture < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  property id : Int64? = nil
+
+  @[AORMA::OneToOne]
+  @[AORMA::ID]
+  @[AORMA::JoinColumn(name: "owner_id", referenced_column_name: "id", nullable: true)]
+  property owner : DriverAssocTarget? = nil
+end
+
 @[AORMA::Entity(repository_class: CustomDriverRepository)]
 class WithCustomRepositoryFixture < AORM::Entity
   @[AORMA::Column]
@@ -420,6 +443,31 @@ struct AnnotationDriverTest < ASPEC::TestCase
     metadata = load FkAsIdFixture
     assoc = metadata.association_mappings["owner"]
     assoc.id?.should be_true
+  end
+
+  def test_to_one_join_column_defaults_to_nullable : Nil
+    metadata = load ManyToOneFixture
+    assoc = metadata.association_mappings["parent"].as(AORM::Mapping::ManyToOneOwningSide)
+    assoc.join_columns.first.nullable.should be_true
+  end
+
+  def test_to_one_join_column_honors_explicit_not_nullable : Nil
+    metadata = load NotNullableJoinColumnFixture
+    assoc = metadata.association_mappings["parent"].as(AORM::Mapping::ManyToOneOwningSide)
+    assoc.join_columns.first.nullable.should be_false
+  end
+
+  # A foreign key that is part of the primary key can never be NULL.
+  def test_to_one_identifier_join_column_is_not_nullable : Nil
+    metadata = load FkAsIdFixture
+    assoc = metadata.association_mappings["owner"].as(AORM::Mapping::OneToOneOwningSide)
+    assoc.join_columns.first.nullable.should be_false
+  end
+
+  def test_to_one_identifier_join_column_rejects_explicit_nullable : Nil
+    expect_raises(Exception, /cannot set nullable/) do
+      load NullableIdJoinColumnFixture
+    end
   end
 
   # ---- shared model fixtures load cleanly ----

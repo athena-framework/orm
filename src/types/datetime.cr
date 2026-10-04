@@ -8,7 +8,8 @@ struct Athena::ORM::Types::Datetime < Athena::ORM::Types::Type
 
   # :inherit:
   def to_db(value : _, platform : AORM::Platforms::Platform)
-    value
+    # Columns hold UTC wall-clock time with no offset, and values are read back as UTC.
+    value.is_a?(::Time) ? value.to_utc : value
   end
 
   # :inherit:
@@ -17,7 +18,7 @@ struct Athena::ORM::Types::Datetime < Athena::ORM::Types::Type
 
     raise "Datetime cannot accept #{value.class}" unless value.is_a? ::String
 
-    ::Time.parse_utc platform.date_time_format_string, value
+    ::Time.parse_utc value, platform.date_time_format_string
   end
 
   # :inherit:
