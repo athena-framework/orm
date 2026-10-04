@@ -32,6 +32,16 @@ class Athena::ORM::EntityManager
   ) : AORM::Entity? forall T
     {% raise "entity_class must be an AORM::Entity.class, not '#{T}'." unless T <= AORM::Entity %}
 
+    # Only the result cast depends on *T*, so the lookup itself is shared by every entity class.
+    self.find_entity(entity_class.as(AORM::Entity.class), id, lock_mode, lock_version).as T?
+  end
+
+  private def find_entity(
+    entity_class : AORM::Entity.class,
+    id : Hash(String, Int | String) | Int | String,
+    lock_mode : AORM::LockMode,
+    lock_version : Int32?,
+  ) : AORM::Entity?
     class_metadata = self.class_metadata entity_class
     entity_class = class_metadata.entity_class
 
@@ -57,14 +67,14 @@ class Athena::ORM::EntityManager
 
       # TODO: Handle locking
 
-      return entity.as T?
+      return entity
     end
 
     persister = uow.entity_persister entity_class
 
     # TODO: Handle locking
 
-    persister.load_by_id(id).as T?
+    persister.load_by_id(id)
   end
 
   def find!(
@@ -76,27 +86,28 @@ class Athena::ORM::EntityManager
     self.find(entity_class, id, lock_mode, lock_version) || raise AORM::Exceptions::NoResult.new
   end
 
+  # The entry points upcast entities to `AORM::Entity` so the unit of work compiles its internals once, rather than once per entity class (each copy dispatching over every entity class again).
   def persist(entity : AORM::Entity) : Nil
     self.unless_closed do
-      self.unit_of_work.persist entity
+      self.unit_of_work.persist entity.as(AORM::Entity)
     end
   end
 
   def remove(entity : AORM::Entity) : Nil
     self.unless_closed do
-      self.unit_of_work.remove entity
+      self.unit_of_work.remove entity.as(AORM::Entity)
     end
   end
 
   def refresh(entity : AORM::Entity, lock_mode : AORM::LockMode = :none) : Nil
     self.unless_closed do
-      self.unit_of_work.refresh entity, lock_mode
+      self.unit_of_work.refresh entity.as(AORM::Entity), lock_mode
     end
   end
 
   def detach(entity : AORM::Entity) : Nil
     self.unless_closed do
-      self.unit_of_work.detach entity
+      self.unit_of_work.detach entity.as(AORM::Entity)
     end
   end
 
@@ -116,6 +127,7 @@ class Athena::ORM::EntityManager
     self.metadata_factory.metadata entity_class
   end
 
+  # Each overload upcasts the class so the repository factory is compiled once rather than once per entity class.
   macro finished
     {% for entity in Athena::ORM::Entity.all_subclasses.reject { |t| t.abstract? || t <= Athena::ORM::Proxy } %}
       {% entity_ann = entity.annotation(AORMA::Entity) %}
@@ -123,12 +135,12 @@ class Athena::ORM::EntityManager
       {% if repository_class %}
         # Custom-repo overload: `@[Entity(repository_class: …)]` on the entity wins.
         def repository(entity_class : {{entity.id}}.class) : {{repository_class.id}}
-          @repository_factory.repository(self, entity_class).as {{repository_class.id}}
+          @repository_factory.repository(self, entity_class.as(AORM::Entity.class)).as {{repository_class.id}}
         end
       {% else %}
         # Default overload: returns a generic `EntityRepository(T)` typed to this entity.
         def repository(entity_class : {{entity.id}}.class) : AORM::EntityRepository({{entity.id}})
-          @repository_factory.repository(self, entity_class).as AORM::EntityRepository({{entity.id}})
+          @repository_factory.repository(self, entity_class.as(AORM::Entity.class)).as AORM::EntityRepository({{entity.id}})
         end
       {% end %}
     {% end %}

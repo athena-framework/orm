@@ -27,6 +27,12 @@ struct Athena::ORM::DefaultRepositoryFactory
     self.create_default_repository em, entity_class, class_metadata
   end
 
+  # Unreachable in practice: abstract entities and proxies never get here (the metadata factory rejects them first).
+  # It exists so dispatching on an `AORM::Entity.class` covers every class, which is what lets `EntityManager#repository` pass an upcast class.
+  private def create_default_repository(em : AORM::EntityManagerInterface, entity_class : AORM::Entity.class, class_metadata : AORM::Mapping::ClassInterface) : NoReturn
+    raise "BUG: no default repository for #{entity_class}"
+  end
+
   macro finished
     {% for entity in Athena::ORM::Entity.all_subclasses.reject { |t| t.abstract? || t <= Athena::ORM::Proxy } %}
       private def create_default_repository(em : AORM::EntityManagerInterface, entity_class : {{entity.id}}.class, class_metadata : AORM::Mapping::ClassInterface) : AORM::RepositoryInterface

@@ -17,6 +17,24 @@ module Athena::ORM::Mapping::ClassInterface
   abstract def promote_collection(field_name : String, entity : AORM::Entity, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
 end
 
+module Athena::ORM::Mapping
+  # Raised by the per-field accessors when *value* doesn't fit *field_name* on *entity_class*.
+  # Describing an arbitrary value's class costs code proportional to every type it could be, so it's generated once here rather than in each field of every entity.
+  def self.raise_type_mismatch(field_name : String, entity_class : String, value) : NoReturn
+    raise "Type mismatch for '#{field_name}' on #{entity_class}: got #{value.class}"
+  end
+
+  # Raised when *id_field* isn't an identifier field on *entity_class*, or *id_value* doesn't fit it.
+  def self.raise_identifier_mismatch(id_field : String, entity_class : String, id_value) : NoReturn
+    raise "BUG: Field #{id_field} not found on #{entity_class} or type mismatch (got #{id_value.class})"
+  end
+
+  # Raised when a `Mapping::Class` is handed an entity of another class.
+  def self.raise_entity_mismatch(method_name : String, entity_class : String, entity : AORM::Entity) : NoReturn
+    raise "BUG: entity type mismatch on Class(#{entity_class})##{method_name}: got #{entity.class}"
+  end
+end
+
 private struct Athena::ORM::Mapping::TypedFieldMapper
   DEFAULT_TYPE_FIELD_MAPPINGS = {
     ::String => "string",
@@ -183,7 +201,7 @@ class Athena::ORM::Mapping::Class(T)
 
   def get_field_value(entity : AORM::Entity, field_name : String)
     return get_field_value_typed(entity, field_name) if entity.is_a?(T)
-    raise "BUG: entity type mismatch on Class(#{T})#get_field_value: got #{entity.class}"
+    AORM::Mapping.raise_entity_mismatch "get_field_value", T.to_s, entity.as(AORM::Entity)
   end
 
   # Enum fields read as the integer they're stored as.
@@ -207,7 +225,7 @@ class Athena::ORM::Mapping::Class(T)
 
   def set_field_value(entity : AORM::Entity, field_name : String, value) : Nil
     return set_field_value_typed(entity, field_name, value) if entity.is_a?(T)
-    raise "BUG: entity type mismatch on Class(#{T})#set_field_value: got #{entity.class}"
+    AORM::Mapping.raise_entity_mismatch "set_field_value", T.to_s, entity.as(AORM::Entity)
   end
 
   # Enum fields also accept the integer they're stored as.
@@ -234,7 +252,7 @@ class Athena::ORM::Mapping::Class(T)
           # Explicit `.as` because narrowing through a `ValueAny` caller doesn't always refine `value` to exactly `ivar.type` — Crystal may keep `Storable | Nil` instead of e.g. `Avatar | Nil`.
           pointerof(entity.@{{ivar.id}}).value = value.as({{ivar.type}})
         else
-          raise "Type mismatch for '#{field_name}' on #{T}: got #{value.class}"
+          AORM::Mapping.raise_type_mismatch field_name, T.to_s, value
         end
       {% end %}
       else
@@ -268,7 +286,7 @@ class Athena::ORM::Mapping::Class(T)
         if value.is_a?({{ivar.type}})
           Mapping::ColumnValue.new(field_name, AORM::Mapping.box(value))
         else
-          raise "Type mismatch for '#{field_name}' on #{T}: got #{value.class}"
+          AORM::Mapping.raise_type_mismatch field_name, T.to_s, value
         end
       {% end %}
       else
@@ -280,7 +298,7 @@ class Athena::ORM::Mapping::Class(T)
   # Reads *field_name* off *entity* and wraps it as a `Mapping::Value`.
   def create_column_value_from_entity(field_name : String, entity : AORM::Entity) : Mapping::Value
     return create_column_value_from_entity_typed(field_name, entity) if entity.is_a?(T)
-    raise "BUG: entity type mismatch on Class(#{T})#create_column_value_from_entity: got #{entity.class}"
+    AORM::Mapping.raise_entity_mismatch "create_column_value_from_entity", T.to_s, entity.as(AORM::Entity)
   end
 
   private def create_column_value_from_entity_typed(field_name : String, entity : T) : Mapping::Value
@@ -310,7 +328,7 @@ class Athena::ORM::Mapping::Class(T)
 
   def inject_collection(field_name : String, entity : AORM::Entity, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
     return inject_collection_typed(field_name, entity, em, metadata, assoc) if entity.is_a?(T)
-    raise "BUG: entity type mismatch on Class(#{T})#inject_collection: got #{entity.class}"
+    AORM::Mapping.raise_entity_mismatch "inject_collection", T.to_s, entity.as(AORM::Entity)
   end
 
   private def inject_collection_typed(field_name : String, entity : T, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
@@ -336,7 +354,7 @@ class Athena::ORM::Mapping::Class(T)
 
   def promote_collection(field_name : String, entity : AORM::Entity, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
     return promote_collection_typed(field_name, entity, em, metadata, assoc) if entity.is_a?(T)
-    raise "BUG: entity type mismatch on Class(#{T})#promote_collection: got #{entity.class}"
+    AORM::Mapping.raise_entity_mismatch "promote_collection", T.to_s, entity.as(AORM::Entity)
   end
 
   private def promote_collection_typed(field_name : String, entity : T, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
@@ -497,7 +515,7 @@ class Athena::ORM::Mapping::Class(T)
           end
         end
       {% end %}
-      raise "BUG: Field #{id_field} not found on #{T} or type mismatch (got #{id_value.class})"
+      AORM::Mapping.raise_identifier_mismatch id_field, T.to_s, id_value
     {% end %}
   end
 

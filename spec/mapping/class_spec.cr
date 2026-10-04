@@ -251,6 +251,30 @@ struct MappingClassTest < ASPEC::TestCase
     end
   end
 
+  def test_set_field_value_raises_on_type_mismatch : Nil
+    metadata = AORM::Mapping::Class(SinglePkFixture).new
+
+    expect_raises Exception, "Type mismatch for 'label' on SinglePkFixture: got Int32" do
+      metadata.set_field_value SinglePkFixture.new, "label", 1
+    end
+  end
+
+  def test_create_column_value_raises_on_type_mismatch : Nil
+    metadata = AORM::Mapping::Class(SinglePkFixture).new
+
+    expect_raises Exception, "Type mismatch for 'label' on SinglePkFixture: got Int32" do
+      metadata.create_column_value "label", 1
+    end
+  end
+
+  def test_field_access_raises_for_an_entity_of_another_class : Nil
+    metadata = AORM::Mapping::Class(SinglePkFixture).new
+
+    expect_raises Exception, "BUG: entity type mismatch on Class(SinglePkFixture)#get_field_value: got CompositePkFixture" do
+      metadata.get_field_value CompositePkFixture.new, "id"
+    end
+  end
+
   def test_assign_identifier_raises_on_type_mismatch : Nil
     metadata = AORM::Mapping::Class(SinglePkFixture).new
 
