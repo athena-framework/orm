@@ -1,21 +1,4 @@
 module Athena::ORM
-  enum ParameterType
-    NULL
-    INTEGER
-    STRING
-    LARGE_OBJECT
-    BOOLEAN
-    BINARY
-    ASCII
-  end
-
-  enum ArrayParameterType
-    INTEGER
-    STRING
-    BINARY
-    ASCII
-  end
-
   module PersisterHelper
     # Returns the types for a given field, handling both regular fields and associations.
     # For associations, returns the types of the join column(s).
@@ -76,20 +59,28 @@ module Athena::ORM
       raise "Could not resolve type of column '#{column_name}' of class '#{metadata.entity_class}'"
     end
 
-    def self.infer_parameter_types(field : String, value : _, metadata : Mapping::ClassInterface, em : AORM::EntityManagerInterface) : Array(ParameterType | ArrayParameterType | String)
-      types = [] of ParameterType | ArrayParameterType | String
-
+    # Returns the type name of each parameter bound when filtering *field* by a single value, in binding order.
+    # Associations bind the target's identifier, so they take the type of each column their foreign key references.
+    # A `nil` type binds the parameter without conversion.
+    def self.infer_parameter_types(field : String, _value : _, metadata : Mapping::ClassInterface, em : AORM::EntityManagerInterface) : Array(String?)
       if fm = metadata.field_mappings[field]?
-        types << fm.type
-      elsif am = metadata.association_mappings[field]?
-        # TODO: Handle associations
-      else
-        types << ParameterType::STRING
+        return [fm.type] of String?
       end
 
-      # TODO: Handle array values
+      if assoc = metadata.association_mappings[field]?
+        assoc = em.metadata_factory.owning_side assoc
+        target_class = em.class_metadata assoc.target_entity
 
-      types
+        columns = case assoc
+                  when Mapping::ManyToManyOwningSide then assoc.relation_to_target_key_columns.values
+                  when Mapping::ToOneOwningSide      then assoc.source_to_target_key_columns.values
+                  else                                    raise "BUG: unexpected owning side #{assoc.class}"
+                  end
+
+        return columns.map { |column| self.type_of_column(column, target_class, em).as String? }
+      end
+
+      [nil] of String?
     end
 
     def self.convert_to_parameter_value(value : _, em : AORM::EntityManagerInterface)

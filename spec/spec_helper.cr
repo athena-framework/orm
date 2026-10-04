@@ -245,7 +245,7 @@ end
 class MockStatement < DB::Statement
   def perform_query(args : Enumerable) : DB::ResultSet
     self.record_execution args
-    MockResultSet.new(self)
+    connection.as(MockConnection).next_result_set || MockResultSet.new(self)
   end
 
   def perform_exec(args : Enumerable) : DB::ExecResult
@@ -270,6 +270,18 @@ class MockConnection < DB::Connection
 
   # Every executed statement's SQL with the arguments bound to it, in execution order.
   getter executed_statements : Array({String, Array(DB::Any)}) = [] of {String, Array(DB::Any)}
+
+  @queued_results = Deque(Array(Hash(String, DB::Any))).new
+
+  # Queues the rows returned by the next executed query.
+  # Queries with nothing queued fall back to `MockResultSet`.
+  def queue_result(rows : Array(Hash(String, DB::Any))) : Nil
+    @queued_results << rows
+  end
+
+  def next_result_set : DB::ResultSet?
+    @queued_results.shift?.try { |rows| FakeResultSet.new rows }
+  end
 
   def self.new
     new DB::Connection::Options.new

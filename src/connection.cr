@@ -40,6 +40,19 @@ module Athena::ORM
       end
     end
 
+    # Executes *sql*, binding each of *params* converted through the type at the same position in *types*, and returns the result set.
+    # The caller is responsible for closing it.
+    def execute_query(sql : String, params : Array, types : Array(String?)) : DB::ResultSet
+      self.query sql, args: self.convert_parameters(params, types)
+    end
+
+    # Executes *sql* like `#execute_query`, returning the first column of the first row, or `nil` when there are no rows.
+    def fetch_one(sql : String, params : Array, types : Array(String?))
+      self.execute_query sql, params, types do |rs|
+        rs.move_next ? rs.read : nil
+      end
+    end
+
     # The driver picks each parameter's encoding from its runtime class, so only the value is converted; there is no separate binding type.
     private def convert_parameters(params : Array, types : Array(String?)) : Array(DB::Any)
       Array(DB::Any).new(params.size) do |idx|

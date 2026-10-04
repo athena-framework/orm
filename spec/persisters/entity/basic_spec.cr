@@ -159,13 +159,16 @@ struct BasicPersisterTest < ASPEC::TestCase
   def test_expand_parameters_skips_nil : Nil
     persister = build_persister
 
-    persister.expand_parameters({"id" => nil.as(DB::Any)}).should be_empty
+    params, types = persister.expand_parameters({"id" => nil.as(DB::Any)})
+
+    params.should be_empty
+    types.should be_empty
   end
 
   def test_expand_parameters_flattens_array_and_drops_nils : Nil
     persister = build_persister
 
-    params = persister.expand_parameters({"id" => [1, nil, 3].as(Array(Int32?))})
+    params, _types = persister.expand_parameters({"id" => [1, nil, 3].as(Array(Int32?))})
 
     params.size.should eq 2
   end
@@ -177,7 +180,7 @@ struct BasicPersisterTest < ASPEC::TestCase
     em = persister.@em
     em.unit_of_work.register_managed avatar, {"id" => 99}, {"id" => 99}
 
-    params = persister.expand_parameters({"avatar" => avatar})
+    params, _types = persister.expand_parameters({"avatar" => avatar})
 
     params.size.should eq 1
     params.first.should eq 99
@@ -305,7 +308,7 @@ struct BasicPersisterTest < ASPEC::TestCase
 
     # Each scalar value becomes one positional parameter — no transformation,
     # no flattening for non-Indexable values.
-    params = persister.expand_parameters({
+    params, _types = persister.expand_parameters({
       "id"       => 42,
       "username" => "fred",
     })
@@ -318,7 +321,10 @@ struct BasicPersisterTest < ASPEC::TestCase
   def test_expand_parameters_returns_empty_for_all_nil_criteria : Nil
     persister = build_persister
 
-    persister.expand_parameters({"id" => nil, "username" => nil}).should be_empty
+    params, types = persister.expand_parameters({"id" => nil, "username" => nil})
+
+    params.should be_empty
+    types.should be_empty
   end
 
   def test_count_sql_with_no_criteria_omits_where_clause : Nil
@@ -675,6 +681,137 @@ struct BasicPersisterTest < ASPEC::TestCase
     persister.delete item
 
     connection.executed_statements.last.should eq({"DELETE FROM rot13_items WHERE id = ?", ["nop"]})
+  end
+
+  def test_expand_parameters_returns_the_mapped_type_of_each_field : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(Rot13Item)
+
+    params, types = persister.expand_parameters({"secret" => "hello"})
+
+    params.should eq ["hello"]
+    types.should eq ["rot13"]
+  end
+
+  # Association criteria bind the target's identifier, so they take the type of the column the foreign key references.
+  def test_expand_parameters_types_associations_by_the_referenced_column : Nil
+    persister = build_persister
+
+    avatar = ForumAvatar.new
+    persister.@em.unit_of_work.register_managed avatar, {"id" => 99}, {"id" => 99}
+
+    params, types = persister.expand_parameters({"avatar" => avatar})
+
+    params.should eq [99]
+    types.should eq ["integer"]
+  end
+
+  def test_expand_parameters_types_each_in_list_element : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(Rot13Item)
+
+    params, types = persister.expand_parameters({"secret" => ["a", nil, "b"]})
+
+    params.should eq ["a", "b"]
+    types.should eq ["rot13", "rot13"]
+  end
+
+  def test_load_binds_criteria_converted_through_their_mapped_types : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(Rot13Item)
+
+    connection.queue_result [] of Hash(String, DB::Any)
+    persister.load({"secret" => "hello"})
+
+    connection.executed_statements.last[1].should eq ["uryyb"]
+  end
+
+  def test_load_all_binds_each_in_list_element_converted_through_the_field_type : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(Rot13Item)
+
+    connection.queue_result [] of Hash(String, DB::Any)
+    persister.load_all({"secret" => ["hello", "world"]})
+
+    connection.executed_statements.last[1].should eq ["uryyb", "jbeyq"]
+  end
+
+  def test_count_binds_criteria_converted_through_their_mapped_types : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(Rot13Item)
+
+    connection.queue_result [{"count" => 3_i64} of String => DB::Any]
+
+    persister.count({"secret" => "hello"}).should eq 3
+    connection.executed_statements.last[1].should eq ["uryyb"]
+  end
+
+  def test_exists_binds_the_identifier_converted_through_its_mapped_type : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(Rot13Item)
+
+    item = Rot13Item.new
+    item.id = "abc"
+
+    connection.queue_result [{"1" => 1} of String => DB::Any]
+
+    persister.exists(item).should be_true
+    connection.executed_statements.last[1].should eq ["nop"]
+  end
+
+  def test_exists_is_false_without_a_matching_row : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(Rot13Item)
+
+    item = Rot13Item.new
+    item.id = "abc"
+
+    connection.queue_result [] of Hash(String, DB::Any)
+
+    persister.exists(item).should be_false
+  end
+
+  def test_load_one_to_many_collection_binds_the_owner_identifier_converted_through_its_mapped_type : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(ValueConversionType::OwningManyToOneEntity)
+    assoc = em.class_metadata(ValueConversionType::InversedOneToManyEntity).association_mappings["associated_entities"].as(AORM::Mapping::OneToMany)
+
+    owner = ValueConversionType::InversedOneToManyEntity.new
+    owner.id1 = "abc"
+    em.unit_of_work.register_managed owner, {"id1" => "abc"}, {"id1" => "abc"}
+
+    collection = AORM::PersistentCollection(ValueConversionType::OwningManyToOneEntity).new
+    collection.set_owner owner, assoc
+
+    connection.queue_result [] of Hash(String, DB::Any)
+    persister.load_one_to_many_collection assoc, owner, collection
+
+    connection.executed_statements.last[1].should eq ["nop"]
+  end
+
+  def test_load_many_to_many_collection_binds_the_owner_identifier_converted_through_its_mapped_type : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(ValueConversionType::InversedManyToManyEntity)
+    assoc = em.class_metadata(ValueConversionType::OwningManyToManyEntity).association_mappings["associated_entities"].as(AORM::Mapping::ManyToMany)
+
+    owner = ValueConversionType::OwningManyToManyEntity.new
+    owner.id2 = "abc"
+    em.unit_of_work.register_managed owner, {"id2" => "abc"}, {"id2" => "abc"}
+
+    collection = AORM::PersistentCollection(ValueConversionType::InversedManyToManyEntity).new
+    collection.set_owner owner, assoc
+
+    connection.queue_result [] of Hash(String, DB::Any)
+    persister.load_many_to_many_collection assoc, owner, collection
+
+    connection.executed_statements.last[1].should eq ["nop"]
   end
 
   private def build_persister : AORM::Persisters::Entity::Basic

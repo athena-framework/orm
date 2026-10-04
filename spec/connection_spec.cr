@@ -36,4 +36,24 @@ struct ConnectionTest < ASPEC::TestCase
   def test_execute_query_returns_the_block_value : Nil
     @connection.execute_query("SELECT 1", [] of DB::Any, [] of String?) { :done }.should eq :done
   end
+
+  def test_execute_query_without_a_block_returns_the_result_set : Nil
+    rs = @connection.execute_query "SELECT * FROM t WHERE a = ?", ["abc"], [Rot13Type::NAME]
+    rs.close
+
+    @wrapped.executed_statements.last.should eq({"SELECT * FROM t WHERE a = ?", ["nop"]})
+  end
+
+  def test_fetch_one_returns_the_first_column_of_the_first_row : Nil
+    @wrapped.queue_result [{"c" => 3_i64, "d" => 4_i64} of String => DB::Any]
+
+    @connection.fetch_one("SELECT c, d FROM t WHERE a = ?", ["abc"], [Rot13Type::NAME]).should eq 3_i64
+    @wrapped.executed_statements.last[1].should eq ["nop"]
+  end
+
+  def test_fetch_one_returns_nil_without_rows : Nil
+    @wrapped.queue_result [] of Hash(String, DB::Any)
+
+    @connection.fetch_one("SELECT c FROM t", [] of DB::Any, [] of String?).should be_nil
+  end
 end

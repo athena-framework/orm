@@ -1,6 +1,6 @@
 # Executes native SQL queries with explicit result set mapping.
 class Athena::ORM::NativeQuery
-  @parameters = {} of String | Int32 => DB::Any
+  @parameters = {} of String | Int32 => {DB::Any, String?}
 
   def initialize(
     @em : EntityManagerInterface,
@@ -9,9 +9,10 @@ class Athena::ORM::NativeQuery
   )
   end
 
-  # Sets a query parameter.
-  def set_parameter(key : String | Int32, value : DB::Any) : self
-    @parameters[key] = value
+  # Sets a query parameter, converted through the `Types::Type` named *type* when bound.
+  # Without a *type*, one is inferred from *value*.
+  def set_parameter(key : String | Int32, value : DB::Any, type : String? = nil) : self
+    @parameters[key] = {value, type || Query::ParameterTypeInferer.infer_type(value)}
     self
   end
 
@@ -49,20 +50,27 @@ class Athena::ORM::NativeQuery
   end
 
   private def execute_and_hydrate : Array(Entity)
-    params = build_params
+    params, types = build_params
     hydration_mode = @rsm.joined_aliases.empty? ? HydrationMode::SimpleObject : HydrationMode::Object
     hydrator = @em.hydrator(hydration_mode)
 
     entities = [] of Entity
 
-    @em.connection.query(@sql, args: params) do |rs|
+    @em.connection.execute_query(@sql, params, types) do |rs|
       entities = hydrator.hydrate_all(rs, @rsm)
     end
 
     entities
   end
 
-  private def build_params : Array(DB::Any)
-    @parameters.values
+  # Positional parameters bind in position order, regardless of the order they were set in.
+  private def build_params : {Array(DB::Any), Array(String?)}
+    parameters = @parameters.to_a
+
+    if @parameters.keys.all?(Int32)
+      parameters.sort_by! { |(key, _)| key.as(Int32) }
+    end
+
+    {parameters.map { |(_, (value, _))| value }, parameters.map { |(_, (_, type))| type }}
   end
 end

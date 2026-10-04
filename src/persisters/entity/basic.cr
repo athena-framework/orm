@@ -50,13 +50,13 @@ class Athena::ORM::Persisters::Entity::Basic
   ) : AORM::Entity?
     self.switch_persister_context nil, limit
     sql = self.select_sql criteria, association, lock_mode, limit, nil, order_by
-    params = self.expand_parameters criteria
+    params, types = self.expand_parameters criteria
 
     hydrator = @em.hydrator(!@current_persister_context.select_join_sql.empty? ? AORM::HydrationMode::Object : AORM::HydrationMode::SimpleObject)
 
     entities = [] of AORM::Entity
 
-    @connection.query sql, args: params do |rs|
+    @connection.execute_query sql, params, types do |rs|
       entities = hydrator.hydrate_all(rs, @current_persister_context.rsm, hints)
     end
 
@@ -71,7 +71,7 @@ class Athena::ORM::Persisters::Entity::Basic
   ) : Array(AORM::Entity)
     self.switch_persister_context offset, limit
     sql = self.select_sql criteria, nil, nil, limit, offset, order_by
-    params = self.expand_parameters criteria
+    params, types = self.expand_parameters criteria
 
     hints = Query::Hints.new defer_eager_load: true
 
@@ -79,7 +79,7 @@ class Athena::ORM::Persisters::Entity::Basic
 
     entities = [] of AORM::Entity
 
-    @connection.query sql, args: params do |rs|
+    @connection.execute_query sql, params, types do |rs|
       entities = hydrator.hydrate_all(rs, @current_persister_context.rsm, hints)
     end
 
@@ -88,12 +88,11 @@ class Athena::ORM::Persisters::Entity::Basic
 
   def count(criteria : Hash(String, _) = Hash(String, DB::Any).new) : Int32
     sql = self.count_sql criteria
-    params = self.expand_parameters criteria
+    params, types = self.expand_parameters criteria
 
-    # COUNT(*) is by definition a single scalar value; `scalar` reads exactly
-    # that without round-tripping through a result-set cursor. Drivers report
+    # COUNT(*) is by definition a single scalar value. Drivers report
     # the count as `Int64`; narrow at the boundary.
-    @connection.scalar(sql, args: params).as(Int64).to_i32
+    @connection.fetch_one(sql, params, types).as(Int64).to_i32
   end
 
   # Builds the `SELECT COUNT(*) FROM ... [WHERE ...]` SQL for the given
@@ -134,13 +133,13 @@ class Athena::ORM::Persisters::Entity::Basic
       io << " WHERE " << self.select_condition_sql criteria
     end
 
-    params = self.expand_parameters criteria
+    params, types = self.expand_parameters criteria
 
     # TODO: Handle extra_conditions
 
     # TODO: Handle filters
 
-    !!@connection.query_one?(sql, args: params, as: ::Int32)
+    !@connection.fetch_one(sql, params, types).nil?
   end
 
   def add_insert(entity : AORM::Entity) : Nil
@@ -202,17 +201,24 @@ class Athena::ORM::Persisters::Entity::Basic
     @class_metadata.table_name
   end
 
-  def expand_parameters(criteria : Hash(String, _)) : Array
-    criteria.values.flat_map do |v|
-      next [] of NoReturn if v.nil?
+  # Returns the parameters bound for *criteria*, along with the type name each one is converted through.
+  def expand_parameters(criteria : Hash(String, _)) : {Array(DB::Any), Array(String?)}
+    params = [] of DB::Any
+    types = [] of String?
 
-      if v.is_a?(Indexable)
-        # IN clause: bind each non-null element as its own parameter.
-        v.to_a.compact.flat_map { |item| PersisterHelper.convert_to_parameter_value(item, @em) }
-      else
-        PersisterHelper.convert_to_parameter_value(v, @em)
+    criteria.each do |field, value|
+      next if value.nil?
+
+      # IN clause: bind each non-null element as its own parameter, typed like the field itself.
+      items = value.is_a?(Indexable) ? value.to_a.compact : [value]
+
+      items.each do |item|
+        types.concat PersisterHelper.infer_parameter_types(field, item, @class_metadata, @em)
+        PersisterHelper.convert_to_parameter_value(item, @em).each { |converted| params << converted.as(DB::Any) }
       end
     end
+
+    {params, types}
   end
 
   protected def lock_tables_sql(lock_mode : LockMode) : String
@@ -331,7 +337,7 @@ class Athena::ORM::Persisters::Entity::Basic
       end
 
       # Unwrap at the DB-binding boundary: callers store wrapped values in the
-      # changeset path, but `connection.exec`'s args slot wants raw `DB::Any`.
+      # changeset path, but `connection.execute_statement`'s params slot wants raw `DB::Any`.
       params << value.value.as(DB::Any)
       types << @column_types[column_name]?
       set << "#{column} = #{placeholder}"
@@ -972,16 +978,17 @@ class Athena::ORM::Persisters::Entity::Basic
 
       quoted_target_column = @quote_strategy.column_name field_name, source_class_metadata, @platform
       criteria["#{table_alias}.#{target_fk_column}"] = value
-      parameters << CollectionParameter.new value, source_class_metadata
+      parameters << CollectionParameter.new value, field_name, source_class_metadata
     end
 
     sql = self.select_sql criteria, assoc, nil, limit, offset
-    params = self.expand_to_many_parameters parameters
+    params, types = self.expand_to_many_parameters parameters
 
-    @connection.query sql, args: params
+    @connection.execute_query sql, params, types
   end
 
-  record CollectionParameter, value : Mapping::Value, source_class_metadata : Mapping::ClassInterface
+  # A value filtering a collection load, with the *field* it was read from on its *source_class_metadata* so it can be typed when bound.
+  record CollectionParameter, value : Mapping::Value, field : String, source_class_metadata : Mapping::ClassInterface
 
   private def many_to_many_statement(
     assoc : Mapping::ManyToMany,
@@ -1014,32 +1021,33 @@ class Athena::ORM::Persisters::Entity::Basic
 
       # TODO: Handle foreign identifiers
 
-      value = if field_name = source_class_metadata.field_names[source_key_column]?
-                source_class_metadata.create_column_value_from_entity field_name, source_entity
-              else
-                raise "Join column doesn't point to mapped field"
-              end
+      field_name = source_class_metadata.field_names[source_key_column]?
+      raise "Join column doesn't point to mapped field" unless field_name
+
+      value = source_class_metadata.create_column_value_from_entity field_name, source_entity
 
       criteria["#{quoted_join_table}.#{quoted_key_column}"] = value
-      parameters << CollectionParameter.new value, source_class_metadata
+      parameters << CollectionParameter.new value, field_name, source_class_metadata
     end
 
     sql = self.select_sql criteria, assoc, nil, limit, offset
+    params, types = self.expand_to_many_parameters parameters
 
-    # TODO: Do we need to return types?
-    params = self.expand_to_many_parameters parameters
-
-    @connection.query sql, args: params
+    @connection.execute_query sql, params, types
   end
 
-  private def expand_to_many_parameters(parameters : Array(CollectionParameter)) : Array
-    parameters.flat_map do |param|
-      value = param.value
-      value = value.is_a?(Mapping::Value) ? value.value : value
+  private def expand_to_many_parameters(parameters : Array(CollectionParameter)) : {Array(DB::Any), Array(String?)}
+    params = [] of DB::Any
+    types = [] of String?
 
+    parameters.each do |param|
+      value = param.value.value
       next if value.nil?
 
-      PersisterHelper.convert_to_parameter_value value, @em
+      types.concat PersisterHelper.infer_parameter_types(param.field, value, param.source_class_metadata, @em)
+      PersisterHelper.convert_to_parameter_value(value, @em).each { |converted| params << converted.as(DB::Any) }
     end
+
+    {params, types}
   end
 end

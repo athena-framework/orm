@@ -11,8 +11,9 @@ class Athena::ORM::Persisters::Collection::ManyToManyPersister < Athena::ORM::Pe
 
     sql = self.get_delete_sql(mapping)
     params = self.get_delete_sql_params(collection, mapping)
+    types = self.source_key_column_types mapping
 
-    @connection.exec sql, args: params
+    @connection.execute_statement sql, params, types
   end
 
   # Updates the join table by processing insert and delete diffs.
@@ -23,21 +24,21 @@ class Athena::ORM::Persisters::Collection::ManyToManyPersister < Athena::ORM::Pe
     owner = collection.owner
     return unless owner
 
-    delete_sql = self.get_delete_row_sql(mapping)
-    insert_sql = self.get_insert_row_sql(mapping)
+    delete_sql, delete_types = self.get_delete_row_sql(mapping)
+    insert_sql, insert_types = self.get_insert_row_sql(mapping)
 
     # Delete removed elements
     collection.delete_diff.each do |element|
       next unless element.is_a?(AORM::Entity)
       params = self.get_delete_row_sql_params(collection, element, mapping)
-      @connection.exec delete_sql, args: params
+      @connection.execute_statement delete_sql, params, delete_types
     end
 
     # Insert added elements
     collection.insert_diff.each do |element|
       next unless element.is_a?(AORM::Entity)
       params = self.get_insert_row_sql_params(collection, element, mapping)
-      @connection.exec insert_sql, args: params
+      @connection.execute_statement insert_sql, params, insert_types
     end
   end
 
@@ -59,14 +60,17 @@ class Athena::ORM::Persisters::Collection::ManyToManyPersister < Athena::ORM::Pe
     end
   end
 
-  # Generates SQL to delete a single row.
-  protected def get_delete_row_sql(mapping : AORM::Mapping::ManyToManyOwningSide) : String
+  # Generates SQL to delete a single row, along with the type of each of its parameters.
+  protected def get_delete_row_sql(mapping : AORM::Mapping::ManyToManyOwningSide) : {String, Array(String?)}
     join_table = mapping.join_table.not_nil!
     source_columns = mapping.relation_to_source_key_columns.keys
     target_columns = mapping.relation_to_target_key_columns.keys
     all_columns = source_columns + target_columns
 
-    "DELETE FROM #{join_table.name} WHERE #{all_columns.map { |c| "#{c} = ?" }.join(" AND ")}"
+    {
+      "DELETE FROM #{join_table.name} WHERE #{all_columns.map { |c| "#{c} = ?" }.join(" AND ")}",
+      self.source_key_column_types(mapping) + self.target_key_column_types(mapping),
+    }
   end
 
   # Gets parameters for deleting a row.
@@ -74,15 +78,36 @@ class Athena::ORM::Persisters::Collection::ManyToManyPersister < Athena::ORM::Pe
     self.collect_join_table_column_params(collection, element, mapping)
   end
 
-  # Generates SQL to insert a single row.
-  protected def get_insert_row_sql(mapping : AORM::Mapping::ManyToManyOwningSide) : String
+  # Generates SQL to insert a single row, along with the type of each of its parameters.
+  protected def get_insert_row_sql(mapping : AORM::Mapping::ManyToManyOwningSide) : {String, Array(String?)}
     join_table = mapping.join_table.not_nil!
     source_columns = mapping.relation_to_source_key_columns.keys
     target_columns = mapping.relation_to_target_key_columns.keys
     all_columns = source_columns + target_columns
     placeholders = all_columns.map { "?" }.join(", ")
 
-    "INSERT INTO #{join_table.name} (#{all_columns.join(", ")}) VALUES (#{placeholders})"
+    {
+      "INSERT INTO #{join_table.name} (#{all_columns.join(", ")}) VALUES (#{placeholders})",
+      self.source_key_column_types(mapping) + self.target_key_column_types(mapping),
+    }
+  end
+
+  # Join columns referencing the owner take the type of the owner's column they reference.
+  private def source_key_column_types(mapping : AORM::Mapping::ManyToManyOwningSide) : Array(String?)
+    source_class = @em.class_metadata mapping.source_entity
+
+    mapping.relation_to_source_key_columns.values.map do |referenced_column|
+      PersisterHelper.type_of_column(referenced_column, source_class, @em).as String?
+    end
+  end
+
+  # Join columns referencing the element take the type of the element's column they reference.
+  private def target_key_column_types(mapping : AORM::Mapping::ManyToManyOwningSide) : Array(String?)
+    target_class = @em.class_metadata mapping.target_entity
+
+    mapping.relation_to_target_key_columns.values.map do |referenced_column|
+      PersisterHelper.type_of_column(referenced_column, target_class, @em).as String?
+    end
   end
 
   # Gets parameters for inserting a row.

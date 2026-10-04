@@ -44,18 +44,20 @@ struct ManyToManyPersisterTest < ASPEC::TestCase
     persister = build_persister
     mapping = cms_user_groups_mapping
 
-    sql = persister.public_get_delete_row_sql mapping
+    sql, types = persister.public_get_delete_row_sql mapping
 
     sql.should eq "DELETE FROM cms_user_cms_group WHERE cms_user_id = ? AND cms_group_id = ?"
+    types.should eq ["integer", "integer"]
   end
 
   def test_get_insert_row_sql_lists_join_columns_in_order : Nil
     persister = build_persister
     mapping = cms_user_groups_mapping
 
-    sql = persister.public_get_insert_row_sql mapping
+    sql, types = persister.public_get_insert_row_sql mapping
 
     sql.should eq "INSERT INTO cms_user_cms_group (cms_user_id, cms_group_id) VALUES (?, ?)"
+    types.should eq ["integer", "integer"]
   end
 
   # ===== Parameter binding =====
@@ -100,7 +102,54 @@ struct ManyToManyPersisterTest < ASPEC::TestCase
     params.should eq [1, 2]
   end
 
+  # ===== Value conversion =====
+
+  def test_update_binds_inserted_rows_converted_through_the_identifier_types : Nil
+    _owner, element, collection = build_value_conversion_collection
+    collection << element
+
+    build_persister.update collection
+
+    @connection.executed_statements.last.should eq({"INSERT INTO vct_xref_manytomany (owning_id, inversed_id) VALUES (?, ?)", ["nop", "qrs"]})
+  end
+
+  def test_update_binds_deleted_rows_converted_through_the_identifier_types : Nil
+    _owner, element, collection = build_value_conversion_collection
+    collection << element
+    collection.take_snapshot
+    collection.remove_element element
+
+    build_persister.update collection
+
+    @connection.executed_statements.last.should eq({"DELETE FROM vct_xref_manytomany WHERE owning_id = ? AND inversed_id = ?", ["nop", "qrs"]})
+  end
+
+  def test_delete_binds_the_owner_identifier_converted_through_its_type : Nil
+    _owner, _element, collection = build_value_conversion_collection
+
+    build_persister.delete collection
+
+    @connection.executed_statements.last.should eq({"DELETE FROM vct_xref_manytomany WHERE owning_id = ?", ["nop"]})
+  end
+
   # ===== Setup helpers =====
+
+  private def build_value_conversion_collection : {ValueConversionType::OwningManyToManyEntity, ValueConversionType::InversedManyToManyEntity, AORM::PersistentCollection(ValueConversionType::InversedManyToManyEntity)}
+    mapping = @em.class_metadata(ValueConversionType::OwningManyToManyEntity).association_mappings["associated_entities"].as(AORM::Mapping::ManyToManyOwningSide)
+
+    owner = ValueConversionType::OwningManyToManyEntity.new
+    owner.id2 = "abc"
+    @uow.register_managed owner, {"id2" => "abc"}, {"id2" => "abc"}
+
+    element = ValueConversionType::InversedManyToManyEntity.new
+    element.id1 = "def"
+    @uow.register_managed element, {"id1" => "def"}, {"id1" => "def"}
+
+    collection = AORM::PersistentCollection(ValueConversionType::InversedManyToManyEntity).new
+    collection.set_owner owner, mapping
+
+    {owner, element, collection}
+  end
 
   private def build_persister : TestableManyToManyPersister
     TestableManyToManyPersister.new @em
@@ -130,11 +179,13 @@ struct ManyToManyPersisterTest < ASPEC::TestCase
     group
   end
 
+  @connection : MockConnection
   @em : MockEntityManager
   @uow : AORM::UnitOfWork
 
   def initialize
-    @em = MockEntityManager.new(MockConnection.new)
+    @connection = MockConnection.new
+    @em = MockEntityManager.new(@connection)
     @uow = @em.unit_of_work
   end
 end
