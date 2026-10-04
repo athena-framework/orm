@@ -11,11 +11,11 @@ class Athena::ORM::EntityRepository(EntityType) < Athena::ORM::RepositoryInterfa
     @entity_class = @class_metadata.entity_class
   end
 
-  def find(id : Hash(String, Int | String) | Int | String, lock_mode : AORM::LockMode? = nil, lock_version : Int32? = nil) : EntityType?
+  def find(id : Hash(String, Int | String) | Int | String, lock_mode : AORM::LockMode = :none, lock_version : Int32? = nil) : EntityType?
     @em.find(@entity_class, id, lock_mode, lock_version).as EntityType?
   end
 
-  def find!(id : Hash(String, Int | String) | Int | String, lock_mode : AORM::LockMode? = nil, lock_version : Int32? = nil) : EntityType
+  def find!(id : Hash(String, Int | String) | Int | String, lock_mode : AORM::LockMode = :none, lock_version : Int32? = nil) : EntityType
     @em.find!(@entity_class, id, lock_mode, lock_version).as EntityType
   end
 

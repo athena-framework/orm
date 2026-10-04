@@ -27,7 +27,7 @@ class Athena::ORM::EntityManager
   def find(
     entity_class : T.class,
     id : Hash(String, Int | String) | Int | String,
-    lock_mode : AORM::LockMode? = nil,
+    lock_mode : AORM::LockMode = :none,
     lock_version : Int32? = nil,
   ) : AORM::Entity? forall T
     {% raise "entity_class must be an AORM::Entity.class, not '#{T}'." unless T <= AORM::Entity %}
@@ -70,7 +70,7 @@ class Athena::ORM::EntityManager
   def find!(
     entity_class : T.class,
     id : Hash(String, Int | String) | Int | String,
-    lock_mode : AORM::LockMode? = nil,
+    lock_mode : AORM::LockMode = :none,
     lock_version : Int32? = nil,
   ) : AORM::Entity forall T
     self.find(entity_class, id, lock_mode, lock_version) || raise AORM::Exceptions::NoResult.new
@@ -88,7 +88,7 @@ class Athena::ORM::EntityManager
     end
   end
 
-  def refresh(entity : AORM::Entity, lock_mode : AORM::LockMode? = nil) : Nil
+  def refresh(entity : AORM::Entity, lock_mode : AORM::LockMode = :none) : Nil
     self.unless_closed do
       self.unit_of_work.refresh entity, lock_mode
     end

@@ -7,11 +7,6 @@ struct Athena::ORM::Types::String < Athena::ORM::Types::Type
   end
 
   # :inherit:
-  def to_db(value : _, platform : AORM::Platforms::Platform)
-    value.to_s
-  end
-
-  # :inherit:
   def to_crystal_value(value : _, platform : Platforms::Platform) : ::String?
     case value
     when Nil      then nil

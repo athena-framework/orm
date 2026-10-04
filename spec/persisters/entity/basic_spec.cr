@@ -47,6 +47,31 @@ class RenamedPkItem < AORM::Entity
   property! id : Int32
 end
 
+# Identifier and field both mapped through a reversible conversion type, so bound values reveal whether they passed through it.
+@[AORMA::Entity]
+@[AORMA::Table(name: "rot13_items")]
+class Rot13Item < AORM::Entity
+  @[AORMA::Column(type: "rot13")]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property! id : String
+
+  @[AORMA::Column(type: "rot13")]
+  property! secret : String
+end
+
+@[AORMA::Entity]
+@[AORMA::Table(name: "timestamped_items")]
+class TimestampedItem < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property! id : Int32
+
+  @[AORMA::Column]
+  property! created_at : Time
+end
+
 # OneToMany inverse-side / ManyToOne owning-side pair, used to drive the inverse-side branch in `select_condition_statement_column_sql`.
 @[AORMA::Entity]
 @[AORMA::Table(name: "tag_owners")]
@@ -582,6 +607,74 @@ struct BasicPersisterTest < ASPEC::TestCase
     persister.delete(item).should be_true
 
     connection.built_statements.last.should eq "DELETE FROM renamed_pk_items WHERE item_pk = ?"
+  end
+
+  def test_execute_inserts_binds_values_converted_through_their_mapped_types : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(Rot13Item)
+
+    item = Rot13Item.new
+    item.id = "abc"
+    item.secret = "hello"
+
+    em.unit_of_work.persist item
+    em.unit_of_work.compute_changesets
+    persister.add_insert item
+    persister.execute_inserts
+
+    connection.executed_statements.last.should eq({"INSERT INTO rot13_items (id, secret) VALUES (?, ?)", ["nop", "uryyb"]})
+  end
+
+  # Columns hold UTC wall-clock time, so a time in another location must reach the driver already shifted to UTC.
+  def test_execute_inserts_binds_datetime_values_in_utc : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(TimestampedItem)
+
+    item = TimestampedItem.new
+    item.id = 1
+    item.created_at = Time.local 2016, 1, 1, 15, 58, 59, location: Time::Location.fixed(-5 * 3600)
+
+    em.unit_of_work.persist item
+    em.unit_of_work.compute_changesets
+    persister.add_insert item
+    persister.execute_inserts
+
+    bound_time = connection.executed_statements.last[1][1].as(Time)
+    bound_time.utc?.should be_true
+    bound_time.should eq Time.utc(2016, 1, 1, 20, 58, 59)
+  end
+
+  def test_update_binds_values_and_identifier_converted_through_their_mapped_types : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(Rot13Item)
+
+    item = Rot13Item.new
+    item.id = "abc"
+    item.secret = "hello"
+    em.unit_of_work.register_managed item, {"id" => "abc"}, {"id" => "abc", "secret" => "hello"}
+
+    item.secret = "world"
+    em.unit_of_work.compute_changesets
+    persister.update item
+
+    connection.executed_statements.last.should eq({"UPDATE rot13_items SET secret = ? WHERE id = ?", ["jbeyq", "nop"]})
+  end
+
+  def test_delete_binds_identifier_converted_through_its_mapped_type : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(Rot13Item)
+
+    item = Rot13Item.new
+    item.id = "abc"
+    em.unit_of_work.register_managed item, {"id" => "abc"}, {"id" => "abc"}
+
+    persister.delete item
+
+    connection.executed_statements.last.should eq({"DELETE FROM rot13_items WHERE id = ?", ["nop"]})
   end
 
   private def build_persister : AORM::Persisters::Entity::Basic

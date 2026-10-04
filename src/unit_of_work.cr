@@ -157,7 +157,7 @@ class Athena::ORM::UnitOfWork
         # TODO: Handle change tracking and dirty checks
       end
 
-      @entity_insertions.each do |entity|
+      unless @entity_insertions.empty?
         # Perform entity insertions first, so that all new entities have their rows in the database
         # and can be referred to by foreign keys. The commit order only needs to take new entities
         # into account (new entities referring to other new entities), since all other types (entities

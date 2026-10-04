@@ -159,29 +159,34 @@ class Athena::ORM::Persisters::Entity::Basic
       sql = "#{sql} #{@platform.returning_keyword_sql} #{returning_cols.join(", ")}"
     end
 
-    statement = @connection.build sql
     table_name = @class_metadata.table_name
 
     @queued_inserts.each do |entity|
       insert_data = self.prepare_insert_data entity
-      # Unwrap at the DB-binding boundary.
-      params = insert_data[table_name].values.map(&.value.as(DB::Any))
+      params = [] of DB::Any
+      types = [] of String?
+
+      insert_data[table_name].each do |column, value|
+        # Unwrap at the DB-binding boundary.
+        params << value.value.as(DB::Any)
+        types << @column_types[column]?
+      end
 
       if id_generator.is_a?(AORM::ID::RowConsumingGenerator)
-        id_hash = statement.query(args: params) do |rs|
+        id_hash = @connection.execute_query sql, params, types do |rs|
           raise ::DB::NoResultsError.new "INSERT ... RETURNING produced no rows for #{@class_metadata.entity_class}" unless rs.move_next
           id_generator.consume_row rs, @class_metadata, @platform
         end
         uow.assign_post_insert_id entity, id_hash
         id = id_hash
       elsif id_generator.post_insert?
-        statement.exec args: params
+        @connection.execute_statement sql, params, types
         generated_id = id_generator.generate @em, entity
         id_hash = {@class_metadata.identifier.first => Mapping::SingleValue.new(generated_id.as(DB::Any)).as(Mapping::Value)}
         uow.assign_post_insert_id entity, id_hash
         id = id_hash
       else
-        statement.exec args: params
+        @connection.execute_statement sql, params, types
         id = @class_metadata.identifier_values entity
       end
 
@@ -308,6 +313,7 @@ class Athena::ORM::Persisters::Entity::Basic
   ) : Nil
     set = [] of String
     params = [] of DB::Any
+    types = [] of String?
 
     update_data.each do |column_name, value|
       placeholder = "?"
@@ -327,6 +333,7 @@ class Athena::ORM::Persisters::Entity::Basic
       # Unwrap at the DB-binding boundary: callers store wrapped values in the
       # changeset path, but `connection.exec`'s args slot wants raw `DB::Any`.
       params << value.value.as(DB::Any)
+      types << @column_types[column_name]?
       set << "#{column} = #{placeholder}"
     end
 
@@ -339,6 +346,7 @@ class Athena::ORM::Persisters::Entity::Basic
 
         if id_value.is_a?(DB::Any)
           params << id_value
+          types << @class_metadata.field_mappings[id_field].type
         elsif id_value.is_a?(AORM::Entity)
           raise "BUG: non-association AORM::Entity value"
         elsif id_value.is_a?(Collection)
@@ -364,9 +372,9 @@ class Athena::ORM::Persisters::Entity::Basic
       io << " = ?"
     end
 
-    result = @connection.exec sql, args: params
+    rows_affected = @connection.execute_statement sql, params, types
 
-    if false && result.rows_affected.zero?
+    if false && rows_affected.zero?
       raise "lock filed"
     end
   end
@@ -380,7 +388,7 @@ class Athena::ORM::Persisters::Entity::Basic
 
     self.delete_join_table_records identifier, types
 
-    values, conditions = self.delete_condition_sql id
+    values, value_types, conditions = self.delete_condition_sql id, types
 
     sql = String.build do |io|
       io << "DELETE FROM " << table_name
@@ -391,14 +399,16 @@ class Athena::ORM::Persisters::Entity::Basic
       end
     end
 
-    !@connection.exec(sql, args: values).rows_affected.zero?
+    !@connection.execute_statement(sql, values, value_types).zero?
   end
 
-  private def delete_condition_sql(criteria : Hash(String, Mapping::Value))
+  # *types* holds the type of each criterion, in the same order as *criteria*.
+  private def delete_condition_sql(criteria : Hash(String, Mapping::Value), types : Array(String))
     values = [] of DB::Any
+    value_types = [] of String?
     conditions = [] of String
 
-    criteria.each do |k, wrapped|
+    criteria.each_with_index do |(k, wrapped), idx|
       value = wrapped.value
 
       if value.nil?
@@ -417,11 +427,12 @@ class Athena::ORM::Persisters::Entity::Basic
 
       if value.is_a?(DB::Any)
         values << value
+        value_types << types[idx]?
         conditions << "#{k} = ?"
       end
     end
 
-    {values, conditions}
+    {values, value_types, conditions}
   end
 
   protected def delete_join_table_records(identifier : Hash, types : Array(String)) : Nil

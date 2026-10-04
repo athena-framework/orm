@@ -2,6 +2,7 @@ require "spec"
 require "../src/athena-orm"
 require "athena-spec"
 
+require "./dbal_types/**"
 require "./models/**"
 
 ASPEC.run_all
@@ -243,14 +244,22 @@ end
 
 class MockStatement < DB::Statement
   def perform_query(args : Enumerable) : DB::ResultSet
+    self.record_execution args
     MockResultSet.new(self)
   end
 
   def perform_exec(args : Enumerable) : DB::ExecResult
+    self.record_execution args
     ::DB::ExecResult.new(
       rows_affected: 1,
       last_insert_id: 1_i64
     )
+  end
+
+  private def record_execution(args : Enumerable) : Nil
+    bound = [] of DB::Any
+    args.each { |arg| bound << arg.as(DB::Any) }
+    connection.as(MockConnection).executed_statements << {command, bound}
   end
 end
 
@@ -258,6 +267,9 @@ class MockConnection < DB::Connection
   @last_insert_ids : Array(AORM::Mapping::Value) = [] of AORM::Mapping::Value
 
   getter built_statements : Array(String) = [] of String
+
+  # Every executed statement's SQL with the arguments bound to it, in execution order.
+  getter executed_statements : Array({String, Array(DB::Any)}) = [] of {String, Array(DB::Any)}
 
   def self.new
     new DB::Connection::Options.new
