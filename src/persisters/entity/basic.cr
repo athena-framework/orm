@@ -348,7 +348,7 @@ class Athena::ORM::Persisters::Entity::Basic
         id_value = identifier[id_field].value
 
         raise "BUG: non-association AORM::Entity value" if id_value.is_a?(AORM::Entity)
-        raise "BUG: collection cannot be identifier" if id_value.is_a?(Collection)
+        raise "BUG: collection cannot be identifier" if id_value.is_a?(BaseCollection)
 
         params << identifier[id_field]
         types << @class_metadata.field_mappings[id_field].type
@@ -421,7 +421,7 @@ class Athena::ORM::Persisters::Entity::Basic
         raise "BUG: non-association AORM::Entity value"
       end
 
-      if value.is_a? Collection
+      if value.is_a?(BaseCollection)
         raise "BUG: collection in delete condition"
       end
 
@@ -890,7 +890,7 @@ class Athena::ORM::Persisters::Entity::Basic
   private def load_collection_from_result_set(
     assoc : Mapping::Association,
     rs : DB::ResultSet,
-    collection : AORM::PersistentCollection,
+    collection : AORM::BasePersistentCollection,
   ) : Array
     hints = Query::Hints.new(
       defer_eager_load: true,
@@ -905,7 +905,7 @@ class Athena::ORM::Persisters::Entity::Basic
   def load_many_to_many_collection(
     assoc : Mapping::ManyToMany,
     source_entity : AORM::Entity,
-    collection : AORM::PersistentCollection,
+    collection : AORM::BasePersistentCollection,
   ) : Array
     rs = self.many_to_many_statement assoc, source_entity
 
@@ -915,7 +915,7 @@ class Athena::ORM::Persisters::Entity::Basic
   def load_one_to_many_collection(
     assoc : Mapping::OneToMany,
     source_entity : AORM::Entity,
-    collection : AORM::PersistentCollection,
+    collection : AORM::BasePersistentCollection,
   ) : Array
     rs = self.one_to_many_statement assoc, source_entity
 

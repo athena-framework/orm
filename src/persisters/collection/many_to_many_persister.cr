@@ -2,7 +2,7 @@
 # Handles insert and delete operations on join tables.
 class Athena::ORM::Persisters::Collection::ManyToManyPersister < Athena::ORM::Persisters::Collection::Abstract
   # Deletes all rows from the join table for this collection's owner.
-  def delete(collection : AORM::PersistentCollection) : Nil
+  def delete(collection : AORM::BasePersistentCollection) : Nil
     mapping = collection.association
     return unless mapping.is_a?(AORM::Mapping::ManyToManyOwningSide)
 
@@ -17,7 +17,7 @@ class Athena::ORM::Persisters::Collection::ManyToManyPersister < Athena::ORM::Pe
   end
 
   # Updates the join table by processing insert and delete diffs.
-  def update(collection : AORM::PersistentCollection) : Nil
+  def update(collection : AORM::BasePersistentCollection) : Nil
     mapping = collection.association
     return unless mapping.is_a?(AORM::Mapping::ManyToManyOwningSide)
 
@@ -51,7 +51,7 @@ class Athena::ORM::Persisters::Collection::ManyToManyPersister < Athena::ORM::Pe
   end
 
   # Gets parameters for deleting all rows for an owner.
-  protected def get_delete_sql_params(collection : AORM::PersistentCollection, mapping : AORM::Mapping::ManyToManyOwningSide) : Array(AORM::Mapping::Value)
+  protected def get_delete_sql_params(collection : AORM::BasePersistentCollection, mapping : AORM::Mapping::ManyToManyOwningSide) : Array(AORM::Mapping::Value)
     owner = collection.owner.not_nil!
     identifier = @uow.entity_identifier(owner)
 
@@ -74,7 +74,7 @@ class Athena::ORM::Persisters::Collection::ManyToManyPersister < Athena::ORM::Pe
   end
 
   # Gets parameters for deleting a row.
-  protected def get_delete_row_sql_params(collection : AORM::PersistentCollection, element : AORM::Entity, mapping : AORM::Mapping::ManyToManyOwningSide) : Array(AORM::Mapping::Value)
+  protected def get_delete_row_sql_params(collection : AORM::BasePersistentCollection, element : AORM::Entity, mapping : AORM::Mapping::ManyToManyOwningSide) : Array(AORM::Mapping::Value)
     self.collect_join_table_column_params(collection, element, mapping)
   end
 
@@ -111,12 +111,12 @@ class Athena::ORM::Persisters::Collection::ManyToManyPersister < Athena::ORM::Pe
   end
 
   # Gets parameters for inserting a row.
-  protected def get_insert_row_sql_params(collection : AORM::PersistentCollection, element : AORM::Entity, mapping : AORM::Mapping::ManyToManyOwningSide) : Array(AORM::Mapping::Value)
+  protected def get_insert_row_sql_params(collection : AORM::BasePersistentCollection, element : AORM::Entity, mapping : AORM::Mapping::ManyToManyOwningSide) : Array(AORM::Mapping::Value)
     self.collect_join_table_column_params(collection, element, mapping)
   end
 
   # Collects parameters for join table operations in column order.
-  private def collect_join_table_column_params(collection : AORM::PersistentCollection, element : AORM::Entity, mapping : AORM::Mapping::ManyToManyOwningSide) : Array(AORM::Mapping::Value)
+  private def collect_join_table_column_params(collection : AORM::BasePersistentCollection, element : AORM::Entity, mapping : AORM::Mapping::ManyToManyOwningSide) : Array(AORM::Mapping::Value)
     owner = collection.owner.not_nil!
 
     owner_id = @uow.entity_identifier(owner)

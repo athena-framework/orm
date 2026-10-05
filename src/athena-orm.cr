@@ -1,9 +1,6 @@
 require "db"
 require "athena-contracts/event_dispatcher"
 
-# :nodoc:
-module Athena::ORM::Storable; end
-
 require "./collection/*"
 require "./exceptions/*"
 require "./events/*"

@@ -243,13 +243,13 @@ class Athena::ORM::Mapping::Class(T)
         {% end %}
 
         {% for member in ivar.type.union_types %}
-          {% unless member == Nil || member <= ::DB::Any || member <= AORM::Storable %}
+          {% unless member == Nil || member <= ::DB::Any || member <= AORM::Entity || member <= AORM::BaseCollection || member <= AORM::Collection %}
             value = value.value if value.is_a?(AORM::Mapping::OpaqueValue({{member}}))
           {% end %}
         {% end %}
 
         if value.is_a?({{ivar.type}})
-          # Explicit `.as` because narrowing through a `ValueAny` caller doesn't always refine `value` to exactly `ivar.type` — Crystal may keep `Storable | Nil` instead of e.g. `Avatar | Nil`.
+          # Explicit `.as` because narrowing through a `ValueAny` caller doesn't always refine `value` to exactly `ivar.type` — Crystal may keep `Entity+ | Nil` instead of e.g. `Avatar | Nil`.
           pointerof(entity.@{{ivar.id}}).value = value.as({{ivar.type}})
         else
           AORM::Mapping.raise_type_mismatch field_name, T.to_s, value
@@ -278,7 +278,7 @@ class Athena::ORM::Mapping::Class(T)
         {% end %}
 
         {% for member in ivar.type.union_types %}
-          {% unless member == Nil || member <= ::DB::Any || member <= AORM::Storable %}
+          {% unless member == Nil || member <= ::DB::Any || member <= AORM::Entity || member <= AORM::BaseCollection || member <= AORM::Collection %}
             return Mapping::ColumnValue.new(field_name, value) if value.is_a?(AORM::Mapping::OpaqueValue({{member}}))
           {% end %}
         {% end %}
@@ -419,7 +419,7 @@ class Athena::ORM::Mapping::Class(T)
           {% end %}
 
           {% for member in ivar.type.union_types %}
-            {% unless member == Nil || member <= ::DB::Any || member <= AORM::Storable %}
+            {% unless member == Nil || member <= ::DB::Any || member <= AORM::Entity || member <= AORM::BaseCollection || member <= AORM::Collection %}
               raw = raw.value if raw.is_a?(AORM::Mapping::OpaqueValue({{member}}))
             {% end %}
           {% end %}
@@ -504,7 +504,7 @@ class Athena::ORM::Mapping::Class(T)
           {% end %}
 
           {% for member in ivar.type.union_types %}
-            {% unless member == Nil || member <= ::DB::Any || member <= AORM::Storable %}
+            {% unless member == Nil || member <= ::DB::Any || member <= AORM::Entity || member <= AORM::BaseCollection || member <= AORM::Collection %}
               id_value = id_value.value if id_value.is_a?(AORM::Mapping::OpaqueValue({{member}}))
             {% end %}
           {% end %}

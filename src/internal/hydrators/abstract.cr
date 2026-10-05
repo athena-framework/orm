@@ -1,7 +1,7 @@
 class Athena::ORM::Query::Hints
   # Hint used to collect all primary keys of associated entities during hydration and execute it in a dedicated query afterwards
   property? defer_eager_load : Bool? = nil
-  getter! collection : AORM::PersistentCollectionInterface
+  getter! collection : AORM::BasePersistentCollection
   property! fetch_alias : String
   # When set, an entity already in the identity map is updated from the loaded row data instead of being returned untouched.
   # Used by `EntityManager#refresh`.
@@ -9,7 +9,7 @@ class Athena::ORM::Query::Hints
 
   def initialize(
     @defer_eager_load : Bool? = nil,
-    @collection : AORM::PersistentCollectionInterface? = nil,
+    @collection : AORM::BasePersistentCollection? = nil,
     @refresh : Bool = false,
   ); end
 end

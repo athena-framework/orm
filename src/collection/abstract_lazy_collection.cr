@@ -1,6 +1,6 @@
 require "./collection"
 
-abstract class Athena::ORM::AbstractLazyCollection(T)
+abstract class Athena::ORM::AbstractLazyCollection(T) < Athena::ORM::BasePersistentCollection
   include Athena::ORM::Collection(T)
   include Indexable(T)
 

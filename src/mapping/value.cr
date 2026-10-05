@@ -36,15 +36,19 @@ module Athena::ORM::Mapping
     end
   end
 
-  # Everything the ORM stores in a `Mapping::Value`: driver scalars, ORM references (entities, proxies, collections — see `src/athena-orm.cr` for the `Storable` marker module), and boxed values of any other type.
-  alias ValueAny = ::DB::Any | Athena::ORM::Storable | Opaque
+  # Everything the ORM stores in a `Mapping::Value`: driver scalars, ORM references (entities, including proxies, and collections), and boxed values of any other type.
+  # Every member is a fixed-size type or a class hierarchy, so the union doesn't grow with the number of entities or collection types.
+  alias ValueAny = ::DB::Any | Athena::ORM::Entity | Athena::ORM::BaseCollection | Opaque
 
   # Returns *value* as a `ValueAny`, boxing it in an `OpaqueValue` when it's neither a driver scalar nor an ORM reference.
   # Each member of a union is boxed as its own concrete type.
   def self.box(value : T) : ValueAny forall T
     {% begin %}
       {% for member in T.union_types %}
-        {% if member == Nil || member <= ::DB::Any || member <= Athena::ORM::Storable || member <= Opaque %}
+        {% if member <= Athena::ORM::Collection %}
+          # Every `Collection` implementation is a `BaseCollection`; the explicit cast is needed because narrowing a value typed as the module with `is_a?(BaseCollection)` can be folded to false here.
+          return value.as(Athena::ORM::BaseCollection) if value.is_a?({{member}})
+        {% elsif member == Nil || member <= ::DB::Any || member <= Athena::ORM::Entity || member <= Athena::ORM::BaseCollection || member <= Opaque %}
           return value if value.is_a?({{member}})
         {% else %}
           return OpaqueValue({{member}}).new(value) if value.is_a?({{member}})
@@ -52,7 +56,7 @@ module Athena::ORM::Mapping
       {% end %}
     {% end %}
 
-    raise "BUG: unreachable"
+    raise "BUG: unreachable for #{value.class} (static #{T})"
   end
 
   abstract struct Value

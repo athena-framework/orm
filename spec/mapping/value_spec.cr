@@ -13,6 +13,13 @@ struct MappingValueTest < ASPEC::TestCase
     AORM::Mapping.box(avatar).should be avatar
   end
 
+  # Collection fields are typed as the `Collection(T)` module; they must still be stored as references rather than boxed.
+  def test_box_passes_collections_typed_as_the_collection_module_through : Nil
+    collection = AORM::ArrayCollection(CmsGroup).new
+
+    AORM::Mapping.box(collection.as(AORM::Collection(CmsGroup))).should be collection
+  end
+
   def test_box_wraps_other_types_in_an_opaque_value : Nil
     boxed = AORM::Mapping.box CustomIdObject.new("abc")
 

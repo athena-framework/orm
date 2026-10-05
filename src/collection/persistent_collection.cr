@@ -1,12 +1,8 @@
 require "./array_collection"
 
-module Athena::ORM::PersistentCollectionInterface; end
-
 # ORM-aware collection with dirty tracking and lazy loading support.
 # Tracks changes since the last snapshot for computing insert/delete diffs.
 class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection(T)
-  include PersistentCollectionInterface
-
   @snapshot : Array(T) = [] of T
   getter? dirty : Bool = false
 
@@ -133,7 +129,7 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
 
   # Polymorphic entry used when the caller only knows `AORM::Entity`
   # (e.g., the UnitOfWork applying pending element removals via
-  # `Hash(PersistentCollectionInterface, Array(Entity))`). The macro guard
+  # `Hash(BasePersistentCollection, Array(Entity))`). The macro guard
   # mirrors `hydrate_add` above so non-entity instantiations don't try to
   # cast `Entity` into a primitive.
   def remove_element(element : AORM::Entity) : Bool

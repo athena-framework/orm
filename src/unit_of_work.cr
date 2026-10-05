@@ -23,7 +23,8 @@ class Athena::ORM::UnitOfWork
       entities.each do |entity|
         entity_metadata = em.class_metadata entity.class
 
-        if current_metadata.try(&.entity_class) != entity_metadata.entity_class || (!entity_metadata.id_generator.is_a?(ID::AssignedGenerator))
+        # Metadata is cached per entity class, so identity stands in for comparing the classes; comparing two arbitrary entity classes with `!=` compiles to a branch for every pair of entity classes.
+        if !current_metadata.same?(entity_metadata) || (!entity_metadata.id_generator.is_a?(ID::AssignedGenerator))
           current_metadata = entity_metadata
           batches << new(entity_metadata, [entity])
           batch_index += 1
@@ -83,16 +84,16 @@ class Athena::ORM::UnitOfWork
   @non_cascaded_new_detected_entities = Hash(AORM::Entity, Tuple(AORM::Mapping::Association, AORM::Entity)).new.compare_by_identity
 
   # Collections scheduled for deletion (cleared or owner removed)
-  @collection_deletions = Set(AORM::PersistentCollectionInterface).new.compare_by_identity
+  @collection_deletions = Set(AORM::BasePersistentCollection).new.compare_by_identity
 
   # Collections scheduled for update (elements added or removed)
-  @collection_updates = Set(AORM::PersistentCollectionInterface).new.compare_by_identity
+  @collection_updates = Set(AORM::BasePersistentCollection).new.compare_by_identity
 
   # Collections that have been visited during changeset computation
-  @visited_collections = Set(AORM::PersistentCollectionInterface).new.compare_by_identity
+  @visited_collections = Set(AORM::BasePersistentCollection).new.compare_by_identity
 
   # Per-collection list of entities flagged for removal during change-set computation; applied after the transaction commits, alongside snapshots.
-  @pending_collection_element_removals = Hash(AORM::PersistentCollectionInterface, Array(AORM::Entity)).new.compare_by_identity
+  @pending_collection_element_removals = Hash(AORM::BasePersistentCollection, Array(AORM::Entity)).new.compare_by_identity
 
   # Per-entity changeset patches that must be applied as follow-up UPDATEs
   # after the main inserts run — needed when a FK can't be set during INSERT
@@ -597,10 +598,10 @@ class Athena::ORM::UnitOfWork
       related_entities = class_metadata.get_field_value entity, assoc.field_name
 
       case related_entities
-      when AORM::PersistentCollection
-        related_entities.unwrap.each { |related_entity| self.do_detach related_entity, visited }
-      when AORM::Collection, Enumerable(AORM::Entity)
-        related_entities.each { |related_entity| self.do_detach related_entity, visited }
+      when AORM::BasePersistentCollection
+        related_entities.unwrap.each { |related_entity| self.do_detach related_entity.as(AORM::Entity), visited if related_entity.is_a?(AORM::Entity) }
+      when AORM::BaseCollection, Enumerable(AORM::Entity)
+        related_entities.each { |related_entity| self.do_detach related_entity.as(AORM::Entity), visited if related_entity.is_a?(AORM::Entity) }
       when AORM::Entity
         self.do_detach related_entities, visited
       end
@@ -624,9 +625,9 @@ class Athena::ORM::UnitOfWork
       related_entities = class_metadata.get_field_value entity, assoc.field_name
 
       case related_entities
-      when AORM::Collection, Enumerable(AORM::Entity)
+      when AORM::BaseCollection, Enumerable(AORM::Entity)
         related_entities.each do |related_entity|
-          entities_to_cascade << related_entity
+          entities_to_cascade << related_entity if related_entity.is_a?(AORM::Entity)
         end
       when AORM::Entity
         entities_to_cascade << related_entities
@@ -707,17 +708,18 @@ class Athena::ORM::UnitOfWork
     class_metadata.association_mappings.select { |_, v| v.cascade_persist? }.each_value do |assoc|
       related_entities = class_metadata.get_field_value entity, assoc.field_name
 
-      if related_entities.is_a? PersistentCollection
+      if related_entities.is_a?(AORM::BasePersistentCollection)
         related_entities = related_entities.unwrap
       end
 
-      if related_entities.is_a?(AORM::Collection) || related_entities.is_a?(Enumerable(AORM::Entity))
+      if related_entities.is_a?(AORM::BaseCollection) || related_entities.is_a?(Enumerable(AORM::Entity))
         unless assoc.is_a? Mapping::ToMany
           raise "invalid association"
         end
 
+        # Elements arrive typed as their concrete class; upcast so `persist` is compiled once rather than once per entity class.
         related_entities.each do |related_entity|
-          self.persist related_entity, visited
+          self.persist related_entity.as(AORM::Entity), visited if related_entity.is_a?(AORM::Entity)
         end
       elsif !related_entities.nil?
         if related_entities.is_a? AORM::Entity
@@ -1101,7 +1103,7 @@ class Athena::ORM::UnitOfWork
           next
         end
 
-        if actual_inner.is_a? AORM::PersistentCollection
+        if actual_inner.is_a?(AORM::BasePersistentCollection)
           raise "BUG: Not ToMany assoc" unless assoc.is_a? Mapping::ToMany
           owner = actual_inner.owner
 
@@ -1113,12 +1115,12 @@ class Athena::ORM::UnitOfWork
 
             new_value = actual_inner.clone
             new_value.set_owner entity, assoc
-            # Widen to `AORM::Storable` here so `set_field_value` doesn't fan out to one specialization per `PersistentCollection(T)` member of `actual_inner.clone`'s inferred return union.
-            class_metadata.set_field_value entity, assoc.field_name, new_value.as(AORM::Storable)
+            # Widen to `AORM::BaseCollection` here so `set_field_value` doesn't fan out to one specialization per `PersistentCollection(T)` member of `actual_inner.clone`'s inferred return union.
+            class_metadata.set_field_value entity, assoc.field_name, new_value.as(AORM::BaseCollection)
           end
         end
 
-        if original_value.is_a? AORM::PersistentCollection
+        if original_value.is_a?(AORM::BasePersistentCollection)
           unless @collection_deletions.includes? original_value
             @collection_deletions << original_value
           end
@@ -1170,7 +1172,7 @@ class Athena::ORM::UnitOfWork
 
       self.compute_association_changes assoc, value
 
-      if assoc.is_a?(Mapping::ManyToManyOwningSide) && value.is_a?(AORM::PersistentCollection) && value.dirty?
+      if assoc.is_a?(Mapping::ManyToManyOwningSide) && value.is_a?(AORM::BasePersistentCollection) && value.dirty?
         @collection_updates << value
         @visited_collections << value
       end
@@ -1182,7 +1184,7 @@ class Athena::ORM::UnitOfWork
     unwrapped_value = if assoc.is_a?(Mapping::ToMany)
                         # Iterate the backing collection without forcing a lazy load via `unwrap` that returns the inner ArrayCollection whether the PC is initialized or not.
                         # Uninitialized collections are simply empty.
-                        if value.is_a?(AORM::PersistentCollection)
+                        if value.is_a?(AORM::BasePersistentCollection)
                           value.unwrap.to_a
                         else
                           raise "BUG: ToMany value is not iterable (#{value.class})"
@@ -1216,13 +1218,13 @@ class Athena::ORM::UnitOfWork
         self.compute_change_set target_class_metadata, entity
       when .removed?
         next unless assoc.is_a? Mapping::ToMany
-        raise "BUG: value for ToMany assoc is not a collection" unless value.is_a? AORM::Collection
+        raise "BUG: value for ToMany assoc is not a collection" unless value.is_a?(AORM::BaseCollection)
 
         @visited_collections << value
 
         # Defer the in-memory removal until after the transaction commits, so a
         # rollback leaves the collection's view of its elements unchanged.
-        if value.is_a? AORM::PersistentCollectionInterface
+        if value.is_a? AORM::BasePersistentCollection
           pending = @pending_collection_element_removals[value] ||= [] of AORM::Entity
           pending << entity
         end
@@ -1520,7 +1522,7 @@ class Athena::ORM::UnitOfWork
     target_class_metadata.apply_data target, {inversed_by => source}
   end
 
-  def load_collection(collection : AORM::PersistentCollection) : Nil
+  def load_collection(collection : AORM::BasePersistentCollection) : Nil
     assoc = collection.association
     persister = self.entity_persister(assoc.target_entity)
 

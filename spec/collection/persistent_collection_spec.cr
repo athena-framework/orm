@@ -248,7 +248,7 @@ struct PersistentCollectionTest < ASPEC::TestCase
     collection.take_snapshot
     # Drop dirty back to false so we can later assert restore is what re-marks it.
 
-    RestoreInvoker.invoke(collection, [pre_added])
+    AORM::PersistentCollectionRestoreInvoker.invoke(collection, [pre_added])
 
     items = collection.to_a
     items.size.should eq 2
@@ -263,7 +263,7 @@ struct PersistentCollectionTest < ASPEC::TestCase
     collection = AORM::PersistentCollection(TestEntityForRestore).new([pre_added])
     collection.take_snapshot
 
-    RestoreInvoker.invoke(collection, [pre_added])
+    AORM::PersistentCollectionRestoreInvoker.invoke(collection, [pre_added])
 
     collection.to_a.size.should eq 1
     collection.dirty?.should be_false
@@ -307,10 +307,9 @@ private class TestEntityForRestore
   def initialize(@id : Int32); end
 end
 
-# Friend-of-the-collection: drives the protected restore path without requiring
-# a subclass that re-declares `@is_loaded` (which Crystal's two-level inheritance
-# inference around PersistentCollection makes awkward in tests).
-private class RestoreInvoker < AORM::PersistentCollection(TestEntityForRestore)
+# Drives the protected restore path; living in the collection's namespace is what grants access to its protected methods.
+# It deliberately doesn't subclass `PersistentCollection`: virtual calls through `AORM::BaseCollection` can't dispatch to a non-generic subclass of a generic instance.
+class Athena::ORM::PersistentCollectionRestoreInvoker
   def self.invoke(target : AORM::PersistentCollection(TestEntityForRestore), new_entities : Array(TestEntityForRestore)) : Nil
     target.restore_new_objects_in_dirty_collection new_entities
   end

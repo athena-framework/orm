@@ -1,7 +1,7 @@
 require "./collection"
 
 # A simple wrapper around Array implementing the Collection interface.
-class Athena::ORM::ArrayCollection(T)
+class Athena::ORM::ArrayCollection(T) < Athena::ORM::BaseCollection
   include Athena::ORM::Collection(T)
   include Indexable(T)
 
