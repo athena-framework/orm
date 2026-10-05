@@ -1309,8 +1309,12 @@ class Athena::ORM::UnitOfWork
         # Re-apply scalar fields from the freshly fetched row data and reset
         # the changeset baseline so the EM no longer sees pending changes.
         class_metadata.apply_data entity, data
-        @original_entity_data[entity] = data.transform_values do |v, k|
-          class_metadata.create_column_value(k, v).as Mapping::Value
+
+        # Only mapped fields are refreshed: the row also carries foreign key columns, and associations aren't reloaded, so their baselines stay as they were.
+        original_data = @original_entity_data[entity]
+        data.each do |field_name, value|
+          next unless class_metadata.field_mappings.has_key? field_name
+          original_data[field_name] = class_metadata.create_column_value(field_name, value).as Mapping::Value
         end
         @entity_change_sets.delete entity
         @entity_updates.delete entity

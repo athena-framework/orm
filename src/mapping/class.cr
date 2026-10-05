@@ -407,25 +407,25 @@ class Athena::ORM::Mapping::Class(T)
       {% else %}
         typed_instance = instance.as({{T}})
         {% for ivar in T.instance_vars %}
-          raw = if data.has_key?({{ ivar.name.stringify }})
-                  data[{{ ivar.name.stringify }}]
-                end
+          # Present keys are applied even when `false` or `nil`, so a refresh can overwrite those values too.
+          if data.has_key?({{ ivar.name.stringify }})
+            raw = data[{{ ivar.name.stringify }}]
+            raw = raw.is_a?(Mapping::Value) ? raw.value : raw
 
-          raw = raw.is_a?(Mapping::Value) ? raw.value : raw
-
-          {% ivar_base_type = ivar.type.nilable? ? ivar.type.union_types.reject(&.nilable?).first : ivar.type %}
-          {% if ivar_base_type < ::Enum %}
-            raw = {{ivar_base_type}}.from_value(raw) if raw.is_a?(Int)
-          {% end %}
-
-          {% for member in ivar.type.union_types %}
-            {% unless member == Nil || member <= ::DB::Any || member <= AORM::Entity || member <= AORM::BaseCollection || member <= AORM::Collection %}
-              raw = raw.value if raw.is_a?(AORM::Mapping::OpaqueValue({{member}}))
+            {% ivar_base_type = ivar.type.nilable? ? ivar.type.union_types.reject(&.nilable?).first : ivar.type %}
+            {% if ivar_base_type < ::Enum %}
+              raw = {{ivar_base_type}}.from_value(raw) if raw.is_a?(Int)
             {% end %}
-          {% end %}
 
-          if raw && raw.is_a?({{ivar.type}})
-            pointerof(typed_instance.@{{ ivar.id }}).value = raw.not_nil!.as({{ ivar.type }})
+            {% for member in ivar.type.union_types %}
+              {% unless member == Nil || member <= ::DB::Any || member <= AORM::Entity || member <= AORM::BaseCollection || member <= AORM::Collection %}
+                raw = raw.value if raw.is_a?(AORM::Mapping::OpaqueValue({{member}}))
+              {% end %}
+            {% end %}
+
+            if raw.is_a?({{ivar.type}})
+              pointerof(typed_instance.@{{ ivar.id }}).value = raw.as({{ ivar.type }})
+            end
           end
         {% end %}
       {% end %}

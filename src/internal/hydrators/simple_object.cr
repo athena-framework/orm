@@ -53,7 +53,7 @@ class Athena::ORM::Internal::Hydrators::SimpleObject < Athena::ORM::Internal::Hy
       field_name = cache_key_info.field_name
 
       # Prevent overwrite in case of inherit classes using same property name (See AbstractHydrator)
-      if !data.has_key?(field_name) && !value.nil?
+      if !data.has_key?(field_name) || !value.nil?
         data[field_name] = Mapping::SingleValue.new value
       end
     end

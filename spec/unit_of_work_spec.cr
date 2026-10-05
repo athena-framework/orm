@@ -1087,6 +1087,44 @@ struct UnitOfWorkTest < ASPEC::TestCase
     user.id.should eq 7
   end
 
+  # A fresh row carries foreign key columns alongside the fields; they aren't fields and must not be stored as such.
+  def test_refresh_ignores_foreign_key_columns_in_the_fresh_row : Nil
+    persister = MockEntityPersister.new @em, @em.class_metadata ForumUser
+    @uow.set_entity_persister ForumUser, persister
+
+    user = ForumUser.new
+    user.username = "fred-original"
+    pointerof(user.@id).value = 7
+    @uow.register_managed user, {"id" => 7}, {"id" => 7, "username" => "fred-original"}
+
+    persister.mock_refresh_data = {"id" => 7, "username" => "fred-from-db", "avatar_id" => 99} of String => DB::Any
+
+    @uow.refresh user
+
+    user.username.should eq "fred-from-db"
+  end
+
+  def test_refresh_writes_false_and_nil_values_back : Nil
+    persister = MockEntityPersister.new @em, @em.class_metadata RefreshableFlags
+    @uow.set_entity_persister RefreshableFlags, persister
+
+    entity = RefreshableFlags.new
+    entity.id = 7
+    entity.note = "stale"
+    @uow.register_managed entity, {"id" => 7}, {"id" => 7, "active" => true, "note" => "stale"}
+
+    persister.mock_refresh_data = {"id" => 7, "active" => false, "note" => nil} of String => DB::Any
+
+    @uow.refresh entity
+
+    entity.active?.should be_false
+    entity.note.should be_nil
+
+    # The fresh row is the new baseline, so nothing is pending afterwards.
+    @uow.compute_changesets
+    @uow.entity_changeset(entity).should be_empty
+  end
+
   def test_refresh_raises_for_new_entity : Nil
     user = ForumUser.new
     user.username = "fred-new"

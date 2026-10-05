@@ -37,6 +37,25 @@ struct SimpleObjectHydratorTest < ASPEC::TestCase
     parent.other_id.should eq CustomIdObject.new("def")
   end
 
+  # A NULL column is part of the row too: refreshing must overwrite the in-memory value with it.
+  def test_refresh_writes_null_columns_back : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    entity = RefreshableFlags.new
+    entity.id = 7
+    entity.note = "stale"
+    em.unit_of_work.register_managed entity, {"id" => 7}, {"id" => 7, "active" => true, "note" => "stale"}
+
+    rsm = AORM::Query::ResultSetMapping.new
+    rsm.add_entity_result RefreshableFlags, "r"
+    rsm.add_field_result "r", "r__id", "id"
+    rsm.add_field_result "r", "r__note", "note"
+
+    rs = FakeResultSet.new([{"r__id" => 7.as(DB::Any), "r__note" => nil.as(DB::Any)}])
+    AORM::Internal::Hydrators::SimpleObject.new(em).hydrate_all(rs, rsm, AORM::Query::Hints.new(refresh: true))
+
+    entity.note.should be_nil
+  end
+
   def test_hydrates_multiple_rows_into_multiple_entities : Nil
     em = MockEntityManager.new(MockConnection.new)
     rsm = AORM::Query::ResultSetMapping.new
