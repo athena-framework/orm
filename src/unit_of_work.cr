@@ -523,7 +523,7 @@ class Athena::ORM::UnitOfWork
     case self.entity_state entity
     in .new?, .removed? then return # noop
     in .managed?
-      @listeners_invoker.invoke class_metadata, entity, Events::PreRemoveEventArgs.new entity, @em
+      @listeners_invoker.invoke class_metadata, entity, class_metadata.create_pre_remove_event entity.as(AORM::Entity), @em
 
       self.schedule_for_delete entity
     in .detached? then raise "Cannot removed detached entity" # TODO: Make this an actual exception
@@ -664,7 +664,7 @@ class Athena::ORM::UnitOfWork
   private def persist_new(class_metadata : AORM::Mapping::ClassInterface, entity : AORM::Entity) : Nil
     # TODO: Handle eventing
 
-    @listeners_invoker.invoke class_metadata, entity, Events::PrePersistEventArgs.new entity, @em
+    @listeners_invoker.invoke class_metadata, entity, class_metadata.create_pre_persist_event entity.as(AORM::Entity), @em
 
     id_generator = class_metadata.id_generator
 

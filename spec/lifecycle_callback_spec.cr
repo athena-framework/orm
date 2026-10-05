@@ -162,6 +162,49 @@ class LifecycleCallbackMultiplePostPersist < AORM::Entity
   end
 end
 
+# Callbacks declared in a module, used to verify an including entity registers them.
+module LifecycleCallbackCounting
+  property module_pre_persist_count : Int32 = 0
+  property overridden_pre_persist_count : Int32 = 0
+
+  @[AORMA::PrePersist]
+  def module_pre_persist : Nil
+    @module_pre_persist_count += 1
+  end
+
+  @[AORMA::PrePersist]
+  def overridden_pre_persist : Nil
+    @overridden_pre_persist_count += 100
+  end
+
+  @[AORMA::PrePersist]
+  def silenced_pre_persist : Nil
+  end
+end
+
+@[AORMA::Entity]
+class LifecycleCallbackFromModule < AORM::Entity
+  include LifecycleCallbackCounting
+
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id : String? = nil
+
+  def initialize
+    @id = "Module-#{UUID.random}"
+  end
+
+  # Overrides keep the module's callback only if they keep its annotation.
+  @[AORMA::PrePersist]
+  def overridden_pre_persist : Nil
+    @overridden_pre_persist_count += 1
+  end
+
+  def silenced_pre_persist : Nil
+  end
+end
+
 struct LifecycleCallbackTest < ASPEC::TestCase
   @connection : MockConnection
   @em : MockEntityManager
@@ -389,5 +432,47 @@ struct LifecycleCallbackTest < ASPEC::TestCase
 
     entity.first_call_count.should eq 1
     entity.second_call_count.should eq 1
+  end
+
+  def test_callbacks_from_included_modules_fire : Nil
+    persister = MockEntityPersister.new @em, @em.class_metadata LifecycleCallbackFromModule
+    @uow.set_entity_persister LifecycleCallbackFromModule, persister
+
+    entity = LifecycleCallbackFromModule.new
+    @uow.persist entity
+
+    entity.module_pre_persist_count.should eq 1
+    entity.overridden_pre_persist_count.should eq 1
+  end
+
+  def test_overriding_a_module_callback_without_its_annotation_drops_it : Nil
+    metadata = @em.class_metadata LifecycleCallbackFromModule
+
+    metadata.lifecycle_callbacks[AORM::Events::PrePersistEventArgs(LifecycleCallbackFromModule)].size.should eq 2
+  end
+
+  # `EntityManager#persist` and `#remove` pass the unit of work an `AORM::Entity`, as do cascades, so callbacks have to be found from the entity's runtime class.
+  def test_pre_persist_invoked_when_persisted_through_the_entity_manager : Nil
+    persister = MockEntityPersister.new @em, @em.class_metadata LifecycleCallbackTestEntity
+    @uow.set_entity_persister LifecycleCallbackTestEntity, persister
+
+    entity = LifecycleCallbackTestEntity.new
+    @em.persist entity
+
+    entity.pre_persist_invoked.should be_true
+    entity.pre_persist_args_ok.should be_true
+  end
+
+  def test_pre_remove_invoked_when_removed_through_the_entity_manager : Nil
+    persister = MockEntityPersister.new @em, @em.class_metadata LifecycleCallbackTestEntity
+    @uow.set_entity_persister LifecycleCallbackTestEntity, persister
+
+    entity = LifecycleCallbackTestEntity.new
+    @em.persist entity
+    @uow.commit
+
+    @em.remove entity
+    entity.pre_remove_invoked.should be_true
+    entity.pre_remove_args_ok.should be_true
   end
 end

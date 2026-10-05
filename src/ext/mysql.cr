@@ -3,8 +3,7 @@ require "semantic_version"
 # :nodoc:
 class MySql::Connection < DB::Connection
   def database_platform : AORM::Platforms::Platform
-    # TODO: Handle MySQL proper
-    AORM::Platforms::Maria.new
+    AORM::Platforms::AbstractMySQL.for_server_version self.scalar("SELECT VERSION()").as(String)
   end
 
   def last_insert_id : Int64

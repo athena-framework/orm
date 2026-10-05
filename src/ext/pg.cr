@@ -1,12 +1,7 @@
-require "semantic_version"
-
 # :nodoc:
 class PG::Connection < DB::Connection
   def database_platform : AORM::Platforms::Platform
-    case self.version
-    else
-      AORM::Platforms::Postgres.new
-    end
+    AORM::Platforms::Postgres.new
   end
 
   def last_insert_id : Int64
@@ -18,13 +13,5 @@ class PG::Connection < DB::Connection
     Athena::ORM::SQL::Parser.new(false).parse(query, visitor)
 
     self.build visitor.sql
-  end
-
-  private def version : SemanticVersion
-    version = @connection.server_parameters["server_version"]
-
-    parts = version.split('.')
-
-    SemanticVersion.new parts[0].to_i, parts[1].to_i, parts.fetch(2, 0).to_i
   end
 end

@@ -65,7 +65,6 @@ class FullColumnFixture < AORM::Entity
     nullable: true,
     index: true,
     column_definition: "DECIMAL(10,4)",
-    generated: "ALWAYS",
   )]
   property amount : String? = nil
 
@@ -309,7 +308,6 @@ struct AnnotationDriverTest < ASPEC::TestCase
     field.nullable.should be_true
     field.index.should be_true
     field.column_definition.should eq "DECIMAL(10,4)"
-    field.generated.should eq "ALWAYS"
   end
 
   def test_enum_type_on_a_non_enum_field_is_rejected : Nil

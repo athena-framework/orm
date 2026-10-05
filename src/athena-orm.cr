@@ -39,6 +39,8 @@ alias AORMA = Athena::ORM::Annotations
 module Athena::ORM
   VERSION = "0.1.0"
 
+  # Row locking isn't supported yet, so `None` is the only mode.
+  # A `lock_version` only applies to optimistic locking, so it's ignored.
   enum LockMode
     None
   end

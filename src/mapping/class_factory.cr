@@ -63,6 +63,7 @@ class Athena::ORM::Mapping::ClassFactory < Athena::ORM::Mapping::AbstractClassFa
       metadata.id_generator = AORM::ID::AssignedGenerator.new
     else
       # TODO: Handle other types (SEQUENCE, CUSTOM)
+      raise "'#{metadata.entity_class}': the #{metadata.id_generator_type} ID generation strategy is not supported yet."
     end
   end
 

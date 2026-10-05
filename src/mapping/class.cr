@@ -106,6 +106,14 @@ class Athena::ORM::Mapping::Class(T)
     end
   end
 
+  protected def create_pre_persist_event(entity : AORM::Entity, em : ORM::EntityManagerInterface) : Events::PrePersistEventArgs(T)
+    Events::PrePersistEventArgs(T).new entity.as(T), em
+  end
+
+  protected def create_pre_remove_event(entity : AORM::Entity, em : ORM::EntityManagerInterface) : Events::PreRemoveEventArgs(T)
+    Events::PreRemoveEventArgs(T).new entity.as(T), em
+  end
+
   protected def create_post_persist_event(entity : AORM::Entity, em : ORM::EntityManagerInterface) : Events::PostPersistEventArgs(T)
     Events::PostPersistEventArgs(T).new entity.as(T), em
   end

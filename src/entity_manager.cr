@@ -11,6 +11,8 @@ class Athena::ORM::EntityManager
   @repository_factory : AORM::RepositoryFactoryInterface
   getter event_dispatcher : ACTR::EventDispatcher::Interface?
 
+  # *event_dispatcher* receives the `Events::PreFlushEventArgs`, `Events::OnFlushEventArgs`, `Events::PostFlushEventArgs` and `Events::OnClearEventArgs` events.
+  # Per-entity events, such as `Events::PrePersistEventArgs`, are only delivered to the entity's lifecycle callbacks.
   def initialize(
     connection : DB::Connection,
     @event_dispatcher : ACTR::EventDispatcher::Interface? = nil,

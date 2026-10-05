@@ -47,6 +47,17 @@ module Athena::ORM::Mapping::Driver
     lazy_proxy : Bool = false
 
   struct Annotation
+    # Rejected here rather than in `#load_metadata_for_entity`: a parent class's metadata is loaded with its virtual type, and macros see no annotations on virtual types.
+    macro finished
+      {% for type in AORM::Entity.all_subclasses %}
+        {% for unsupported in [{AORMA::MappedSuperclass, "mapped superclasses", " Share mapped properties through an included module instead."}, {AORMA::Embeddable, "embeddables", ""}] %}
+          {% if ann = type.annotation unsupported[0] %}
+            {% ann.raise "'#{type}': #{unsupported[1].id} are not supported yet.#{unsupported[2].id}" %}
+          {% end %}
+        {% end %}
+      {% end %}
+    end
+
     def load_metadata_for_entity(metadata : Mapping::Class(T)) : Nil forall T
       {% if ann = T.annotation AORMA::Entity %}
         entity_ann = AORM::Mapping::Annotations::Entity.new({{ann.named_args.double_splat}})
@@ -94,6 +105,8 @@ module Athena::ORM::Mapping::Driver
         mapping = ColumnMapping.new field_name: {{ivar.name.id.stringify}}
 
         {% if ann = ivar.annotation AORMA::Column %}
+          {% ann[:generated].raise "'#{T.name}##{ivar.name}': the 'generated' column option is not supported yet." if ann[:generated] %}
+
           mapping = self.column_ann_to_mapping {{ivar.name.id.stringify}}, AORM::Mapping::Annotations::Column.new({{ann.named_args.double_splat}})
 
           {% if ivar.annotation AORMA::ID %}
@@ -274,16 +287,28 @@ module Athena::ORM::Mapping::Driver
              {AORMA::PreUpdate, AORM::Events::PreUpdateEventArgs},
            ] %}
 
+        {%
+          # Includes callbacks declared in included modules.
+          # Each method's most-derived definition decides, so an override without the annotation drops the module's callback.
+          all_methods = T.all_methods
+          callback_names = all_methods.select { |method| events.any? { |ev| method.annotation ev[0] } }.map(&.name).uniq
+          callbacks = callback_names.map { |name| all_methods.find { |method| method.name == name } }
+        %}
+
         {% for ev in events %}
           {%
             ann_type, event_type = ev
 
             expanded_event_type = "#{event_type.name(generic_args: false)}#{event_type.type_vars.size > 0 ? "(#{T})".id : "".id}".id
           %}
-          {% for callback in T.methods.select(&.annotation(ann_type)) %}
+          {% for callback in callbacks.select(&.annotation(ann_type)) %}
             {%
+              if ann_type.resolve == AORMA::PostLoad.resolve
+                callback.raise "'#{T.name}##{callback.name}': PostLoad lifecycle callbacks are not supported yet."
+              end
+
               if callback.args.size > 1
-                m.raise "Expected '#{T.name}##{m.name}' to have 0..1 parameters, got '#{callback.args.size}'."
+                callback.raise "Expected '#{T.name}##{callback.name}' to have 0..1 parameters, got '#{callback.args.size}'."
               end
 
               event_arg = callback.args[0]
