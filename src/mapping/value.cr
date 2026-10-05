@@ -36,6 +36,17 @@ module Athena::ORM::Mapping
     end
   end
 
+  # Declares the boxes for the built-in types' values that aren't driver scalars before main typing.
+  # A box type first created during main typing makes the compiler re-type every call already typed through `Opaque+`, including those in each entity's mapping code.
+  @@int16_box : OpaqueValue(Int16)? = nil
+  @@uuid_box : OpaqueValue(UUID)? = nil
+
+  macro finished
+    {% if @top_level.has_constant?("BigDecimal") %}
+      @@big_decimal_box : OpaqueValue(BigDecimal)? = nil
+    {% end %}
+  end
+
   # Everything the ORM stores in a `Mapping::Value`: driver scalars, ORM references (entities, including proxies, and collections), and boxed values of any other type.
   # Every member is a fixed-size type or a class hierarchy, so the union doesn't grow with the number of entities or collection types.
   alias ValueAny = ::DB::Any | Athena::ORM::Entity | Athena::ORM::BaseCollection | Opaque

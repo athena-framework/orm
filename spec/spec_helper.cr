@@ -21,6 +21,14 @@ class MockPlatform < AORM::Platforms::Platform
     "BOOLEAN"
   end
 
+  def small_int_type_declaration_sql(column : AORM::Schema::Column) : String
+    "SMALLINT"
+  end
+
+  def blob_type_declaration_sql(column : AORM::Schema::Column) : String
+    "BLOB"
+  end
+
   def integer_type_declaration_sql(column : AORM::Schema::Column) : String
     "INTEGER"
   end
@@ -326,6 +334,14 @@ end
 class NoReturningPlatform < AORM::Platforms::Platform
   def boolean_type_declaration_sql(column : AORM::Schema::Column) : String
     "BOOLEAN"
+  end
+
+  def small_int_type_declaration_sql(column : AORM::Schema::Column) : String
+    "SMALLINT"
+  end
+
+  def blob_type_declaration_sql(column : AORM::Schema::Column) : String
+    "BLOB"
   end
 
   def integer_type_declaration_sql(column : AORM::Schema::Column) : String

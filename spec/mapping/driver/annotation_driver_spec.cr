@@ -83,6 +83,16 @@ class NonEnumWithEnumTypeFixture < AORM::Entity
 end
 
 @[AORMA::Entity]
+class UnmappedTypeFixture < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  property id : Int64? = nil
+
+  @[AORMA::Column]
+  property initial : Char? = nil
+end
+
+@[AORMA::Entity]
 class IdentityIdFixture < AORM::Entity
   @[AORMA::Column]
   @[AORMA::ID]
@@ -313,6 +323,12 @@ struct AnnotationDriverTest < ASPEC::TestCase
   def test_enum_type_on_a_non_enum_field_is_rejected : Nil
     expect_raises(Exception, "Attempting to map a non-enum type 'MyEnum' as an enum: NonEnumWithEnumTypeFixture#amount") do
       load NonEnumWithEnumTypeFixture
+    end
+  end
+
+  def test_field_of_an_unmapped_type_without_an_explicit_type_is_rejected : Nil
+    expect_raises(Exception, "'UnmappedTypeFixture#initial': no column type is mapped to Char, so pass one with `@[AORMA::Column(type: ...)]`.") do
+      load UnmappedTypeFixture
     end
   end
 

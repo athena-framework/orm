@@ -14,9 +14,9 @@ struct Athena::ORM::Types::BigInt < Athena::ORM::Types::Type
   # :inherit:
   def to_crystal_value(value : _, platform : Platforms::Platform) : Int64?
     case value
-    when Nil                  then nil
-    when Int, Float, ::String then value.to_i64
-    else                           raise "BigInt cannot accept #{value.class}"
+    when Nil                      then nil
+    when ::Int, ::Float, ::String then value.to_i64
+    else                               raise "BigInt cannot accept #{value.class}"
     end
   end
 

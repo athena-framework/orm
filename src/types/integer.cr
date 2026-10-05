@@ -14,9 +14,9 @@ struct Athena::ORM::Types::Integer < Athena::ORM::Types::Type
   # :inherit:
   def to_crystal_value(value : _, platform : Platforms::Platform) : Int32?
     case value
-    when Nil                  then nil
-    when Int, ::String, Float then value.to_i32
-    else                           raise "Integer cannot accept #{value.class}"
+    when Nil                      then nil
+    when ::Int, ::String, ::Float then value.to_i32
+    else                               raise "Integer cannot accept #{value.class}"
     end
   end
 

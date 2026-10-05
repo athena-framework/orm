@@ -4,6 +4,15 @@ class Athena::ORM::Platforms::SQLite < Athena::ORM::Platforms::Platform
     "BOOLEAN"
   end
 
+  def small_int_type_declaration_sql(column : Schema::Column) : String
+    # SQLite autoincrement is implicit for INTEGER PKs, but not for SMALLINT fields.
+    if column.auto_increment?
+      return self.integer_type_declaration_sql column
+    end
+
+    "SMALLINT#{self.common_integer_type_declaration_sql column}"
+  end
+
   def integer_type_declaration_sql(column : Schema::Column) : String
     "INTEGER #{self.common_integer_type_declaration_sql column}"
   end
@@ -15,6 +24,18 @@ class Athena::ORM::Platforms::SQLite < Athena::ORM::Platforms::Platform
     end
 
     "BIGINT #{self.common_integer_type_declaration_sql column}"
+  end
+
+  def blob_type_declaration_sql(column : Schema::Column) : String
+    "BLOB"
+  end
+
+  protected def binary_type_declaration_sql_snippet(length : Int32?) : String
+    "BLOB"
+  end
+
+  protected def varbinary_type_declaration_sql_snippet(length : Int32?) : String
+    "BLOB"
   end
 
   private def common_integer_type_declaration_sql(column : Schema::Column) : String

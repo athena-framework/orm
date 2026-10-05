@@ -16,7 +16,9 @@ module Athena::ORM::EntityManagerInterface
   # abstract def has_filters? : Bool
 
   abstract def connection : AORM::Connection
-  abstract def transaction(& : DB::Transaction ->) : Nil
+  abstract def begin_transaction : Nil
+  abstract def commit : Nil
+  abstract def rollback : Nil
 
   abstract def unit_of_work # : AORM::UnitOfWork
 

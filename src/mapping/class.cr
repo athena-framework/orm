@@ -37,11 +37,16 @@ end
 
 private struct Athena::ORM::Mapping::TypedFieldMapper
   DEFAULT_TYPE_FIELD_MAPPINGS = {
-    ::String => "string",
-    ::Bool   => "boolean",
-    ::Int32  => "integer",
-    ::Int64  => "bigint",
-    ::Time   => "datetime",
+    ::String  => "string",
+    ::Bool    => "boolean",
+    ::Int16   => "smallint",
+    ::Int32   => "integer",
+    ::Int64   => "bigint",
+    ::Float32 => "smallfloat",
+    ::Float64 => "float",
+    ::Time    => "datetime",
+    ::UUID    => "guid",
+    ::Bytes   => "blob",
   }
 
   @typed_field_mappings : Hash(String, String)
@@ -52,6 +57,10 @@ private struct Athena::ORM::Mapping::TypedFieldMapper
     DEFAULT_TYPE_FIELD_MAPPINGS.each do |name, type|
       typed_field_mappings[name.to_s] = type
     end
+
+    {% if @top_level.has_constant?("BigDecimal") %}
+      typed_field_mappings["BigDecimal"] = "number"
+    {% end %}
 
     typed_field_mappings.each do |name, type|
       typed_field_mappings[name.to_s] = type
@@ -282,7 +291,7 @@ class Athena::ORM::Mapping::Class(T)
       when {{ivar.name.stringify}}
         {% if ivar_base_type < ::Enum %}
           return Mapping::ColumnValue.new(field_name, AORM::Mapping::EnumConversion.from_enum(value)) if value.is_a?({{ivar_base_type}})
-          return Mapping::ColumnValue.new(field_name, value) if value.is_a?(Int)
+          return Mapping::ColumnValue.new(field_name, AORM::Mapping::EnumConversion.from_enum({{ivar_base_type}}.from_value(value))) if value.is_a?(Int)
         {% end %}
 
         {% for member in ivar.type.union_types %}
@@ -560,8 +569,9 @@ class Athena::ORM::Mapping::Class(T)
     # mapping = TypedFieldMapper.new.validate_and_complete(mapping, @field_info[mapping.field_name])
     mapping = @field_info[mapping.field_name].apply_type_mapping TypedFieldMapper.new, mapping
 
+    # A field's Crystal type is always known, so instead of defaulting to `string`, which couldn't read a value of another type back, an unmapped type is an error.
     if mapping.type.nil?
-      mapping = mapping.copy_with type: "string"
+      raise "'#{T}##{mapping.field_name}': no column type is mapped to #{@field_info[mapping.field_name].type_name}, so pass one with `@[AORMA::Column(type: ...)]`."
     end
 
     if mapping.column_name.nil?

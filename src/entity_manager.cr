@@ -13,15 +13,20 @@ class Athena::ORM::EntityManager
 
   # *event_dispatcher* receives the `Events::PreFlushEventArgs`, `Events::OnFlushEventArgs`, `Events::PostFlushEventArgs` and `Events::OnClearEventArgs` events.
   # Per-entity events, such as `Events::PrePersistEventArgs`, are only delivered to the entity's lifecycle callbacks.
+  #
+  # *metadata_cache* shares class metadata with other entity managers on the same database; without one, metadata is built for this entity manager alone.
   def initialize(
     connection : DB::Connection,
     @event_dispatcher : ACTR::EventDispatcher::Interface? = nil,
+    *,
+    metadata_cache : AORM::Mapping::MetadataCache? = nil,
   )
     @connection = AORM::Connection.new(connection)
     @repository_factory = AORM::DefaultRepositoryFactory.new
 
     metadata_factory = AORM::Mapping::ClassFactory.new
     metadata_factory.entity_manager = self
+    metadata_factory.cache = metadata_cache
 
     @metadata_factory = metadata_factory
   end
@@ -157,15 +162,47 @@ class Athena::ORM::EntityManager
     self.unit_of_work.scheduled_for_insert?(entity) || self.unit_of_work.has?(entity) && !self.unit_of_work.scheduled_for_delete?(entity)
   end
 
-  def transaction(& : DB::Transaction ->) : Nil
-    @connection.transaction do |tx|
-      yield tx
+  # Starts a transaction, or a savepoint if one is already active.
+  def begin_transaction : Nil
+    @connection.begin_transaction
+  end
+
+  def commit : Nil
+    @connection.commit
+  end
+
+  def rollback : Nil
+    @connection.rollback
+  end
+
+  # Runs the block in a transaction, flushing before it commits, and returns the block's value.
+  # If the block or the flush raises, the entity manager is closed and the transaction rolled back.
+  def wrap_in_transaction(& : self -> T) : T forall T
+    @connection.begin_transaction
+
+    successful = false
+
+    begin
+      result = yield self
+
+      self.flush
+      @connection.commit
+
+      successful = true
+
+      result
+    ensure
+      unless successful
+        self.close
+        @connection.rollback if @connection.transaction_active?
+      end
     end
   end
 
+  # Clears the entity manager and marks it closed.
+  # The connection, and any transaction open on it, are left to whoever provided the connection.
   def close : Nil
     self.clear
-    @connection.release
 
     @closed = true
   end

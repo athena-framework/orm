@@ -148,7 +148,12 @@ class Athena::ORM::UnitOfWork
 
     self.dispatch_on_flush_event
 
-    @em.transaction do
+    connection = @em.connection
+    connection.begin_transaction
+
+    successful = false
+
+    begin
       # Collection deletions (deletions of complete collections)
       @collection_deletions.each do |collection|
         # Deferred explicit tracked collections can be removed only when owning relation was persisted
@@ -182,10 +187,18 @@ class Athena::ORM::UnitOfWork
       unless @entity_deletions.empty?
         self.execute_deletions
       end
-    rescue ex : ::Exception
-      @em.close
-      self.after_transaction_rolled_back
-      raise ex
+
+      connection.commit
+
+      successful = true
+    ensure
+      unless successful
+        @em.close
+
+        connection.rollback if connection.transaction_active?
+
+        self.after_transaction_rolled_back
+      end
     end
 
     self.after_transaction_complete

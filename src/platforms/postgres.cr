@@ -15,6 +15,10 @@ class Athena::ORM::Platforms::Postgres < Athena::ORM::Platforms::Platform
     "BOOLEAN"
   end
 
+  def small_int_type_declaration_sql(column : Schema::Column) : String
+    "SMALLINT#{self.common_integer_type_declaration_sql column}"
+  end
+
   def integer_type_declaration_sql(column : Schema::Column) : String
     "INT #{self.common_integer_type_declaration_sql column}"
   end
@@ -25,6 +29,18 @@ class Athena::ORM::Platforms::Postgres < Athena::ORM::Platforms::Platform
 
   def guid_type_declaration_sql(column : Schema::Column) : String
     "UUID"
+  end
+
+  def blob_type_declaration_sql(column : Schema::Column) : String
+    "BYTEA"
+  end
+
+  protected def binary_type_declaration_sql_snippet(length : Int32?) : String
+    "BYTEA"
+  end
+
+  protected def varbinary_type_declaration_sql_snippet(length : Int32?) : String
+    "BYTEA"
   end
 
   private def varchar_type_declaration_sql(column : Schema::Column) : String

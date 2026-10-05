@@ -7,6 +7,10 @@ module Athena::ORM
     getter platform : Platforms::Platform
     getter wrapped : DB::Connection
 
+    # Open transactions, outermost first.
+    # Nested ones are savepoints within the outer transaction.
+    @transactions = [] of DB::Transaction
+
     def initialize(@wrapped : DB::Connection)
       @platform = @wrapped.database_platform
     end
@@ -81,8 +85,57 @@ module Athena::ORM
       @wrapped.prepare(query)
     end
 
-    def transaction(&)
-      @wrapped.transaction { |tx| yield tx }
+    # Starts a transaction, or a savepoint if one is already active.
+    def begin_transaction : Nil
+      @transactions << (@transactions.last?.try(&.begin_transaction) || @wrapped.begin_transaction)
+    end
+
+    # Commits the innermost transaction, releasing its savepoint if it's nested.
+    def commit : Nil
+      transaction = @transactions.pop? || raise DB::Error.new "There is no active transaction."
+
+      begin
+        transaction.commit
+      ensure
+        # Resets the driver's transaction state if the commit failed; a failed commit still ends the transaction.
+        transaction.close
+      end
+    end
+
+    # Rolls back the innermost transaction, or to its savepoint if it's nested.
+    def rollback : Nil
+      transaction = @transactions.pop? || raise DB::Error.new "There is no active transaction."
+
+      begin
+        transaction.rollback
+      ensure
+        transaction.close
+      end
+    end
+
+    def transaction_active? : Bool
+      !@transactions.empty?
+    end
+
+    def transaction_nesting_level : Int32
+      @transactions.size
+    end
+
+    # Runs the block in a transaction, or a savepoint if one is already active.
+    # Commits if the block returns, returning its value, and rolls back if it raises.
+    def transactional(& : self -> T) : T forall T
+      self.begin_transaction
+
+      begin
+        result = yield self
+      rescue ex
+        self.rollback
+        raise ex
+      end
+
+      self.commit
+
+      result
     end
 
     forward_missing_to @wrapped

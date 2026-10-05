@@ -57,3 +57,32 @@ struct PostgresPlatformBooleanTest < ASPEC::TestCase
     }
   end
 end
+
+struct PostgresPlatformDeclarationTest < ASPEC::TestCase
+  @platform : AORM::Platforms::Postgres = AORM::Platforms::Postgres.new
+
+  def test_numeric_declarations : Nil
+    @platform.small_int_type_declaration_sql(column).should eq "SMALLINT"
+    @platform.float_declaration_sql(column).should eq "DOUBLE PRECISION"
+    @platform.small_float_declaration_sql(column).should eq "REAL"
+    @platform.decimal_type_declaration_sql(column precision: 10, scale: 2).should eq "NUMERIC(10, 2)"
+  end
+
+  def test_decimal_declaration_requires_precision_and_scale : Nil
+    expect_raises(Exception, "Precision required") { @platform.decimal_type_declaration_sql column }
+    expect_raises(Exception, "Scale required") { @platform.decimal_type_declaration_sql column precision: 10 }
+  end
+
+  def test_binary_declarations_are_bytea : Nil
+    @platform.blob_type_declaration_sql(column).should eq "BYTEA"
+    @platform.binary_type_declaration_sql(column length: 16).should eq "BYTEA"
+  end
+
+  private def column(*, length : Int32? = nil, precision : Int32? = nil, scale : Int32? = nil) : AORM::Schema::Column
+    AORM::Schema::Column.new("c", AORM::Types::Type.get_type("string")).tap do |c|
+      c.length = length
+      c.precision = precision
+      c.scale = scale
+    end
+  end
+end

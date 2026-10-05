@@ -1,5 +1,12 @@
 require "./spec_helper"
 
+# Fails every COMMIT, as a server does when e.g. a deferred constraint is violated.
+class FailingCommitConnection < MockConnection
+  def perform_commit_transaction
+    raise DB::Error.new "commit failed"
+  end
+end
+
 struct ConnectionTest < ASPEC::TestCase
   @wrapped : MockConnection
   @connection : AORM::Connection
@@ -64,5 +71,87 @@ struct ConnectionTest < ASPEC::TestCase
     @wrapped.queue_result [] of Hash(String, DB::Any)
 
     @connection.fetch_one("SELECT c FROM t", [] of DB::Any, [] of String?).should be_nil
+  end
+
+  def test_nested_transactions_are_savepoints : Nil
+    @connection.begin_transaction
+    @connection.begin_transaction
+
+    @connection.transaction_nesting_level.should eq 2
+
+    @connection.commit
+    @connection.transaction_active?.should be_true
+
+    @connection.commit
+    @connection.transaction_active?.should be_false
+
+    @wrapped.built_statements[0].should eq "BEGIN"
+    @wrapped.built_statements[1].should start_with "SAVEPOINT "
+    @wrapped.built_statements[2].should start_with "RELEASE SAVEPOINT "
+    @wrapped.built_statements[3].should eq "COMMIT"
+  end
+
+  def test_rolling_back_a_nested_transaction_keeps_the_outer_one : Nil
+    @connection.begin_transaction
+    @connection.begin_transaction
+    @connection.rollback
+
+    @connection.transaction_nesting_level.should eq 1
+    @wrapped.built_statements.last.should start_with "ROLLBACK TO "
+
+    @connection.rollback
+    @connection.transaction_active?.should be_false
+    @wrapped.built_statements.last.should eq "ROLLBACK"
+  end
+
+  def test_commit_without_a_transaction_raises : Nil
+    expect_raises DB::Error, "There is no active transaction." do
+      @connection.commit
+    end
+  end
+
+  def test_rollback_without_a_transaction_raises : Nil
+    expect_raises DB::Error, "There is no active transaction." do
+      @connection.rollback
+    end
+  end
+
+  def test_failed_commit_ends_the_transaction : Nil
+    connection = AORM::Connection.new FailingCommitConnection.new
+    connection.begin_transaction
+
+    expect_raises DB::Error, "commit failed" do
+      connection.commit
+    end
+
+    connection.transaction_active?.should be_false
+
+    # The driver no longer considers a transaction open either.
+    connection.begin_transaction
+    connection.transaction_active?.should be_true
+  end
+
+  def test_transactional_commits_and_returns_the_block_value : Nil
+    @connection.transactional(&.transaction_active?).should be_true
+
+    @connection.transaction_active?.should be_false
+    @wrapped.built_statements.last.should eq "COMMIT"
+  end
+
+  def test_transactional_rolls_back_when_the_block_raises : Nil
+    expect_raises Exception, "boom" do
+      @connection.transactional { raise "boom" }
+    end
+
+    @connection.transaction_active?.should be_false
+    @wrapped.built_statements.last.should eq "ROLLBACK"
+  end
+
+  def test_transactional_nests_as_a_savepoint : Nil
+    @connection.begin_transaction
+    @connection.transactional { }
+
+    @connection.transaction_nesting_level.should eq 1
+    @wrapped.built_statements.last.should start_with "RELEASE SAVEPOINT "
   end
 end

@@ -3,15 +3,26 @@ require "./class_factory_interface"
 abstract class Athena::ORM::Mapping::AbstractClassFactory
   include Athena::ORM::Mapping::ClassFactoryInterface
 
-  # TODO: Determine if we need to memorize/cache metadata for perf reasons
   @loaded_metadata = Hash(AORM::Entity.class, ClassInterface).new
+
+  # Metadata shared with other factories, consulted before building it.
+  property cache : MetadataCache? = nil
 
   def metadata(for entity_class : AORM::Entity.class) : ClassInterface
     if metadata = @loaded_metadata[entity_class]?
       return metadata
     end
 
-    self.load entity_class
+    if cache = @cache
+      if cached = cache[entity_class]?
+        return @loaded_metadata[entity_class] = cached
+      end
+
+      self.load entity_class
+      cache[entity_class] = @loaded_metadata[entity_class]
+    else
+      self.load entity_class
+    end
 
     @loaded_metadata[entity_class]
   end

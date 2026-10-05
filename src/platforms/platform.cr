@@ -93,8 +93,43 @@ abstract class Athena::ORM::Platforms::Platform
   end
 
   abstract def boolean_type_declaration_sql(column : Schema::Column) : String
+  abstract def small_int_type_declaration_sql(column : Schema::Column) : String
   abstract def integer_type_declaration_sql(column : Schema::Column) : String
   abstract def big_int_type_declaration_sql(column : Schema::Column) : String
+  abstract def blob_type_declaration_sql(column : Schema::Column) : String
+
+  def float_declaration_sql(column : Schema::Column) : String
+    "DOUBLE PRECISION"
+  end
+
+  def small_float_declaration_sql(column : Schema::Column) : String
+    "REAL"
+  end
+
+  def decimal_type_declaration_sql(column : Schema::Column) : String
+    raise "Precision required" unless precision = column.precision
+    raise "Scale required" unless scale = column.scale
+
+    "NUMERIC(#{precision}, #{scale})"
+  end
+
+  def binary_type_declaration_sql(column : Schema::Column) : String
+    column.fixed? ? self.binary_type_declaration_sql_snippet(column.length) : self.varbinary_type_declaration_sql_snippet(column.length)
+  end
+
+  protected def binary_type_declaration_sql_snippet(length : Int32?) : String
+    length ? "BINARY(#{length})" : "BINARY"
+  end
+
+  protected def varbinary_type_declaration_sql_snippet(length : Int32?) : String
+    raise "Length required" unless length
+
+    "VARBINARY(#{length})"
+  end
+
+  protected def unsigned_declaration(column : Schema::Column) : String
+    column.unsigned? ? " UNSIGNED" : ""
+  end
 
   private abstract def common_integer_type_declaration_sql(column : Schema::Column) : String
 

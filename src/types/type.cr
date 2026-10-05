@@ -1,9 +1,14 @@
 module Athena::ORM::Types
   BIGINT     = "bigint"
+  BINARY     = "binary"
+  BLOB       = "blob"
   BOOLEAN    = "boolean"
   DATETIME   = "datetime"
+  DECIMAL    = "decimal"
   FLOAT      = "float"
+  GUID       = "guid"
   INTEGER    = "integer"
+  NUMBER     = "number"
   SMALLFLOAT = "smallfloat"
   SMALLINT   = "smallint"
   STRING     = "string"
@@ -12,16 +17,29 @@ module Athena::ORM::Types
   abstract struct Type
     # Crystal types are mapped to ORM types in `src/mapping/class.cr`
     private BUILTIN_TYPES_MAP = {
-      Types::STRING   => AORM::Types::String,
-      Types::TEXT     => AORM::Types::String,
-      Types::INTEGER  => AORM::Types::Integer,
-      Types::BIGINT   => AORM::Types::BigInt,
-      Types::BOOLEAN  => AORM::Types::Boolean,
-      Types::DATETIME => AORM::Types::Datetime,
+      Types::STRING     => AORM::Types::String,
+      Types::TEXT       => AORM::Types::String,
+      Types::INTEGER    => AORM::Types::Integer,
+      Types::SMALLINT   => AORM::Types::SmallInt,
+      Types::BIGINT     => AORM::Types::BigInt,
+      Types::FLOAT      => AORM::Types::Float,
+      Types::SMALLFLOAT => AORM::Types::SmallFloat,
+      Types::DECIMAL    => AORM::Types::Decimal,
+      Types::BOOLEAN    => AORM::Types::Boolean,
+      Types::DATETIME   => AORM::Types::Datetime,
+      Types::GUID       => AORM::Types::Guid,
+      Types::BINARY     => AORM::Types::Binary,
+      Types::BLOB       => AORM::Types::Blob,
     }
 
     class_getter type_registry : Athena::ORM::Types::TypeRegistry do
-      AORM::Types::TypeRegistry.new(BUILTIN_TYPES_MAP.transform_values(&.new.as(AORM::Types::Type)))
+      registry = AORM::Types::TypeRegistry.new(BUILTIN_TYPES_MAP.transform_values(&.new.as(AORM::Types::Type)))
+
+      {% if @top_level.has_constant?("BigDecimal") %}
+        registry.register Types::NUMBER, AORM::Types::Number.new
+      {% end %}
+
+      registry
     end
 
     def self.get_type(name : ::String) : self
@@ -66,7 +84,8 @@ module Athena::ORM::Types
     # Reads the next column from *value* with this `Type`'s target Crystal type.
     #
     # The default implementation does an untyped read and routes through `to_crystal_value(value, platform)`.
-    # Subclasses MAY override to skip the union-type dispatch when a concrete `rs.read T` is available — for example `Integer` reads `rs.read Int32?` directly.
+    # A subclass whose `to_crystal_value` takes `value : _` must define this overload as well, since that one would otherwise also receive the result set.
+    # It can skip the union-type dispatch when a concrete `rs.read T` is available — for example `Integer` reads `rs.read Int32?` directly.
     #
     # Note: this advances the cursor by one column.
     def to_crystal_value(value : DB::ResultSet, platform : Platforms::Platform)
