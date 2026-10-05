@@ -159,7 +159,10 @@ class Athena::ORM::EntityManager
   end
 
   def contains(entity : AORM::Entity) : Bool
-    self.unit_of_work.scheduled_for_insert?(entity) || self.unit_of_work.has?(entity) && !self.unit_of_work.scheduled_for_delete?(entity)
+    uow = self.unit_of_work
+    entity = entity.as(AORM::Entity)
+
+    uow.is_scheduled_for_insert?(entity) || uow.is_in_identity_map(entity) && !uow.is_scheduled_for_delete?(entity)
   end
 
   # Starts a transaction, or a savepoint if one is already active.

@@ -9,9 +9,16 @@ struct SQLitePlatformDeclarationTest < ASPEC::TestCase
     @platform.small_float_declaration_sql(column).should eq "REAL"
   end
 
+  def test_integer_declarations : Nil
+    @platform.integer_type_declaration_sql(column).should eq "INTEGER"
+    @platform.integer_type_declaration_sql(column auto_increment: true).should eq "INTEGER PRIMARY KEY AUTOINCREMENT"
+    @platform.big_int_type_declaration_sql(column).should eq "BIGINT"
+  end
+
   # SQLite only auto-increments `INTEGER PRIMARY KEY` columns.
-  def test_auto_increment_small_int_is_declared_as_integer : Nil
-    @platform.small_int_type_declaration_sql(column auto_increment: true).should start_with "INTEGER"
+  def test_auto_increment_small_and_big_ints_are_declared_as_integer : Nil
+    @platform.small_int_type_declaration_sql(column auto_increment: true).should eq "INTEGER PRIMARY KEY AUTOINCREMENT"
+    @platform.big_int_type_declaration_sql(column auto_increment: true).should eq "INTEGER PRIMARY KEY AUTOINCREMENT"
   end
 
   def test_binary_declarations_are_blob : Nil

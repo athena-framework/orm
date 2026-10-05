@@ -35,7 +35,10 @@ module Athena::ORM::Mapping
   end
 end
 
-private struct Athena::ORM::Mapping::TypedFieldMapper
+# :nodoc:
+#
+# Infers a field's column type from its Crystal type, using *typed_field_mappings* (Crystal type name => column type) on top of the defaults.
+struct Athena::ORM::Mapping::TypedFieldMapper
   DEFAULT_TYPE_FIELD_MAPPINGS = {
     ::String  => "string",
     ::Bool    => "boolean",
@@ -52,21 +55,19 @@ private struct Athena::ORM::Mapping::TypedFieldMapper
   @typed_field_mappings : Hash(String, String)
 
   def initialize(typed_field_mappings : Hash(String, String) = {} of String => String)
-    typed_field_mappings = Hash(String, String).new
+    mappings = Hash(String, String).new
 
     DEFAULT_TYPE_FIELD_MAPPINGS.each do |name, type|
-      typed_field_mappings[name.to_s] = type
+      mappings[name.to_s] = type
     end
 
     {% if @top_level.has_constant?("BigDecimal") %}
-      typed_field_mappings["BigDecimal"] = "number"
+      mappings["BigDecimal"] = "number"
     {% end %}
 
-    typed_field_mappings.each do |name, type|
-      typed_field_mappings[name.to_s] = type
-    end
+    mappings.merge! typed_field_mappings
 
-    @typed_field_mappings = typed_field_mappings
+    @typed_field_mappings = mappings
   end
 
   def validate_and_complete(mapping : Driver::ColumnMapping, info : Class::FieldInfo) : Driver::ColumnMapping

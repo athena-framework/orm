@@ -14,7 +14,7 @@ class Athena::ORM::Platforms::SQLite < Athena::ORM::Platforms::Platform
   end
 
   def integer_type_declaration_sql(column : Schema::Column) : String
-    "INTEGER #{self.common_integer_type_declaration_sql column}"
+    "INTEGER#{self.common_integer_type_declaration_sql column}"
   end
 
   def big_int_type_declaration_sql(column : Schema::Column) : String
@@ -23,7 +23,7 @@ class Athena::ORM::Platforms::SQLite < Athena::ORM::Platforms::Platform
       return self.integer_type_declaration_sql column
     end
 
-    "BIGINT #{self.common_integer_type_declaration_sql column}"
+    "BIGINT#{self.common_integer_type_declaration_sql column}"
   end
 
   def blob_type_declaration_sql(column : Schema::Column) : String

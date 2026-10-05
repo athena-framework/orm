@@ -58,4 +58,27 @@ struct EntityManagerTest < ASPEC::TestCase
 
     persister.load_by_id_calls.size.should eq 1
   end
+
+  def test_contains_new_persisted_and_removed_entities : Nil
+    persister = MockEntityPersister.new @em, @em.class_metadata CompositeKeyed
+    @uow.set_entity_persister CompositeKeyed, persister
+
+    entity = CompositeKeyed.new
+    entity.tenant = "t"
+    entity.record = "r"
+
+    @em.contains(entity).should be_false
+
+    @em.persist entity
+    @em.contains(entity).should be_true
+
+    managed = CompositeKeyed.new
+    managed.tenant = "t"
+    managed.record = "managed"
+    @uow.register_managed managed, {"tenant" => "t", "record" => "managed"}, {"tenant" => "t", "record" => "managed"}
+    @em.contains(managed).should be_true
+
+    @em.remove managed
+    @em.contains(managed).should be_false
+  end
 end

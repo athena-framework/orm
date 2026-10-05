@@ -20,11 +20,11 @@ class Athena::ORM::Platforms::Postgres < Athena::ORM::Platforms::Platform
   end
 
   def integer_type_declaration_sql(column : Schema::Column) : String
-    "INT #{self.common_integer_type_declaration_sql column}"
+    "INT#{self.common_integer_type_declaration_sql column}"
   end
 
   def big_int_type_declaration_sql(column : Schema::Column) : String
-    "BIGINT #{self.common_integer_type_declaration_sql column}"
+    "BIGINT#{self.common_integer_type_declaration_sql column}"
   end
 
   def guid_type_declaration_sql(column : Schema::Column) : String

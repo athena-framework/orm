@@ -33,6 +33,13 @@ end
 struct MySQLPlatformDeclarationTest < ASPEC::TestCase
   @platform : AORM::Platforms::MySQL = AORM::Platforms::MySQL.new
 
+  def test_integer_declarations : Nil
+    @platform.integer_type_declaration_sql(column).should eq "INTEGER"
+    @platform.integer_type_declaration_sql(column auto_increment: true).should eq "INTEGER AUTO_INCREMENT"
+    @platform.big_int_type_declaration_sql(column).should eq "BIGINT"
+    @platform.big_int_type_declaration_sql(column unsigned: true, auto_increment: true).should eq "BIGINT UNSIGNED AUTO_INCREMENT"
+  end
+
   def test_numeric_declarations : Nil
     @platform.small_int_type_declaration_sql(column).should eq "SMALLINT"
     @platform.float_declaration_sql(column).should eq "DOUBLE PRECISION"
@@ -70,8 +77,9 @@ struct MySQLPlatformDeclarationTest < ASPEC::TestCase
     expect_raises(Exception, "Length required") { @platform.binary_type_declaration_sql column }
   end
 
-  private def column(*, length : Int32? = nil, precision : Int32? = nil, scale : Int32? = nil, unsigned : Bool = false, fixed : Bool = false) : AORM::Schema::Column
+  private def column(*, length : Int32? = nil, precision : Int32? = nil, scale : Int32? = nil, unsigned : Bool = false, fixed : Bool = false, auto_increment : Bool = false) : AORM::Schema::Column
     AORM::Schema::Column.new("c", AORM::Types::Type.get_type("string")).tap do |c|
+      c.auto_increment = auto_increment
       c.length = length
       c.precision = precision
       c.scale = scale

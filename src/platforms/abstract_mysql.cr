@@ -27,12 +27,12 @@ abstract class Athena::ORM::Platforms::AbstractMySQL < Athena::ORM::Platforms::P
 
   # :inherit:
   def integer_type_declaration_sql(column : Schema::Column) : String
-    "INTEGER #{self.common_integer_type_declaration_sql column}"
+    "INTEGER#{self.common_integer_type_declaration_sql column}"
   end
 
   # :inherit:
   def big_int_type_declaration_sql(column : Schema::Column) : String
-    "BIGINT #{self.common_integer_type_declaration_sql column}"
+    "BIGINT#{self.common_integer_type_declaration_sql column}"
   end
 
   # :inherit:
