@@ -1,8 +1,14 @@
 require "./owning_side"
 
+# Base class for the owning side of a to-one association, which holds the foreign key in its `#join_columns`.
+#
+# Without an `AORMA::JoinColumn` annotation, the association has a single join column named `<property>_id`, referencing the target's `id` column.
+# Join columns are nullable by default, and non-nullable if the association is part of the identifier.
+# The join column of a OneToOne association with a single join column is marked unique.
 abstract class Athena::ORM::Mapping::ToOneOwningSide < Athena::ORM::Mapping::OwningSide
   include Athena::ORM::Mapping::ToOne
 
+  # :nodoc:
   def self.new(
     mapping : Driver::ColumnMapping,
     naming_strategy : NamingStrategyInterface,
@@ -85,6 +91,7 @@ abstract class Athena::ORM::Mapping::ToOneOwningSide < Athena::ORM::Mapping::Own
     instance
   end
 
+  # :nodoc:
   def self.new(mapping : Driver::ColumnMapping) : self
     # TODO: Handle mapping.join_columns
 
@@ -115,10 +122,14 @@ abstract class Athena::ORM::Mapping::ToOneOwningSide < Athena::ORM::Mapping::Own
     instance
   end
 
+  # Maps each join column name to the name of the target column it references.
   property source_to_target_key_columns : Hash(String, String) = {} of String => String
+  # Maps each referenced target column name to the name of the join column referencing it.
   property target_to_source_key_columns : Hash(String, String) = {} of String => String
 
+  # The columns of the entity's table holding the foreign key.
   property join_columns : Array(JoinColumn) = [] of JoinColumn
+  # :nodoc:
   property join_column_field_names : Hash(String, String) = {} of String => String
 
   # True when the property type carries `Proxy(Target)`.
@@ -126,6 +137,7 @@ abstract class Athena::ORM::Mapping::ToOneOwningSide < Athena::ORM::Mapping::Own
   # Set by `apply_type_association_mapping`.
   property? lazy_proxy : Bool = false
 
+  # :nodoc:
   def initialize(
     field_name : String,
     source_entity : AORM::Entity.class,

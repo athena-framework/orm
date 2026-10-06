@@ -1,5 +1,6 @@
 require "./interface"
 
+# :nodoc:
 class Athena::ORM::Persisters::Entity::Basic
   include Athena::ORM::Persisters::Entity::Interface
 

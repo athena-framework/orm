@@ -6,6 +6,7 @@ require "./many_to_many"
 class Athena::ORM::Mapping::ManyToManyInverseSide < Athena::ORM::Mapping::InverseSide
   include Athena::ORM::Mapping::ManyToMany
 
+  # :nodoc:
   def self.new(mapping : Driver::ColumnMapping) : self
     instance = new(
       mapping.field_name,
@@ -31,8 +32,11 @@ class Athena::ORM::Mapping::ManyToManyInverseSide < Athena::ORM::Mapping::Invers
   end
 
   # Optional index column for indexed collections.
+  #
+  # TODO: Recorded, but collections aren't indexed by it yet.
   property index_by : String?
 
+  # :nodoc:
   def initialize(
     field_name : String,
     source_entity : AORM::Entity.class,
@@ -47,10 +51,12 @@ class Athena::ORM::Mapping::ManyToManyInverseSide < Athena::ORM::Mapping::Invers
     super field_name, source_entity, target_entity, mapped_by, fetch_mode, id, orphan_removal || false, unique, cascade
   end
 
+  # :nodoc:
   def many_to_many? : Bool
     true
   end
 
+  # :nodoc:
   def to_many? : Bool
     true
   end

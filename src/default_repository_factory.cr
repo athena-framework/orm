@@ -1,10 +1,14 @@
 require "./repository_factory_interface"
 
+# Creates the repositories returned by `AORM::EntityManager#repository`, reusing them for each entity manager.
+#
+# An entity's repository is its custom *repository_class*, see `AORMA::Entity`, or an `AORM::EntityRepository` of the entity otherwise.
 struct Athena::ORM::DefaultRepositoryFactory
   include Athena::ORM::RepositoryFactoryInterface
 
   @repository_map = Hash(String, AORM::RepositoryInterface).new
 
+  # :inherit:
   def repository(em : AORM::EntityManagerInterface, entity_class : AORM::Entity.class) : AORM::RepositoryInterface
     repo_hash = "#{entity_class}#{em.object_id}"
 

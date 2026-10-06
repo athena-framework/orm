@@ -1,5 +1,8 @@
 require "./type"
 
+# Holds `Float32` values, stored in a single precision floating point column, such as `REAL`.
+#
+# `Float32` properties are mapped to this type by default.
 struct Athena::ORM::Types::SmallFloat < Athena::ORM::Types::Type
   # :inherit:
   def sql_declaration(column : Schema::Column, platform : AORM::Platforms::Platform) : ::String

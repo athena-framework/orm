@@ -1,3 +1,4 @@
+# :nodoc:
 class Athena::ORM::Persisters::Entity::CachedPersisterContext
   @sql_alias_counter = Int64.zero
 

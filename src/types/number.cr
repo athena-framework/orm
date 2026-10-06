@@ -1,14 +1,23 @@
 # `BigDecimal` requires linking libgmp, so this type only exists for programs that `require "big"` themselves.
 macro finished
   {% if @top_level.has_constant?("BigDecimal") %}
-    # Holds decimal values as `BigDecimal`s.
+    # Holds decimal values as `BigDecimal`s, stored in a `NUMERIC`/`DECIMAL` column.
+    #
+    # `BigDecimal` properties are mapped to this type by default.
+    # Use `AORM::Types::Decimal` instead to keep the values as strings.
+    #
+    # NOTE: This type only exists when the program defines `BigDecimal`, e.g. via `require "big"`, since `BigDecimal` requires linking libgmp.
+    #
+    # WARNING: MySQL and MariaDB read `DECIMAL` columns as `Float64`, and SQLite stores them with `REAL` affinity, so on those databases values are limited to `Float64` precision.
     struct Athena::ORM::Types::Number < Athena::ORM::Types::Type
       # :inherit:
       def sql_declaration(column : Schema::Column, platform : AORM::Platforms::Platform) : ::String
         platform.decimal_type_declaration_sql column
       end
 
-      # Drivers can't bind `BigDecimal`, but accept its string form for decimal columns.
+      # :inherit:
+      #
+      # Converts a `BigDecimal` into its string form, since drivers can't bind `BigDecimal` but accept its string form for decimal columns.
       def to_db(value : _, platform : AORM::Platforms::Platform)
         value.is_a?(::BigDecimal) ? value.to_s : value
       end

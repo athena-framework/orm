@@ -2,21 +2,56 @@ require "./array_collection"
 
 # ORM-aware collection with dirty tracking and lazy loading support.
 # Tracks changes since the last snapshot for computing insert/delete diffs.
+#
+# The ORM puts one in every `AORM::Collection` field it manages, see `AORM::Collection` for how that happens.
+# The ORM creates it; application code doesn't construct one.
+#
+# ## Lazy loading
+#
+# A collection on an entity loaded from the database doesn't load its elements until it's first read.
+# Reading it in any way, such as `#size`, `#each`, `#[]?`, `#includes?`, `#to_a`, `#delete`, `#clear` or `#remove_element`, loads every element with a single query.
+# Adding elements with `#<<` doesn't load it; elements added before it's loaded are kept alongside the loaded ones.
+#
+# ```
+# user = em.find! User, 1 # Doesn't query the user's groups
+#
+# groups = user.groups.as AORM::PersistentCollection(Group)
+# groups.loaded? # => false
+#
+# user.groups.size # Loads the groups
+# groups.loaded?   # => true
+# ```
+#
+# WARNING: Loading the collections of many entities one at a time issues one query per collection.
+#
+# ## Change tracking
+#
+# Modifying the collection marks it `#dirty?`.
+# On the next flush, the elements added and removed since it was loaded, or last flushed, are written to the join table of an owning-side `AORMA::ManyToMany` association.
 class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection(T)
   @snapshot : Array(T) = [] of T
+
+  # Returns `true` if the collection has been modified since its elements were last synchronized with the database.
   getter? dirty : Bool = false
 
+  # :nodoc:
+  #
   # The entity that owns this collection.
   getter owner : AORM::Entity?
 
+  # :nodoc:
+  #
   # The association mapping for this collection.
   getter! association : AORM::Mapping::Association
 
+  # :nodoc:
   getter! back_ref_field_name : String
   @collection : AORM::ArrayCollection(T)
   @em : AORM::EntityManagerInterface?
   @class_metadata : AORM::Mapping::ClassInterface?
 
+  # :nodoc:
+  #
   # Creates a PersistentCollection backed by an ArrayCollection.
   # Used by the ORM when loading entities.
   def initialize(
@@ -30,6 +65,8 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     @is_loaded = true
   end
 
+  # :nodoc:
+  #
   # Creates an empty PersistentCollection.
   # Primarily for testing or standalone use.
   def initialize
@@ -37,6 +74,8 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     @is_loaded = true
   end
 
+  # :nodoc:
+  #
   # Creates a PersistentCollection with initial elements.
   # Primarily for testing or standalone use.
   def initialize(elements : Array(T))
@@ -44,6 +83,8 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     @is_loaded = true
   end
 
+  # :nodoc:
+  #
   # Sets the owner entity and association for this collection.
   def set_owner(owner : AORM::Entity, association : AORM::Mapping::Association) : Nil
     @owner = owner
@@ -127,6 +168,8 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     end
   end
 
+  # :nodoc:
+  #
   # Polymorphic entry used when the caller only knows `AORM::Entity`
   # (e.g., the UnitOfWork applying pending element removals via
   # `Hash(BasePersistentCollection, Array(Entity))`). The macro guard
@@ -140,6 +183,8 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     {% end %}
   end
 
+  # :nodoc:
+  #
   # Polymorphic entry used by the hydrator, where the static type of *element*
   # is `AORM::Entity` even though the runtime type matches `T`. The macro guard
   # keeps non-entity instantiations (e.g. `PersistentCollection(Int32)` used in
@@ -152,16 +197,21 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     {% end %}
   end
 
+  # :nodoc:
+  #
   # Adds an element during hydration without marking dirty.
   def hydrate_add(element : T) : Nil
     @collection << element
   end
 
+  # :nodoc:
+  #
   # Sets an element during hydration without marking dirty.
   def hydrate_set(index : Int, element : T) : Nil
     @collection[index] = element
   end
 
+  # Loads the collection's elements, unless they're already loaded.
   def initialize_collection : Nil
     return if @is_loaded || @association.nil?
 
@@ -170,6 +220,8 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     self.do_initialize
   end
 
+  # :nodoc:
+  #
   # Captures the current state for change detection.
   def take_snapshot : Nil
     @snapshot = @collection.to_a
@@ -182,11 +234,15 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     @collection.to_a
   end
 
+  # :nodoc:
+  #
   # Marks the collection as dirty.
   def mark_dirty : Nil
     @dirty = true
   end
 
+  # :nodoc:
+  #
   # Returns a detached copy of this collection. The new instance shares no
   # backing state with the original: the inner collection is copied, owner is
   # nilled out (the caller must `set_owner` on the new entity), the snapshot is
@@ -206,21 +262,29 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     copy
   end
 
+  # :nodoc:
+  #
   # Returns elements that were in the snapshot but are no longer present.
   def delete_diff : Array(T)
     @snapshot.reject { |e| @collection.includes?(e) }
   end
 
+  # :nodoc:
+  #
   # Returns elements that are present now but were not in the snapshot.
   def insert_diff : Array(T)
     @collection.to_a.reject { |e| @snapshot.includes?(e) }
   end
 
+  # :nodoc:
+  #
   # Returns a copy of the snapshot.
   def snapshot : Array(T)
     @snapshot.dup
   end
 
+  # :nodoc:
+  #
   # Unwraps the collection to an ArrayCollection for use outside ORM context.
   def unwrap : Collection(T)
     @collection

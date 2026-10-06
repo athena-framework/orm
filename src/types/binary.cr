@@ -1,5 +1,8 @@
 require "./type"
 
+# Holds `Bytes`, stored in a fixed or variable-length binary column, such as `BINARY` or `VARBINARY`.
+#
+# Use `AORM::Types::Blob`, the default for `Bytes` properties, for binary data without a known maximum length.
 struct Athena::ORM::Types::Binary < Athena::ORM::Types::Type
   # :inherit:
   def sql_declaration(column : Schema::Column, platform : AORM::Platforms::Platform) : ::String

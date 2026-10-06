@@ -1,3 +1,4 @@
+# :nodoc:
 abstract struct Athena::ORM::ID::AbstractGenerator
   abstract def generate(em : AORM::EntityManagerInterface, entity : AORM::Entity? = nil)
 

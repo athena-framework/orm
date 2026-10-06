@@ -4,9 +4,14 @@ require "./join_table"
 
 # Mapping for the owning side of a ManyToMany association.
 # The owning side is responsible for managing the join table.
+#
+# Without `AORMA::JoinTable`, `AORMA::JoinColumn`, and `AORMA::InverseJoinColumn` annotations, the join table is named `<source>_<target>` after the underscored class names, e.g. `user_group`.
+# Its columns are named `<class>_id` after the underscored class names, e.g. `user_id` and `group_id`, referencing the `id` columns of the source and target tables.
+# Join table columns are never nullable.
 class Athena::ORM::Mapping::ManyToManyOwningSide < Athena::ORM::Mapping::OwningSide
   include Athena::ORM::Mapping::ManyToMany
 
+  # :nodoc:
   def self.new(
     mapping : Driver::ColumnMapping,
     naming_strategy : NamingStrategyInterface,
@@ -81,6 +86,7 @@ class Athena::ORM::Mapping::ManyToManyOwningSide < Athena::ORM::Mapping::OwningS
     instance
   end
 
+  # :nodoc:
   def self.new(mapping : Driver::ColumnMapping) : self
     instance = new(
       mapping.field_name,
@@ -140,12 +146,17 @@ class Athena::ORM::Mapping::ManyToManyOwningSide < Athena::ORM::Mapping::OwningS
   # The join table mapping.
   property join_table : JoinTable?
 
+  # :nodoc:
+  #
   # Maps join column names to field names.
   property join_column_field_names : Hash(String, String) = {} of String => String
 
   # Optional index column for indexed collections.
+  #
+  # TODO: Recorded, but collections aren't indexed by it yet.
   property index_by : String?
 
+  # :nodoc:
   def initialize(
     field_name : String,
     source_entity : AORM::Entity.class,
@@ -160,10 +171,12 @@ class Athena::ORM::Mapping::ManyToManyOwningSide < Athena::ORM::Mapping::OwningS
     super field_name, source_entity, target_entity, inversed_by, fetch_mode, id, orphan_removal || false, unique, cascade
   end
 
+  # :nodoc:
   def many_to_many? : Bool
     true
   end
 
+  # :nodoc:
   def to_many? : Bool
     true
   end

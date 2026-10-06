@@ -1,3 +1,4 @@
+# :nodoc:
 module Athena::ORM::Persisters::Entity::Interface
   # abstract def inserts : Array(String)
   # abstract def insert_sql : String

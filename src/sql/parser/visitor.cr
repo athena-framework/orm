@@ -1,4 +1,6 @@
+# :nodoc:
 module Athena::ORM::SQL
+  # :nodoc:
   module Visitor
     # Called for positional parameters (?)
     abstract def accept_positional_parameter(sql : String) : Nil

@@ -1,34 +1,71 @@
 require "./generated_value_strategy"
 
+# The mapping metadata of an entity class, as returned by `AORM::EntityManager#class_metadata`.
+#
+# Every implementation is an `AORM::Mapping::Class`, see it for the available information.
 module Athena::ORM::Mapping::ClassInterface
+  # Returns the entity class this metadata describes.
   abstract def entity_class : AORM::Entity.class
+
+  # Maps each column name to the name of the field mapped to it.
   abstract def field_names : Hash(String, String)
+
+  # Returns the mappings of the fields mapped to a column with `AORMA::Column`, keyed by property name.
   abstract def field_mappings : Hash(String, Field)
+
+  # Returns the names of the fields making up the identifier.
   abstract def identifier : Set(String)
+
+  # :nodoc:
   abstract def new_instance(data : Hash(String, DB::Any?)) : AORM::Entity
+
+  # :nodoc:
   abstract def apply_data(instance : AORM::Entity, data : Hash(String, _)) : Nil
+
+  # :nodoc:
   abstract def assign_identifier(entity : AORM::Entity, id_field : String, id_value) : Nil
+
+  # :nodoc:
   abstract def get_field_value(entity : AORM::Entity, field_name : String)
+
+  # :nodoc:
   abstract def set_field_value(entity : AORM::Entity, field_name : String, value) : Nil
+
+  # :nodoc:
   abstract def create_column_value(field_name : String, value) : Mapping::Value
+
+  # :nodoc:
   abstract def create_column_value_from_entity(field_name : String, entity : AORM::Entity) : Mapping::Value
+
+  # :nodoc:
   abstract def create_change(field_name : String, old_value, new_value) : AORM::UnitOfWork::Change
+
+  # :nodoc:
   abstract def inject_collection(field_name : String, entity : AORM::Entity, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
+
+  # :nodoc:
   abstract def promote_collection(field_name : String, entity : AORM::Entity, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
 end
 
+# Contains the types describing how entities map to the database: class metadata, field and association mappings, and naming and quoting strategies.
 module Athena::ORM::Mapping
+  # :nodoc:
+  #
   # Raised by the per-field accessors when *value* doesn't fit *field_name* on *entity_class*.
   # Describing an arbitrary value's class costs code proportional to every type it could be, so it's generated once here rather than in each field of every entity.
   def self.raise_type_mismatch(field_name : String, entity_class : String, value) : NoReturn
     raise "Type mismatch for '#{field_name}' on #{entity_class}: got #{value.class}"
   end
 
+  # :nodoc:
+  #
   # Raised when *id_field* isn't an identifier field on *entity_class*, or *id_value* doesn't fit it.
   def self.raise_identifier_mismatch(id_field : String, entity_class : String, id_value) : NoReturn
     raise "BUG: Field #{id_field} not found on #{entity_class} or type mismatch (got #{id_value.class})"
   end
 
+  # :nodoc:
+  #
   # Raised when a `Mapping::Class` is handed an entity of another class.
   def self.raise_entity_mismatch(method_name : String, entity_class : String, entity : AORM::Entity) : NoReturn
     raise "BUG: entity type mismatch on Class(#{entity_class})##{method_name}: got #{entity.class}"
@@ -85,6 +122,32 @@ struct Athena::ORM::Mapping::TypedFieldMapper
   end
 end
 
+# The mapping metadata of the entity class *T*: its table, the column each field is mapped to, its associations, and its identifier.
+#
+# The metadata is built from the entity's annotations the first time an entity manager needs it, and is then reused by that entity manager.
+# Entity managers can also share it through a `AORM::Mapping::MetadataCache`, as those created by an `AORM::EntityManagerFactory` do.
+# Building it raises if the mapping is invalid, such as a field whose Crystal type has no column type mapped to it.
+#
+# ```
+# @[AORMA::Entity]
+# @[AORMA::Table(name: "users")]
+# class User < AORM::Entity
+#   @[AORMA::Column]
+#   @[AORMA::ID]
+#   @[AORMA::GeneratedValue]
+#   property! id : Int64
+#
+#   @[AORMA::Column(name: "user_name")]
+#   property! username : String
+# end
+#
+# metadata = em.class_metadata User
+#
+# metadata.table_name                      # => "users"
+# metadata.identifier                      # => Set{"id"}
+# metadata.column_name "username"          # => "user_name"
+# metadata.field_mappings["username"].type # => "string"
+# ```
 class Athena::ORM::Mapping::Class(T)
   include Athena::ORM::Mapping::ClassInterface
 
@@ -140,23 +203,38 @@ class Athena::ORM::Mapping::Class(T)
     Events::PreUpdateEventArgs(T).new entity.as(T), em
   end
 
+  # :inherit:
   getter entity_class : AORM::Entity.class
 
+  # The repository class returned by `AORM::EntityManager#repository` for this entity, as set by `AORMA::Entity(repository_class: ...)`.
+  # `nil` when the entity uses the default `AORM::EntityRepository`.
   property custom_repository_class : AORM::RepositoryInterface.class | Nil
+
+  # Whether the entity is read-only, as set by `AORMA::Entity(read_only: true)`.
+  # Changes to managed instances of a read-only entity aren't written on flush, although they can still be inserted and removed.
   property? read_only : Bool = false
+
+  # How the values of the identifier are generated.
+  # `AUTO` is resolved to the platform's preferred strategy when the metadata is built.
   property id_generator_type : AORM::Mapping::GeneratedValueStrategy = :none
+
+  # :nodoc:
   property! id_generator : AORM::ID::AbstractGenerator
 
+  # :nodoc:
   property? embedded_class : Bool = false
 
+  # :nodoc:
   getter table : TableInfo
 
+  # :nodoc:
   getter lifecycle_callbacks : Hash(AORM::Events::EventArgs.class, Array(Proc(AORM::Entity, AORM::Events::EventArgs, Nil))) do
     Hash(AORM::Events::EventArgs.class, Array(Proc(AORM::Entity, AORM::Events::EventArgs, Nil))).new do |hash, key|
       hash[key] = [] of Proc(AORM::Entity, AORM::Events::EventArgs, Nil)
     end
   end
 
+  # :nodoc:
   def add_lifecycle_callback(event : AORM::Events::EventArgs.class, callback : Proc(AORM::Entity, AORM::Events::EventArgs, Nil)) : Nil
     if self.embedded_class?
       raise "Can't have lifecycle callbacks on embedded classes"
@@ -165,24 +243,39 @@ class Athena::ORM::Mapping::Class(T)
     self.lifecycle_callbacks[event] << callback
   end
 
+  # :inherit:
   getter field_mappings : Hash(String, Field) = Hash(String, Field).new
+
+  # Returns the mappings of the association properties, keyed by property name.
   getter association_mappings : Hash(String, Association) = Hash(String, Association).new
 
-  # Maps column name => field name
+  # :inherit:
   getter field_names : Hash(String, String) = Hash(String, String).new
 
   # Per-ivar metadata. Typed read/write/wrap operations are on the enclosing `Class(T)` (see `get_field_value`, `set_field_value`, etc.) — `FieldInfo` itself is just data.
   protected getter field_info = Hash(String, FieldInfo).new
 
-  # Fields that make up the primary key
+  # :inherit:
   getter identifier : Set(String) = Set(String).new
 
+  # Returns the kind of inheritance mapping the entity uses.
+  #
+  # TODO: Inheritance mapping isn't supported yet, so this is always `NONE`.
   getter inheritance_type : InheritanceType = :none
+
+  # :nodoc:
   getter contains_foreign_identifier : Bool = false
+
+  # :nodoc:
   getter contains_enum_identifier : Bool = false
+
+  # Whether the identifier is made up of more than one field.
   getter is_identifier_composite : Bool = false
+
+  # :nodoc:
   getter? requires_fetch_after_change : Bool = false
 
+  # :nodoc:
   def initialize(
     @entity_class : AORM::Entity.class = T,
     naming_strategy : AORM::Mapping::NamingStrategyInterface? = nil,
@@ -217,6 +310,7 @@ class Athena::ORM::Mapping::Class(T)
     {% end %}
   end
 
+  # :nodoc:
   def get_field_value(entity : AORM::Entity, field_name : String)
     return get_field_value_typed(entity, field_name) if entity.is_a?(T)
     AORM::Mapping.raise_entity_mismatch "get_field_value", T.to_s, entity.as(AORM::Entity)
@@ -241,6 +335,7 @@ class Athena::ORM::Mapping::Class(T)
     {% end %}
   end
 
+  # :nodoc:
   def set_field_value(entity : AORM::Entity, field_name : String, value) : Nil
     return set_field_value_typed(entity, field_name, value) if entity.is_a?(T)
     AORM::Mapping.raise_entity_mismatch "set_field_value", T.to_s, entity.as(AORM::Entity)
@@ -279,6 +374,8 @@ class Athena::ORM::Mapping::Class(T)
     {% end %}
   end
 
+  # :nodoc:
+  #
   # Wraps an already-extracted value as a `Mapping::Value` for *field_name*.
   # Pass-through if *value* is already a `Mapping::Value`.
   # Enum fields are wrapped as the integer they're stored as, whether given a member or that integer.
@@ -313,6 +410,8 @@ class Athena::ORM::Mapping::Class(T)
     {% end %}
   end
 
+  # :nodoc:
+  #
   # Reads *field_name* off *entity* and wraps it as a `Mapping::Value`.
   def create_column_value_from_entity(field_name : String, entity : AORM::Entity) : Mapping::Value
     return create_column_value_from_entity_typed(field_name, entity) if entity.is_a?(T)
@@ -337,6 +436,7 @@ class Athena::ORM::Mapping::Class(T)
     {% end %}
   end
 
+  # :nodoc:
   def create_change(field_name : String, old_value, new_value) : AORM::UnitOfWork::Change
     AORM::UnitOfWork::Change.new(
       old_value ? self.create_column_value(field_name, old_value) : nil,
@@ -344,6 +444,7 @@ class Athena::ORM::Mapping::Class(T)
     )
   end
 
+  # :nodoc:
   def inject_collection(field_name : String, entity : AORM::Entity, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
     return inject_collection_typed(field_name, entity, em, metadata, assoc) if entity.is_a?(T)
     AORM::Mapping.raise_entity_mismatch "inject_collection", T.to_s, entity.as(AORM::Entity)
@@ -370,6 +471,7 @@ class Athena::ORM::Mapping::Class(T)
     {% end %}
   end
 
+  # :nodoc:
   def promote_collection(field_name : String, entity : AORM::Entity, em : AORM::EntityManagerInterface, metadata : Mapping::ClassInterface, assoc : Mapping::Association)
     return promote_collection_typed(field_name, entity, em, metadata, assoc) if entity.is_a?(T)
     AORM::Mapping.raise_entity_mismatch "promote_collection", T.to_s, entity.as(AORM::Entity)
@@ -404,6 +506,7 @@ class Athena::ORM::Mapping::Class(T)
     {% end %}
   end
 
+  # :nodoc:
   def new_instance(data : Hash(String, _)) : AORM::Entity
     {% begin %}
       {% if T.abstract? %}
@@ -416,6 +519,8 @@ class Athena::ORM::Mapping::Class(T)
     {% end %}
   end
 
+  # :nodoc:
+  #
   # Writes scalar field values from *data* onto an existing entity instance, leaving association/collection ivars alone.
   # Used by `new_instance` for initial hydration and by `UnitOfWork#refresh` to update the in-memory state of a managed entity from the latest DB row.
   def apply_data(instance : AORM::Entity, data : Hash(String, _)) : Nil
@@ -450,10 +555,14 @@ class Athena::ORM::Mapping::Class(T)
     {% end %}
   end
 
+  # Returns the name of the `AORM::Types::Type` of the field named *field_name*, or `nil` if it isn't mapped to a column.
   def type_of_field(field_name : String) : String?
     (fm = @field_mappings[field_name]?) ? fm.type : nil
   end
 
+  # Returns the name of the identifier field.
+  #
+  # Raises if the identifier is composite, or the entity has no identifier.
   def single_identifier_field_name : String
     raise "single id not allowed on composite primary key" if @is_identifier_composite
 
@@ -462,14 +571,19 @@ class Athena::ORM::Mapping::Class(T)
     id
   end
 
+  # Returns the column name of the identifier field.
+  #
+  # Raises if the identifier is composite, or the entity has no identifier.
   def single_identifier_column_name : String
     self.column_name(self.single_identifier_field_name)
   end
 
+  # :nodoc:
   def field_value(entity : AORM::Entity, field_name : String)
     self.get_field_value entity, field_name
   end
 
+  # Returns whether the field named *field_name* is part of the identifier.
   def is_identifier(field_name : String) : Bool
     return false if @identifier.empty?
 
@@ -478,6 +592,7 @@ class Athena::ORM::Mapping::Class(T)
     @identifier.includes? field_name
   end
 
+  # :nodoc:
   def identifier_values(entity : T) : Hash
     if @is_identifier_composite
       return @identifier.to_h do |k|
@@ -502,12 +617,14 @@ class Athena::ORM::Mapping::Class(T)
     raise "BUG: Invoked wrong overload"
   end
 
+  # :nodoc:
   def set_identifier_values(entity : AORM::Entity, id : Hash(String, _)) : Nil
     id.each do |id_field, id_value|
       self.set_field_value entity, id_field, id_value
     end
   end
 
+  # :nodoc:
   def assign_identifier(entity : AORM::Entity, id_field : String, id_value) : Nil
     {% begin %}
       typed_entity = entity.as(T)
@@ -537,22 +654,30 @@ class Athena::ORM::Mapping::Class(T)
     {% end %}
   end
 
+  # Returns whether the identifier values are assigned by your code, rather than generated.
   def identifier_natural? : Bool
     @id_generator_type.none?
   end
 
+  # Returns whether the database generates the identifier values when inserting rows.
   def identifier_identity? : Bool
     @id_generator_type.identity?
   end
 
+  # Returns the column name of the field named *field_name*, without quotes.
+  # Returns *field_name* itself if it isn't mapped to a column.
   def column_name(field_name : String) : String
     @field_mappings[field_name]?.try(&.column_name) || field_name
   end
 
+  # Returns the name of the entity's table, without quotes.
+  #
+  # Defaults to the underscored class name, e.g. `user_profile` for `App::UserProfile`, unless set with `AORMA::Table`.
   def table_name : String
     @table.name.not_nil!
   end
 
+  # :nodoc:
   def map_field(mapping : Driver::ColumnMapping) : Nil
     mapping = self.validate_and_complete_field_mapping mapping
     self.assert_field_not_mapped mapping.field_name
@@ -603,11 +728,7 @@ class Athena::ORM::Mapping::Class(T)
 
     # TODO: Handle `generated` property
 
-    if enum_type = mapping.enum_type
-      unless @field_info[mapping.field_name].enum_type == enum_type
-        raise "Attempting to map a non-enum type '#{enum_type}' as an enum: #{T}##{mapping.field_name}"
-      end
-
+    if mapping.enum_type
       # Enum fields are always tracked and bound as their integer value.
       unless mapping.type.in?(Types::INTEGER, Types::BIGINT)
         raise "Enum field '#{mapping.field_name}' on #{T} must be mapped to an integer type, got '#{mapping.type}'"
@@ -617,6 +738,7 @@ class Athena::ORM::Mapping::Class(T)
     mapping
   end
 
+  # :nodoc:
   def map_one_to_one(mapping : Driver::ColumnMapping) : Nil
     mapping = mapping.copy_with type: "one_to_one"
 
@@ -625,6 +747,7 @@ class Athena::ORM::Mapping::Class(T)
     self.store_association_mapping mapping
   end
 
+  # :nodoc:
   def map_many_to_many(mapping : Driver::ColumnMapping) : Nil
     mapping = mapping.copy_with type: "many_to_many"
 
@@ -633,6 +756,7 @@ class Athena::ORM::Mapping::Class(T)
     self.store_association_mapping mapping
   end
 
+  # :nodoc:
   def map_one_to_many(mapping : Driver::ColumnMapping) : Nil
     mapping = mapping.copy_with type: "one_to_many"
 
@@ -641,6 +765,7 @@ class Athena::ORM::Mapping::Class(T)
     self.store_association_mapping mapping
   end
 
+  # :nodoc:
   def map_many_to_one(mapping : Driver::ColumnMapping) : Nil
     mapping = mapping.copy_with type: "many_to_one"
 
@@ -649,6 +774,7 @@ class Athena::ORM::Mapping::Class(T)
     self.store_association_mapping mapping
   end
 
+  # :nodoc:
   def validate_and_complete_association_mapping(mapping : Driver::ColumnMapping) : Association
     # TODO: Handle unsetting things?
 
@@ -720,6 +846,7 @@ class Athena::ORM::Mapping::Class(T)
     end
   end
 
+  # :nodoc:
   def store_association_mapping(mapping : Association) : Nil
     self.assert_field_not_mapped source_field_name = mapping.field_name
 
@@ -732,6 +859,7 @@ class Athena::ORM::Mapping::Class(T)
     end
   end
 
+  # :nodoc:
   def primary_table=(table : Driver::TableMapping) : Nil
     if name = table.name
       # TODO: Handle myschema.mytable

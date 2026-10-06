@@ -1,3 +1,5 @@
+# :nodoc:
+#
 # Raised when a cycle is detected during topological sorting.
 # Tracks the nodes forming the cycle for diagnostic purposes.
 class Athena::ORM::Internal::TopologicalSort::CycleDetectedException < Athena::ORM::Exceptions::ORMException

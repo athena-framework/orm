@@ -1,3 +1,4 @@
+# :nodoc:
 module Athena::ORM::Mapping::Driver
   # Strongly-typed mapping records consumed by `Annotation#load_metadata_for_entity`.
   # Kept separate from the `@[AORMA::*]` annotation records so the loader can
@@ -360,10 +361,6 @@ module Athena::ORM::Mapping::Driver
 
       if value = ann.generated
         mapping = mapping.copy_with generated: value
-      end
-
-      if value = ann.enum_type
-        mapping = mapping.copy_with enum_type: value
       end
 
       mapping

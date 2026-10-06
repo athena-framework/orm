@@ -1,3 +1,5 @@
+# :nodoc:
+#
 # Persister for ManyToMany collections.
 # Handles insert and delete operations on join tables.
 class Athena::ORM::Persisters::Collection::ManyToManyPersister < Athena::ORM::Persisters::Collection::Abstract

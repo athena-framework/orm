@@ -1,24 +1,65 @@
 require "./sql/parser"
 
 module Athena::ORM
+  # Wraps a `DB::Connection`, adding the database's `AORM::Platforms::Platform`, parameter conversion through `AORM::Types::Type`s, and nested transactions.
+  #
+  # Each `AORM::EntityManager` wraps the connection it's created with, available as `AORM::EntityManager#connection`.
+  # It can be used to run SQL in the same connection, and transaction, as the entity manager.
+  #
+  # ```
+  # connection = em.connection
+  #
+  # # Each parameter is converted through the type at the same position before being bound.
+  # connection.execute_statement "UPDATE posts SET published_at = ? WHERE id = ?", [Time.utc, 1], [AORM::Types::DATETIME, AORM::Types::INTEGER] of String? # => 1
+  #
+  # connection.fetch_one "SELECT COUNT(*) FROM posts", [] of DB::Any, [] of String? # => 10
+  # ```
+  #
+  # The `DB::QueryMethods` methods, such as `#exec` and `#query`, bind their arguments as given, without any conversion.
+  # Other methods are forwarded to the wrapped connection.
+  #
+  # ## Transactions
+  #
+  # `#begin_transaction` starts a transaction, or a savepoint within the active one when a transaction is already active.
+  # `#commit` and `#rollback` end the innermost one, so a nested transaction can be rolled back without affecting the outer transaction.
+  #
+  # ```
+  # connection.transactional do
+  #   connection.exec "DELETE FROM posts WHERE user_id = ?", 1
+  #   connection.exec "DELETE FROM users WHERE id = ?", 1
+  # end
+  # ```
+  #
+  # Since `AORM::EntityManager#flush` runs in a transaction of its own, it becomes a savepoint when called within one.
+  #
+  # TIP: `AORM::EntityManager#wrap_in_transaction` also flushes the entity manager before committing, and closes it if anything raises.
   class Connection
     include DB::QueryMethods(DB::Statement)
 
+    # Returns the platform of the database this connection is to.
     getter platform : Platforms::Platform
+
+    # Returns the wrapped driver connection.
     getter wrapped : DB::Connection
 
     # Open transactions, outermost first.
     # Nested ones are savepoints within the outer transaction.
     @transactions = [] of DB::Transaction
 
+    # Wraps *wrapped*, determining its database's platform.
+    #
+    # Raises `NotImplementedError` if *wrapped* is from a driver the ORM doesn't support.
     def initialize(@wrapped : DB::Connection)
       @platform = @wrapped.database_platform
     end
 
+    # Returns the platform of the database this connection is to.
     def database_platform : Platforms::Platform
       @platform
     end
 
+    # :nodoc:
+    #
     # Boxed values already hold a type's Crystal-side value, so they pass through unchanged.
     def convert_to_crystal_value(value : _, type : String?)
       return value if value.is_a?(Mapping::Opaque)
@@ -80,6 +121,8 @@ module Athena::ORM
       end
     end
 
+    # :nodoc:
+    #
     # Required by DB::QueryMethods - prepares the provided SQL and returns a build statement after any required processing.
     def build(query) : DB::Statement
       @wrapped.prepare(query)
@@ -91,6 +134,9 @@ module Athena::ORM
     end
 
     # Commits the innermost transaction, releasing its savepoint if it's nested.
+    #
+    # Raises `DB::Error` if no transaction is active.
+    # A commit that fails still ends the transaction.
     def commit : Nil
       transaction = @transactions.pop? || raise DB::Error.new "There is no active transaction."
 
@@ -103,6 +149,8 @@ module Athena::ORM
     end
 
     # Rolls back the innermost transaction, or to its savepoint if it's nested.
+    #
+    # Raises `DB::Error` if no transaction is active.
     def rollback : Nil
       transaction = @transactions.pop? || raise DB::Error.new "There is no active transaction."
 
@@ -113,10 +161,12 @@ module Athena::ORM
       end
     end
 
+    # Returns `true` if a transaction is active.
     def transaction_active? : Bool
       !@transactions.empty?
     end
 
+    # Returns the number of active transactions, counting each savepoint as one.
     def transaction_nesting_level : Int32
       @transactions.size
     end

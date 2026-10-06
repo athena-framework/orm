@@ -1,3 +1,4 @@
+# :nodoc:
 class Athena::ORM::Internal::Hydrators::SimpleObject < Athena::ORM::Internal::Hydrators::Abstract
   private getter! class_metadata : Mapping::ClassInterface
 

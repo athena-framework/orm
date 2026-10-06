@@ -1,3 +1,6 @@
+# :nodoc:
+#
+# Typed argument records for the `AORMA` annotations.
 module Athena::ORM::Mapping::Annotations
   protected record Column,
     name : String? = nil,
@@ -9,7 +12,6 @@ module Athena::ORM::Mapping::Annotations
     nullable : Bool = false,
     insertable : Bool = true,
     updatable : Bool = true,
-    enum_type : String? = nil,
     column_definition : String? = nil,
     generated : String? = nil,
     index : Bool = false

@@ -1,3 +1,4 @@
+# :nodoc:
 class Athena::ORM::Internal::Hydrators::Object < Athena::ORM::Internal::Hydrators::Abstract
   @identifier_map = Hash(String, Hash(String, Int32)).new do |hash, key|
     hash[key] = Hash(String, Int32).new

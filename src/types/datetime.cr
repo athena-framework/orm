@@ -1,5 +1,9 @@
 require "./type"
 
+# Holds `Time` values, stored in a date and time column without a time zone, such as `TIMESTAMP` or `DATETIME`.
+#
+# `Time` properties are mapped to this type by default.
+# Values are converted to UTC when written, and read back as UTC.
 struct Athena::ORM::Types::Datetime < Athena::ORM::Types::Type
   # :inherit:
   def sql_declaration(column : Schema::Column, platform : AORM::Platforms::Platform) : ::String
@@ -7,6 +11,8 @@ struct Athena::ORM::Types::Datetime < Athena::ORM::Types::Type
   end
 
   # :inherit:
+  #
+  # Converts a `Time` into UTC.
   def to_db(value : _, platform : AORM::Platforms::Platform)
     # Columns hold UTC wall-clock time with no offset, and values are read back as UTC.
     value.is_a?(::Time) ? value.to_utc : value

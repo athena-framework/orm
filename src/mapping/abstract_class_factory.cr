@@ -1,5 +1,6 @@
 require "./class_factory_interface"
 
+# :nodoc:
 abstract class Athena::ORM::Mapping::AbstractClassFactory
   include Athena::ORM::Mapping::ClassFactoryInterface
 

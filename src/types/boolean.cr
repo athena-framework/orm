@@ -1,5 +1,9 @@
 require "./type"
 
+# Holds `Bool` values, stored in a boolean column.
+#
+# `Bool` properties are mapped to this type by default.
+# Databases without a native boolean type store them as the integers `0` and `1`, which read back as `false` and `true`.
 struct Athena::ORM::Types::Boolean < Athena::ORM::Types::Type
   # :inherit:
   def sql_declaration(column : Schema::Column, platform : AORM::Platforms::Platform) : ::String

@@ -1,7 +1,10 @@
 require "./parser/visitor"
 require "./parser/convert_parameters"
 
+# :nodoc:
 module Athena::ORM::SQL
+  # :nodoc:
+  #
   # Parses SQL strings and dispatches tokens to a visitor.
   # Correctly handles parameters inside string literals, comments, and quoted identifiers.
   class Parser

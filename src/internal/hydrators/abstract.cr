@@ -1,3 +1,4 @@
+# :nodoc:
 class Athena::ORM::Query::Hints
   # Hint used to collect all primary keys of associated entities during hydration and execute it in a dedicated query afterwards
   property? defer_eager_load : Bool? = nil
@@ -14,6 +15,8 @@ class Athena::ORM::Query::Hints
   ); end
 end
 
+# :nodoc:
+#
 # TODO: Maybe see about making this generic to more accurately type what `hydrate_all` returns?
 abstract class Athena::ORM::Internal::Hydrators::Abstract
   # :nodoc:
@@ -90,6 +93,7 @@ abstract class Athena::ORM::Internal::Hydrators::Abstract
     nil
   end
 
+  # :nodoc:
   struct RowData
     getter data : Hash(String, Hash(String, Mapping::Value)) = Hash(String, Hash(String, Mapping::Value)).new { |hash, key| hash[key] = Hash(String, Mapping::Value).new }
     getter new_objects : Array(AORM::Entity) = [] of AORM::Entity

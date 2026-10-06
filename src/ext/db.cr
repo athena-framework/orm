@@ -19,14 +19,17 @@ class DB::Database
   end
 end
 
-{% if @top_level.has_constant?("PG") %}
-  require "./pg"
-{% end %}
+# Checked once every file has been required, so a driver is detected whether it's required before or after `athena-orm`.
+macro finished
+  {% if @top_level.has_constant?("PG") %}
+    require "./pg"
+  {% end %}
 
-{% if @top_level.has_constant?("MySql") %}
-  require "./mysql"
-{% end %}
+  {% if @top_level.has_constant?("MySql") %}
+    require "./mysql"
+  {% end %}
 
-{% if @top_level.has_constant?("SQLite3") %}
-  require "./sqlite3"
-{% end %}
+  {% if @top_level.has_constant?("SQLite3") %}
+    require "./sqlite3"
+  {% end %}
+end

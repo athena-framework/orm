@@ -1,3 +1,5 @@
+# :nodoc:
+#
 # Converts entity identifiers into scalar string keys for identity map lookups.
 # Extracted from UnitOfWork to allow reuse in persisters and cache hydrators.
 class Athena::ORM::Utility::IdentifierFlattener

@@ -1,6 +1,7 @@
 require "./abstract_generator"
 require "./row_consuming_generator"
 
+# :nodoc:
 struct Athena::ORM::ID::ReturningGenerator < Athena::ORM::ID::AbstractGenerator
   include Athena::ORM::ID::RowConsumingGenerator
 

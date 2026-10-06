@@ -1,10 +1,69 @@
+# Tracks the entities an `AORM::EntityManager` manages, and writes their changes to the database when it is flushed.
+#
+# The unit of work keeps an identity map of every managed entity, keyed by class and identifier, so loading the same row more than once returns the same instance.
+# It also keeps a copy of each managed entity's data as of when it was loaded or last flushed.
+# On `AORM::EntityManager#flush`, it compares each managed entity against that copy to compute its change set.
+# It then issues the INSERT, UPDATE and DELETE statements for new, changed and removed entities within a single transaction, ordered so that rows are inserted before the rows referencing them.
+#
+# Each entity manager owns one unit of work, available via `AORM::EntityManager#unit_of_work`.
+# It is usually only used indirectly through the entity manager, whose `#persist`, `#remove` and `#flush` methods delegate to it.
+#
+# ## Inspecting a Flush
+#
+# The read side of the unit of work is mostly useful within flush event listeners, to see what a flush is about to write.
+# For example, a listener on `AORM::Events::OnFlushEventArgs` runs after every change set has been computed, but before any SQL is executed:
+#
+# ```
+# dispatcher = AED::EventDispatcher.new
+#
+# dispatcher.listener AORM::Events::OnFlushEventArgs do |event|
+#   uow = event.entity_manager.unit_of_work
+#
+#   uow.scheduled_entity_insertions.each do |entity|
+#     Log.info { "Inserting #{entity.class}" }
+#   end
+#
+#   uow.scheduled_entity_updates.each do |entity|
+#     uow.entity_changeset(entity).each do |field, change|
+#       Log.info { "#{entity.class}##{field}: #{change.old.try &.value} -> #{change.new.value}" }
+#     end
+#   end
+#
+#   uow.scheduled_entity_deletions.each do |entity|
+#     Log.info { "Deleting #{entity.class}" }
+#   end
+# end
+#
+# em = AORM::EntityManager.new connection, dispatcher
+# ```
+#
+# TODO: There is no public way to compute or recompute an entity's change set yet.
+# Inserts and updates are written from the change sets computed before `AORM::Events::OnFlushEventArgs` is dispatched.
+# Entities an OnFlush listener persists, and changes it makes to entities that aren't already scheduled for update, aren't written as expected by that flush.
+#
+# WARNING: Directly calling methods on the unit of work that change its state is not supported.
+# Use the `AORM::EntityManager` API instead.
 class Athena::ORM::UnitOfWork
+  # A field's change within a change set, as returned by `UnitOfWork#entity_changeset`.
+  #
+  # `#old` is the value the field had when the entity was loaded or last flushed, and is `nil` for entities being inserted.
+  # `#new` is the value that is being written.
+  # Read the underlying values with `#value`; enum fields hold the integer they're stored as.
   record Change, old : AORM::Mapping::Value?, new : AORM::Mapping::Value
 
+  # The state of an entity in relation to a `UnitOfWork`, as returned by `UnitOfWork#entity_state`.
   enum EntityState
+    # The entity has a persistent identity and is managed by the unit of work, so its changes are written on flush.
+    # This includes new entities that have been persisted but not yet flushed.
     Managed
+
+    # The entity has no persistent identity and isn't associated with the unit of work, such as one just created with `.new`.
     New
+
+    # The entity has a persistent identity, but isn't (or is no longer) associated with the unit of work, such as after `AORM::EntityManager#clear` or `AORM::EntityManager#detach`.
     Detached
+
+    # The entity is managed by the unit of work, but is scheduled to be deleted from the database on the next flush.
     Removed
   end
 
@@ -39,6 +98,7 @@ class Athena::ORM::UnitOfWork
     end
   end
 
+  # :nodoc:
   def self.id_hash_by_identifier(identifier : Hash(String | Number, _)) : String
     String.build do |io|
       first = true
@@ -113,8 +173,10 @@ class Athena::ORM::UnitOfWork
   @listeners_invoker : AORM::ListenersInvoker
   @event_dispatcher : ACTR::EventDispatcher::Interface?
 
+  # :nodoc:
   getter identifier_flattener : AORM::Utility::IdentifierFlattener { AORM::Utility::IdentifierFlattener.new(self, @em.metadata_factory) }
 
+  # :nodoc:
   def initialize(
     @em : AORM::EntityManagerInterface,
   )
@@ -122,6 +184,7 @@ class Athena::ORM::UnitOfWork
     @listeners_invoker = AORM::ListenersInvoker.new @em
   end
 
+  # :nodoc:
   def commit : Nil
     # TODO: Ensure connected to primary
 
@@ -237,18 +300,28 @@ class Athena::ORM::UnitOfWork
     # TODO: CachedPersisters?
   end
 
+  # Returns the entities that will be inserted on the next flush.
+  #
+  # Entities are scheduled for insertion when they are persisted.
   def scheduled_entity_insertions : Set(AORM::Entity)
     @entity_insertions
   end
 
+  # Returns the entities that will be deleted on the next flush.
+  #
+  # Entities are scheduled for deletion when they are removed.
   def scheduled_entity_deletions : Set(AORM::Entity)
     @entity_deletions
   end
 
+  # Returns the managed entities that changed, and will be updated by the current flush.
+  #
+  # Updates are only known once a flush has computed the change sets, so this is empty outside of a flush.
   def scheduled_entity_updates : Set(AORM::Entity)
     @entity_updates
   end
 
+  # :nodoc:
   def assign_post_insert_id(entity : AORM::Entity, id_hash : Hash(String, Mapping::Value)) : Nil
     class_metadata = @em.class_metadata entity.class
     typed_id_hash = Hash(String, Mapping::Value).new
@@ -481,6 +554,7 @@ class Athena::ORM::UnitOfWork
     sort.sort
   end
 
+  # :nodoc:
   def persist(entity : AORM::Entity) : Nil
     visited = Set(AORM::Entity).new
 
@@ -518,6 +592,7 @@ class Athena::ORM::UnitOfWork
     self.cascade_persist entity, visited
   end
 
+  # :nodoc:
   def remove(entity : AORM::Entity) : Nil
     visited = Set(AORM::Entity).new
 
@@ -543,6 +618,8 @@ class Athena::ORM::UnitOfWork
     end
   end
 
+  # :nodoc:
+  #
   # Re-loads *entity* from the database and applies the fresh row to its in-memory state, discarding any pending changes.
   # The entity must be in the MANAGED state.
   def refresh(entity : AORM::Entity, lock_mode : AORM::LockMode? = nil) : Nil
@@ -560,16 +637,22 @@ class Athena::ORM::UnitOfWork
     self.entity_persister(entity.class).load id, entity, nil, hints
   end
 
+  # :nodoc:
+  #
   # Schedules a collection for deletion (all rows in join table).
   def schedule_collection_deletion(collection : AORM::PersistentCollection(AORM::Entity)) : Nil
     @collection_deletions << collection
   end
 
+  # :nodoc:
+  #
   # Schedules a collection for update (insert/delete diff).
   def schedule_collection_update(collection : AORM::PersistentCollection(AORM::Entity)) : Nil
     @collection_updates << collection
   end
 
+  # :nodoc:
+  #
   # Detaches *entity* from the UnitOfWork: drops it from the identity map and clears every state-tracking ivar that referenced it.
   # The entity itself is not modified — callers that hold the reference can keep using it; it just no longer participates in flush.
   # Cascades through associations whose mapping has `cascade: ["detach"]`.
@@ -652,6 +735,7 @@ class Athena::ORM::UnitOfWork
     end
   end
 
+  # :nodoc:
   def initialize_object(entity : AORM::Entity) : Nil
     # TODO: initialize `Ghost` type?
   end
@@ -758,6 +842,7 @@ class Athena::ORM::UnitOfWork
     end
   end
 
+  # Returns `true` if *entity* will be inserted on the next flush.
   def is_scheduled_for_insert?(entity : AORM::Entity) : Bool
     @entity_insertions.includes? entity
   end
@@ -787,10 +872,12 @@ class Athena::ORM::UnitOfWork
     end
   end
 
+  # Returns `true` if *entity* will be deleted on the next flush.
   def is_scheduled_for_delete?(entity : AORM::Entity) : Bool
     @entity_deletions.includes? entity
   end
 
+  # :nodoc:
   def schedule_for_update(entity : AORM::Entity) : Nil
     # TODO: Use proper exception classes for these
     raise "Entity has no identity" unless @entity_identifiers.has_key? entity
@@ -801,10 +888,14 @@ class Athena::ORM::UnitOfWork
     end
   end
 
+  # Returns `true` if *entity* changed, and will be updated by the current flush.
+  #
+  # Like `#scheduled_entity_updates`, this is only known during a flush.
   def is_scheduled_for_update?(entity : AORM::Entity) : Bool
     @entity_updates.includes? entity
   end
 
+  # :nodoc:
   def clear : Nil
     @identity_map.clear
     @entity_identifiers.clear
@@ -827,6 +918,7 @@ class Athena::ORM::UnitOfWork
     @event_dispatcher.try &.dispatch Events::OnClearEventArgs.new @em
   end
 
+  # :nodoc:
   def single_identifier_value(entity : AORM::Entity)
     class_metadata = @em.class_metadata entity.class
 
@@ -849,6 +941,11 @@ class Athena::ORM::UnitOfWork
     raw_id
   end
 
+  # Returns the `EntityState` of *entity* in relation to this unit of work.
+  #
+  # Entities that are managed or removed are tracked, so their state is known.
+  # For any other entity, *assume* is returned if given.
+  # Otherwise *entity* is `EntityState::New` if it has no identifier, and its identifier is looked up in the identity map, and possibly the database, to tell whether it is `EntityState::New` or `EntityState::Detached`.
   def entity_state(entity : AORM::Entity, assume : EntityState? = nil) : EntityState
     if state = @entity_states[entity]?
       return state
@@ -906,6 +1003,9 @@ class Athena::ORM::UnitOfWork
     raise NotImplementedError.new "Unhandleable state"
   end
 
+  # Returns the identifier of *entity*, keyed by field name.
+  #
+  # Raises if the unit of work doesn't know the identifier of *entity*, such as when it isn't managed, or is new and its identifier is generated on insert.
   def entity_identifier(entity : AORM::Entity) : Hash(String, AORM::Mapping::Value)
     @entity_identifiers[entity]? || raise "Unable to find \"#{entity.class.name}\" entity identifier associated with the UnitOfWork"
   end
@@ -943,6 +1043,7 @@ class Athena::ORM::UnitOfWork
     end
   end
 
+  # :nodoc:
   def add_to_identity_map(entity : AORM::Entity) : Bool
     class_metadata = @em.class_metadata self.metadata_class_for(entity)
     id_hash = self.id_hash_of_entity entity
@@ -961,6 +1062,7 @@ class Athena::ORM::UnitOfWork
     true
   end
 
+  # :nodoc:
   def id_hash_of_entity(entity : AORM::Entity) : String
     identifier = @entity_identifiers[entity]?
 
@@ -971,6 +1073,9 @@ class Athena::ORM::UnitOfWork
     self.class.id_hash_by_identifier identifier
   end
 
+  # Returns `true` if *entity* is registered in the identity map.
+  #
+  # Entities are registered once their identifier is known: when they are loaded, when a new entity with an assigned identifier is persisted, or when a generated identifier is read back on insert.
   def is_in_identity_map(entity : AORM::Entity) : Bool
     return false if !@entity_identifiers.has_key?(entity) || @entity_identifiers[entity].empty?
 
@@ -988,6 +1093,7 @@ class Athena::ORM::UnitOfWork
     @identity_map.has_key?(class_metadata.entity_class) && @identity_map[class_metadata.entity_class].has_key?(id_hash)
   end
 
+  # :nodoc:
   def remove_from_identity_map(entity : AORM::Entity) : Bool
     class_metadata = @em.class_metadata self.metadata_class_for(entity)
     id_hash = self.id_hash_of_entity entity
@@ -1004,6 +1110,11 @@ class Athena::ORM::UnitOfWork
     false
   end
 
+  # Returns the changes the current flush computed for *entity*, as a `Change` per field name.
+  #
+  # Includes mapped fields and the owning side of ToOne associations, whose values are the related entities.
+  # Entities being inserted have a change, with a `nil` `Change#old`, for each field their INSERT writes.
+  # Returns an empty hash if *entity* has no changes, or outside of a flush, since change sets are cleared once it completes.
   def entity_changeset(entity : AORM::Entity) : Hash
     unless cs = @entity_change_sets[entity]?
       return {} of String => NoReturn
@@ -1012,6 +1123,8 @@ class Athena::ORM::UnitOfWork
     cs
   end
 
+  # :nodoc:
+  #
   # Schedules a follow-up UPDATE to apply the given changeset to *entity*. Used
   # by persisters when a FK can't be written at INSERT time because the
   # referenced entity hasn't been inserted yet (cyclic dependency). Multiple
@@ -1024,6 +1137,7 @@ class Athena::ORM::UnitOfWork
     end
   end
 
+  # :nodoc:
   def extra_update_for(entity : AORM::Entity) : Hash(String, Change)
     @extra_updates[entity]? || Hash(String, Change).new
   end
@@ -1039,6 +1153,7 @@ class Athena::ORM::UnitOfWork
     @extra_updates.clear
   end
 
+  # :nodoc:
   def compute_changesets : Nil
     self.compute_scheduled_inserts_change_sets
 
@@ -1294,14 +1409,18 @@ class Athena::ORM::UnitOfWork
     end
   end
 
+  # :nodoc:
   def schedule_orphan_removal(entity : AORM::Entity) : Nil
     @orphan_removals.add entity
   end
 
+  # :nodoc:
   def trigger_eager_loads : Nil
     # TODO: Implement this
   end
 
+  # :nodoc:
+  #
   # Creates or retrieves an entity from hydrated data, returning the
   # identity-mapped instance when one already exists for this id_hash.
   def create_entity(
@@ -1371,6 +1490,8 @@ class Athena::ORM::UnitOfWork
     entity
   end
 
+  # :nodoc:
+  #
   # Registers an entity as managed in the UnitOfWork.
   def register_managed(entity : AORM::Entity, id : Hash(String, _), data : Hash(String, _)) : Nil
     class_metadata = @em.class_metadata(entity.class)
@@ -1478,6 +1599,8 @@ class Athena::ORM::UnitOfWork
     associated_id.empty? ? nil : associated_id
   end
 
+  # :nodoc:
+  #
   # Walks any ToOne resolutions queued during hydration and writes the loaded target onto its source entity.
   # Called by the hydrator's `cleanup` once the main result-set cursor has closed.
   def resolve_pending_to_one_associations : Nil
@@ -1539,6 +1662,7 @@ class Athena::ORM::UnitOfWork
     target_class_metadata.apply_data target, {inversed_by => source}
   end
 
+  # :nodoc:
   def load_collection(collection : AORM::BasePersistentCollection) : Nil
     assoc = collection.association
     persister = self.entity_persister(assoc.target_entity)

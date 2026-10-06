@@ -1,3 +1,5 @@
+# :nodoc:
+#
 # Converts enum members to the integer values enum fields are stored as.
 module Athena::ORM::Mapping::EnumConversion
   # Returns the integer *member* is stored as.

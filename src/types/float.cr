@@ -1,5 +1,8 @@
 require "./type"
 
+# Holds `Float64` values, stored in a double precision floating point column.
+#
+# `Float64` properties are mapped to this type by default.
 struct Athena::ORM::Types::Float < Athena::ORM::Types::Type
   # :inherit:
   def sql_declaration(column : Schema::Column, platform : AORM::Platforms::Platform) : ::String

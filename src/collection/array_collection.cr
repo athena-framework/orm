@@ -1,16 +1,26 @@
 require "./collection"
 
-# A simple wrapper around Array implementing the Collection interface.
+# A simple wrapper around `Array` implementing the `AORM::Collection` interface.
+#
+# Collection fields are initialized with an empty one; see `AORM::Collection` for how the ORM manages them from there.
+#
+# ```
+# property groups : AORM::Collection(Group) = AORM::ArrayCollection(Group).new
+# ```
+#
+# It has no ties to the ORM, so it's also suitable for building up a collection before assigning it to an entity.
 class Athena::ORM::ArrayCollection(T) < Athena::ORM::BaseCollection
   include Athena::ORM::Collection(T)
   include Indexable(T)
 
   @elements : Array(T)
 
+  # Creates a collection holding a copy of *elements*.
   def initialize(elements : Array(T) = [] of T)
     @elements = elements.dup
   end
 
+  # Creates a collection holding the elements of *elements*.
   def self.new(elements : Enumerable(T))
     new elements.to_a
   end
@@ -20,8 +30,7 @@ class Athena::ORM::ArrayCollection(T) < Athena::ORM::BaseCollection
     @elements.size
   end
 
-  # Returns the element at the given index.
-  # Raises IndexError if the index is out of bounds.
+  # Returns the element at the given index, without doing any bounds check.
   def unsafe_fetch(index : Int) : T
     @elements.unsafe_fetch(index)
   end
@@ -47,7 +56,7 @@ class Athena::ORM::ArrayCollection(T) < Athena::ORM::BaseCollection
     self
   end
 
-  # Removes an element from the collection.
+  # Removes every occurrence of *element* from the collection.
   # Returns the removed element, or nil if not found.
   def delete(element : T) : T?
     @elements.delete(element)
@@ -78,7 +87,7 @@ class Athena::ORM::ArrayCollection(T) < Athena::ORM::BaseCollection
     @elements.dup
   end
 
-  # Removes an element and returns whether it was present.
+  # Removes every occurrence of *element*, and returns whether it was present.
   def remove_element(element : T) : Bool
     if @elements.includes?(element)
       @elements.delete(element)

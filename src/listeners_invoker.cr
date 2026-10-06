@@ -1,3 +1,6 @@
+# :nodoc:
+#
+# Invokes the lifecycle callbacks an entity registered for an event.
 class Athena::ORM::ListenersInvoker
   def initialize(@em : AORM::EntityManagerInterface); end
 

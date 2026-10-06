@@ -1,9 +1,13 @@
 # Base platform for SQLite.
+#
+# Database-generated identifiers are read back with `INSERT ... RETURNING`.
 class Athena::ORM::Platforms::SQLite < Athena::ORM::Platforms::Platform
+  # :inherit:
   def boolean_type_declaration_sql(column : Schema::Column) : String
     "BOOLEAN"
   end
 
+  # :inherit:
   def small_int_type_declaration_sql(column : Schema::Column) : String
     # SQLite autoincrement is implicit for INTEGER PKs, but not for SMALLINT fields.
     if column.auto_increment?
@@ -13,10 +17,12 @@ class Athena::ORM::Platforms::SQLite < Athena::ORM::Platforms::Platform
     "SMALLINT#{self.common_integer_type_declaration_sql column}"
   end
 
+  # :inherit:
   def integer_type_declaration_sql(column : Schema::Column) : String
     "INTEGER#{self.common_integer_type_declaration_sql column}"
   end
 
+  # :inherit:
   def big_int_type_declaration_sql(column : Schema::Column) : String
     # SQLite autoincrement is implicit for INTEGER PKs, but not for BIGINT fields.
     if column.auto_increment?
@@ -26,6 +32,7 @@ class Athena::ORM::Platforms::SQLite < Athena::ORM::Platforms::Platform
     "BIGINT#{self.common_integer_type_declaration_sql column}"
   end
 
+  # :inherit:
   def blob_type_declaration_sql(column : Schema::Column) : String
     "BLOB"
   end
@@ -54,6 +61,7 @@ class Athena::ORM::Platforms::SQLite < Athena::ORM::Platforms::Platform
     super sql, limit, offset
   end
 
+  # :inherit:
   def supports_returning? : Bool
     true
   end

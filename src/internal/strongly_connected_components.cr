@@ -1,11 +1,11 @@
+# :nodoc:
+#
 # Implements Tarjan's algorithm to find strongly connected components (SCC)
 # in a directed graph. This algorithm has a linear running time based on
 # nodes (V) and edges (E), resulting in a computational complexity of O(V + E).
 #
 # See https://en.wikipedia.org/wiki/Tarjan%27s_strongly_connected_components_algorithm
 # for an explanation and the meaning of the DFS and lowlink numbers.
-#
-# :nodoc:
 class Athena::ORM::Internal::StronglyConnectedComponents
   private enum State
     NotVisited

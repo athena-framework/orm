@@ -1,6 +1,11 @@
 require "./platform"
 
 # Base platform for MySQL-like platforms.
+#
+# Connections from the `mysql` driver shard use `AORM::Platforms::Maria` or `AORM::Platforms::MySQL`, depending on whether the server's version string, as returned by `SELECT VERSION()`, mentions MariaDB.
+# The platform is detected once per connection.
+#
+# Identifiers are quoted with backticks.
 abstract class Athena::ORM::Platforms::AbstractMySQL < Athena::ORM::Platforms::Platform
   # :nodoc:
   #
@@ -11,6 +16,8 @@ abstract class Athena::ORM::Platforms::AbstractMySQL < Athena::ORM::Platforms::P
   end
 
   # :inherit:
+  #
+  # MySQL and MariaDB wrap identifiers in backticks instead, with any embedded backticks doubled.
   def quote_single_identifier(identifier : String) : String
     "`#{identifier.gsub('`', "``")}`"
   end

@@ -1,3 +1,6 @@
+# :nodoc:
+#
+# Builds and caches the `Mapping::ClassInterface` of each entity class for an entity manager.
 class Athena::ORM::Mapping::ClassFactory < Athena::ORM::Mapping::AbstractClassFactory
   protected property! entity_manager : AORM::EntityManagerInterface?
 

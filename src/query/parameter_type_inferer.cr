@@ -1,3 +1,5 @@
+# :nodoc:
+#
 # Infers the `Types::Type` a query parameter is converted through when none is given explicitly.
 module Athena::ORM::Query::ParameterTypeInferer
   # Returns the type name for *value*, or `nil` when it should be bound without conversion.

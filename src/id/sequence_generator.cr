@@ -1,5 +1,6 @@
 require "./abstract_generator"
 
+# :nodoc:
 struct Athena::ORM::ID::SequenceGenerator < Athena::ORM::ID::AbstractGenerator
   getter next_value : Int64 = 0
   getter max_value : Int64? = nil

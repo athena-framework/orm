@@ -1,5 +1,9 @@
 require "./type"
 
+# Holds `String` values, stored in a `VARCHAR` column.
+#
+# `String` properties are mapped to this type by default.
+# It's also registered as `text`.
 struct Athena::ORM::Types::String < Athena::ORM::Types::Type
   # :inherit:
   def sql_declaration(column : Schema::Column, platform : AORM::Platforms::Platform) : ::String

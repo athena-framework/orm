@@ -8,10 +8,10 @@ license: MIT
 
 repository: https://github.com/athena-framework/orm
 
-documentation: https://athena-framework.github.io/orm/Athena/ORM.html
+documentation: https://athenaframework.org/ORM
 
 description: |
-  WIP ORM lib.
+  Annotation driven object-relational mapper.
 
 authors:
   - George Dietrich <dev@dietrich.pub>

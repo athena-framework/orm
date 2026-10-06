@@ -1,5 +1,8 @@
 require "./type"
 
+# Holds `Int32` values, stored in an `INTEGER` column.
+#
+# `Int32` properties, and enums whose base type fits in an `Int32`, are mapped to this type by default.
 struct Athena::ORM::Types::Integer < Athena::ORM::Types::Type
   # :inherit:
   def sql_declaration(column : Schema::Column, platform : AORM::Platforms::Platform) : ::String

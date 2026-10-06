@@ -1,4 +1,5 @@
 module Athena::ORM
+  # :nodoc:
   module PersisterHelper
     # Returns the types for a given field, handling both regular fields and associations.
     # For associations, returns the types of the join column(s).

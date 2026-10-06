@@ -1,10 +1,10 @@
+# :nodoc:
+#
 # Implements topological sorting using depth-first search.
 # Orders nodes such that for every edge A->B, B appears before A in the result.
 #
 # This algorithm has linear time complexity O(V + E) where V is the number
 # of nodes and E is the number of edges.
-#
-# :nodoc:
 class Athena::ORM::Internal::TopologicalSort
   private enum State
     NotVisited

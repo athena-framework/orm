@@ -11,11 +11,17 @@
 #   em.flush
 # end
 # ```
+#
+# The factory builds each entity's class metadata once, and shares it with every entity manager it creates.
 class Athena::ORM::EntityManagerFactory
+  # Returns the database whose connection pool entity managers are created on.
   getter database : DB::Database
 
   @metadata_cache = Mapping::MetadataCache.new
 
+  # Creates a factory for entity managers on *database*.
+  #
+  # Every entity manager it creates dispatches its flush and clear events to *event_dispatcher*, see `AORM::EntityManager.new`.
   def initialize(
     @database : DB::Database,
     @event_dispatcher : ACTR::EventDispatcher::Interface? = nil,

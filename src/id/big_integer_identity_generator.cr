@@ -1,5 +1,6 @@
 require "./abstract_generator"
 
+# :nodoc:
 struct Athena::ORM::ID::BigIntegerIdentityGenerator < Athena::ORM::ID::AbstractGenerator
   # :inherit:
   def generate(em : AORM::EntityManagerInterface, entity : AORM::Entity? = nil)

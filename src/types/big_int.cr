@@ -1,5 +1,8 @@
 require "./type"
 
+# Holds `Int64` values, stored in a `BIGINT` column.
+#
+# `Int64` properties, and enums based on `Int64`, `UInt32` or `UInt64`, are mapped to this type by default.
 struct Athena::ORM::Types::BigInt < Athena::ORM::Types::Type
   # :inherit:
   def sql_declaration(column : Schema::Column, platform : AORM::Platforms::Platform) : ::String

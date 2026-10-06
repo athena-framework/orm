@@ -1,5 +1,6 @@
 require "./interface"
 
+# :nodoc:
 abstract class Athena::ORM::Persisters::Collection::Abstract
   include Athena::ORM::Persisters::Collection::Interface
 

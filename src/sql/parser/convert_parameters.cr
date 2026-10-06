@@ -1,4 +1,7 @@
+# :nodoc:
 module Athena::ORM::SQL
+  # :nodoc:
+  #
   # Visitor that converts positional (?) and named (:name) parameters
   # to PostgreSQL-style indexed placeholders ($1, $2, etc.).
   class ConvertParameters
