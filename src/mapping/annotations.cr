@@ -40,7 +40,6 @@ module Athena::ORM::Mapping::Annotations
   # options : Hash(String, String)
 
   protected record ID
-  protected record MappedSuperclass, entity_class : AORM::Entity.class
   protected record Embeddable
   protected record GeneratedValue, strategy : GeneratedValueStrategy = :auto
   protected record SequenceGenerator, name : String, allocation_size : Int64 = 1

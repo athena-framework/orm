@@ -205,6 +205,28 @@ class LifecycleCallbackFromModule < AORM::Entity
   end
 end
 
+# Callbacks declared on an abstract parent, used to verify an inheriting entity registers them.
+abstract class LifecycleCallbackParent < AORM::Entity
+  property parent_pre_persist_count : Int32 = 0
+
+  @[AORMA::PrePersist]
+  def parent_pre_persist : Nil
+    @parent_pre_persist_count += 1
+  end
+end
+
+@[AORMA::Entity]
+class LifecycleCallbackFromParent < LifecycleCallbackParent
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id : String? = nil
+
+  def initialize
+    @id = "Parent-#{UUID.random}"
+  end
+end
+
 struct LifecycleCallbackTest < ASPEC::TestCase
   @connection : MockConnection
   @em : MockEntityManager
@@ -443,6 +465,16 @@ struct LifecycleCallbackTest < ASPEC::TestCase
 
     entity.module_pre_persist_count.should eq 1
     entity.overridden_pre_persist_count.should eq 1
+  end
+
+  def test_callbacks_from_an_abstract_parent_fire : Nil
+    persister = MockEntityPersister.new @em, @em.class_metadata LifecycleCallbackFromParent
+    @uow.set_entity_persister LifecycleCallbackFromParent, persister
+
+    entity = LifecycleCallbackFromParent.new
+    @uow.persist entity
+
+    entity.parent_pre_persist_count.should eq 1
   end
 
   def test_overriding_a_module_callback_without_its_annotation_drops_it : Nil

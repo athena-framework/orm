@@ -805,35 +805,26 @@ module Athena::ORM::Annotations
   # The name of the schema the join table is in.
   annotation JoinTable; end
 
-  # Marks a class as a mapped superclass, which provides mapped properties to the entities inheriting from it without being an entity itself.
+  # Marks a type as embeddable: a value object whose properties are stored as columns of the table of each entity that embeds it.
   #
-  # TODO: Not supported yet; applying it is a compile-time error.
-  # Mapped properties and lifecycle callbacks declared in a module apply to every entity that includes it, which allows sharing them in the meantime:
+  # Unlike a custom `AORM::Types::Type`, which stores a value object in a single column, an embeddable spreads it over several columns that can each be queried and indexed.
+  # Unlike mapped properties shared through a module, an embeddable is its own object, and an entity can embed it more than once:
   #
   # ```
-  # module Timestampable
-  #   @[AORMA::Column]
-  #   property! created_at : Time
-  #
-  #   @[AORMA::PrePersist]
-  #   def set_created_at : Nil
-  #     @created_at = Time.utc
-  #   end
-  # end
+  # @[AORMA::Embeddable]
+  # record Money, amount : BigDecimal, currency : String
   #
   # @[AORMA::Entity]
-  # class Post < AORM::Entity
-  #   include Timestampable
-  #
+  # class Order < AORM::Entity
   #   # ...
+  #
+  #   property total : Money # Stored in the `total_amount` and `total_currency` columns
+  #   property tax : Money   # Stored in the `tax_amount` and `tax_currency` columns
   # end
   # ```
-  annotation MappedSuperclass; end
-
-  # Marks a class as embeddable, a value object whose properties are stored as columns of the entities that embed it.
   #
-  # TODO: Not supported yet; applying it is a compile-time error.
-  # A value object stored in a single column can be mapped with a custom `AORM::Types::Type` in the meantime.
+  # TODO: Not supported yet.
+  # In the meantime, store a value object that fits in one column with a custom `AORM::Types::Type`, or map its values as separate columns of the entity.
   annotation Embeddable; end
 
   # Configures the foreign key column of the owning side of a `AORMA::OneToOne` or `AORMA::ManyToOne` association, or of the join table of a `AORMA::ManyToMany` association.
@@ -1042,7 +1033,7 @@ module Athena::ORM::Annotations
   # Any other signature is a compile-time error.
   # An entity may have more than one callback for the same event, and a method may have more than one callback annotation.
   #
-  # Callbacks declared in a module apply to every entity that includes it.
+  # Callbacks declared in a module, or in an abstract parent class, apply to every entity that includes or inherits from it, see [Sharing Mapped Properties][Athena::ORM::Entity--sharing-mapped-properties].
   # Overriding such a method in the entity without the annotation removes the callback.
   #
   # NOTE: Callbacks only run for the entity they're declared on.

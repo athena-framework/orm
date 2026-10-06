@@ -51,20 +51,16 @@ struct AnnotationDriverCompileErrorTest < ASPEC::TestCase
       CR
   end
 
-  def test_mapped_superclass : Nil
-    assert_mapping_compile_error "'Timestamped': mapped superclasses are not supported yet. Share mapped properties through an included module instead.", <<-CR
-      @[AORMA::MappedSuperclass]
-      abstract class Timestamped < AORM::Entity
-        @[AORMA::Column]
-        property created_by : String? = nil
-      end
-
-      @[AORMA::Entity]
-      class Widget < Timestamped
+  # Only abstract classes may inherit from `AORM::Entity` without being entities, to share mapped properties.
+  def test_concrete_class_without_entity_annotation : Nil
+    assert_mapping_compile_error "'Widget' is not a valid entity or superclass", <<-CR
+      class Widget < AORM::Entity
         @[AORMA::Column]
         @[AORMA::ID]
         property id : Int64? = nil
       end
+
+      AORM::EntityManager.new(DB.connect("sqlite3::memory:")).class_metadata Widget
       CR
   end
 

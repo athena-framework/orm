@@ -51,7 +51,7 @@ module Athena::ORM::Mapping::Driver
     # Rejected here rather than in `#load_metadata_for_entity`: a parent class's metadata is loaded with its virtual type, and macros see no annotations on virtual types.
     macro finished
       {% for type in AORM::Entity.all_subclasses %}
-        {% for unsupported in [{AORMA::MappedSuperclass, "mapped superclasses", " Share mapped properties through an included module instead."}, {AORMA::Embeddable, "embeddables", ""}] %}
+        {% for unsupported in [{AORMA::Embeddable, "embeddables", ""}] %}
           {% if ann = type.annotation unsupported[0] %}
             {% ann.raise "'#{type}': #{unsupported[1].id} are not supported yet.#{unsupported[2].id}" %}
           {% end %}
@@ -71,12 +71,11 @@ module Athena::ORM::Mapping::Driver
         end
 
 
-      {% elsif T.annotation AORMA::MappedSuperclass %}
-        # TODO: This
       {% elsif T.annotation AORMA::Embeddable %}
         # TODO: This
       {% else %}
-        {% raise T.raise "'#{T}' is not a valid entity or superclass" unless T == AORM::Entity %}
+        # An abstract parent class without `@[AORMA::Entity]` shares its mapped properties with the entities inheriting from it, which read them through their own `T.instance_vars`, so it never needs metadata of its own.
+        {% raise T.raise "'#{T}' is not a valid entity or superclass" unless T == AORM::Entity || T.abstract? %}
       {% end %}
 
       primary_table = nil

@@ -265,7 +265,7 @@ class Post < AORM::Entity
 end
 ```
 
-Mapped properties and callbacks declared in a module apply to every entity that includes it, which allows sharing them between entities.
+Mapped properties and callbacks can be shared between entities through a module or an abstract parent class, see [AORM::Entity](/ORM/Entity/).
 See [AORMA::PrePersist](/ORM/Annotations/PrePersist/) for the rules callbacks follow, and [AORM::Events::EventArgs](/ORM/Events/EventArgs/) for every event, including those dispatched to an event dispatcher on each flush.
 
 ## Learn More

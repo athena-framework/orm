@@ -244,6 +244,22 @@ end
 class CustomDriverRepository < AORM::EntityRepository(WithCustomRepositoryFixture)
 end
 
+# An abstract parent without `@[AORMA::Entity]`, sharing its mapped properties with the entities inheriting from it.
+abstract class AbstractMappedParentFixture < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  property id : Int64? = nil
+
+  @[AORMA::Column(name: "created_by_user")]
+  property created_by : String? = nil
+end
+
+@[AORMA::Entity]
+class AbstractMappedChildFixture < AbstractMappedParentFixture
+  @[AORMA::Column]
+  property title : String? = nil
+end
+
 private def load(entity_class : T.class) : AORM::Mapping::Class(T) forall T
   metadata = AORM::Mapping::Class(T).new
   AORM::Mapping::Driver::Annotation.new.load_metadata_for_entity metadata
@@ -333,6 +349,14 @@ struct AnnotationDriverTest < ASPEC::TestCase
     field.generated.should be_nil
     field.enum_type.should be_nil
     field.index.should be_false
+  end
+
+  def test_mapped_properties_of_an_abstract_parent_are_inherited : Nil
+    metadata = load AbstractMappedChildFixture
+    metadata.table_name.should eq "abstract_mapped_child_fixture"
+    metadata.field_mappings.keys.should eq ["id", "created_by", "title"]
+    metadata.column_name("created_by").should eq "created_by_user"
+    metadata.identifier.should eq Set{"id"}
   end
 
   # ---- @[ID] / @[GeneratedValue] ----
