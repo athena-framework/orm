@@ -822,7 +822,7 @@ class Athena::ORM::Mapping::Class(T)
         @entity_class,
         @table,
         self.inheritance_type.single_table?
-      ) : OneToOneInverseSide.new mapping, @entity_class.name
+      ) : OneToOneInverseSide.new mapping, T.to_s
     when "many_to_many"
       mapping.is_owning_side ? ManyToManyOwningSide.new(
         mapping,

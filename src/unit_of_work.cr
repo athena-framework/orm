@@ -1760,8 +1760,13 @@ class Athena::ORM::UnitOfWork
     raise "BUG: wrap_in_proxy called for #{target_class} but no Proxy(#{target_class}) overload was generated"
   end
 
+  # The dispatchers below create a `Proxy(T)` for every entity, and each new one is a subclass of `AORM::Entity` that re-types every call already typed through `AORM::Entity` or `AORM::Entity.class`.
+  # Methods whose body depends on the receiver class, such as `Class#to_s`, are typed again for each existing proxy class every time, which made compile time grow quadratically with the number of entities.
+  # Declaring the proxy type of every entity before any code is typed avoids that.
   macro finished
-    {% for entity in Athena::ORM::Entity.all_subclasses.reject { |t| t.abstract? || t <= Athena::ORM::Proxy } %}
+    {% for entity, idx in Athena::ORM::Entity.all_subclasses.reject { |t| t.abstract? || t <= Athena::ORM::Proxy } %}
+      @@proxy_{{idx}} : AORM::Proxy({{entity.id}})? = nil
+
       private def build_proxy(em : AORM::EntityManagerInterface, target_class : {{entity.id}}.class, id : Hash(String, ::DB::Any)) : AORM::Entity
         AORM::Proxy({{entity.id}}).from_id em, id
       end

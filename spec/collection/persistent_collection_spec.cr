@@ -403,6 +403,9 @@ end
 # (uses `same?`) has something to compare. Avoids pulling AORM::Entity into a
 # pure collection-level test.
 private class TestEntityForRestore
+  # Declares the collection type up front, see `SpecCollectionTypes` in the spec helper.
+  @@collection_type : AORM::PersistentCollection(TestEntityForRestore)? = nil
+
   getter id : Int32
 
   def initialize(@id : Int32); end

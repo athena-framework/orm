@@ -41,4 +41,18 @@
 # TODO: Per-entity events aren't sent to the event dispatcher yet, and entity listener classes aren't supported; use lifecycle callbacks instead.
 abstract class Athena::ORM::Events::EventArgs < ACTR::EventDispatcher::Event
   # TODO: Really worth caching an empty instance?
+
+  # The lifecycle events of an entity are generic instances, which the compiler would otherwise create one at a time while typing the program.
+  # Each new one re-types every call already typed through this class or `ACTR::EventDispatcher::Event`, including methods whose body depends on the receiver class, such as `Class#to_s`, for every existing event class, which made compile time grow quadratically with the number of entities.
+  # Declaring the lifecycle event types of every entity before any code is typed avoids that.
+  macro finished
+    {% for entity, idx in Athena::ORM::Entity.all_subclasses.reject { |t| t.abstract? || t <= Athena::ORM::Proxy } %}
+      @@pre_persist_{{idx}} : AORM::Events::PrePersistEventArgs({{entity.id}})? = nil
+      @@post_persist_{{idx}} : AORM::Events::PostPersistEventArgs({{entity.id}})? = nil
+      @@pre_update_{{idx}} : AORM::Events::PreUpdateEventArgs({{entity.id}})? = nil
+      @@post_update_{{idx}} : AORM::Events::PostUpdateEventArgs({{entity.id}})? = nil
+      @@pre_remove_{{idx}} : AORM::Events::PreRemoveEventArgs({{entity.id}})? = nil
+      @@post_remove_{{idx}} : AORM::Events::PostRemoveEventArgs({{entity.id}})? = nil
+    {% end %}
+  end
 end

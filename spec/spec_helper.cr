@@ -7,6 +7,16 @@ require "./models/**"
 
 ASPEC.run_all
 
+# Declares the collection types the specs use besides those of entities, which the library declares itself.
+# A collection type first created while the program is typed re-types every call with a block already typed through `AORM::BaseCollection`, for every collection type.
+class SpecCollectionTypes
+  @@array_int32 : AORM::ArrayCollection(Int32)? = nil
+  @@array_string : AORM::ArrayCollection(String)? = nil
+  @@persistent_int32 : AORM::PersistentCollection(Int32)? = nil
+  @@persistent_string : AORM::PersistentCollection(String)? = nil
+  @@persistent_entity : AORM::PersistentCollection(AORM::Entity)? = nil
+end
+
 class MockPlatform < AORM::Platforms::Platform
   setter db_boolean : Bool?
   setter crystal_boolean : Bool?
