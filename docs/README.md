@@ -229,7 +229,7 @@ Either persist it explicitly, or cascade the operation.
 Cascading `"remove"` loads every associated entity to remove it one by one, which can be costly for large collections.
 A foreign key declared with `ON DELETE CASCADE` has the database delete the associated rows instead, but bypasses lifecycle callbacks and doesn't update entities already loaded into memory.
 
-With `orphan_removal: true`, a [AORMA::OneToOne](/ORM/Annotations/OneToOne/) association also removes its associated entity when it's replaced by another entity or set to `nil`.
+With `orphan_removal: true`, an entity removed from a [AORMA::OneToMany](/ORM/Annotations/OneToMany/) or [AORMA::ManyToMany](/ORM/Annotations/ManyToMany/) collection is removed from the database too, as is the entity of a [AORMA::OneToOne](/ORM/Annotations/OneToOne/) association once it's replaced by another entity or set to `nil`.
 
 #### Loading Associations
 

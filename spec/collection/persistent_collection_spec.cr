@@ -1,5 +1,106 @@
 require "../spec_helper"
 
+@[AORMA::Entity]
+class OrphanRemovalChild < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id : Int32? = nil
+
+  @[AORMA::ManyToOne(inversed_by: "children")]
+  property parent : OrphanRemovalParent? = nil
+end
+
+@[AORMA::Entity]
+class OrphanRemovalParent < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id : Int32? = nil
+
+  @[AORMA::OneToMany(mapped_by: "parent", orphan_removal: true)]
+  property children : AORM::Collection(OrphanRemovalChild) = AORM::ArrayCollection(OrphanRemovalChild).new
+
+  @[AORMA::OneToMany(mapped_by: "parent")]
+  property kept_children : AORM::Collection(OrphanRemovalChild) = AORM::ArrayCollection(OrphanRemovalChild).new
+end
+
+# Removing an element from a collection whose association has orphan removal schedules the element itself to be removed.
+struct PersistentCollectionOrphanRemovalTest < ASPEC::TestCase
+  @em : MockEntityManager
+  @child : OrphanRemovalChild
+  @other_child : OrphanRemovalChild
+
+  def initialize
+    @em = MockEntityManager.new MockConnection.new
+    @child = OrphanRemovalChild.new
+    @child.id = 1
+    @other_child = OrphanRemovalChild.new
+    @other_child.id = 2
+  end
+
+  def test_remove_element_schedules_orphan_removal : Nil
+    collection = self.owned_collection "children"
+
+    collection.remove_element @child
+
+    self.orphans.should eq [@child]
+  end
+
+  def test_delete_schedules_orphan_removal : Nil
+    collection = self.owned_collection "children"
+
+    collection.delete @child
+
+    self.orphans.should eq [@child]
+  end
+
+  def test_clear_schedules_orphan_removal_of_every_element : Nil
+    collection = self.owned_collection "children"
+
+    collection.clear
+
+    self.orphans.should eq [@child, @other_child]
+  end
+
+  # Adding an element back cancels its removal.
+  def test_readding_an_element_cancels_its_orphan_removal : Nil
+    collection = self.owned_collection "children"
+
+    collection.clear
+    collection << @child
+
+    self.orphans.should eq [@other_child]
+  end
+
+  def test_removal_without_orphan_removal_schedules_nothing : Nil
+    collection = self.owned_collection "kept_children"
+
+    collection.remove_element @child
+    collection.clear
+
+    self.orphans.should be_empty
+  end
+
+  private def owned_collection(field : String) : AORM::PersistentCollection(OrphanRemovalChild)
+    parent = OrphanRemovalParent.new
+    parent.id = 1
+
+    collection = AORM::PersistentCollection(OrphanRemovalChild).new(
+      @em,
+      @em.class_metadata(OrphanRemovalChild),
+      AORM::ArrayCollection(OrphanRemovalChild).new([@child, @other_child])
+    )
+    collection.set_owner parent, @em.class_metadata(OrphanRemovalParent).association_mappings[field]
+
+    collection
+  end
+
+  private def orphans : Array(AORM::Entity)
+    @em.unit_of_work.@orphan_removals.to_a
+  end
+end
+
 struct PersistentCollectionTest < ASPEC::TestCase
   def test_basic_array_operations : Nil
     collection = AORM::PersistentCollection(Int32).new

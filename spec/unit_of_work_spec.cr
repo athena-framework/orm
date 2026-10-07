@@ -390,6 +390,20 @@ class InferredTargetOwner < AORM::Entity
   property tags : AORM::Collection(InferredTargetTag) = AORM::ArrayCollection(InferredTargetTag).new
 end
 
+@[AORMA::Entity]
+class UnmappedPropertyEntity < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id : Int32? = nil
+
+  @[AORMA::Column]
+  property name : String = ""
+
+  # Not mapped to a column.
+  property? greeted : Bool = false
+end
+
 struct UnitOfWorkTest < ASPEC::TestCase
   @connection : MockConnection
   @em : MockEntityManager
@@ -715,6 +729,43 @@ struct UnitOfWorkTest < ASPEC::TestCase
     ph2.phonenumber = "12345"
     @uow.entity_state(ph2).should eq AORM::UnitOfWork::EntityState::Detached
     persister.exists_called?.should be_false
+  end
+
+  # An identifier generated on insert means the entity was inserted already, so an untracked entity that has one is detached.
+  def test_get_entity_state_with_generated_identifier_is_detached : Nil
+    user = ForumUser.new
+    pointerof(user.@id).value = 1
+
+    @uow.entity_state(user).should eq AORM::UnitOfWork::EntityState::Detached
+  end
+
+  # Only mapped fields are tracked, so other instance variables are never part of a change set.
+  def test_change_set_of_a_new_entity_excludes_unmapped_instance_variables : Nil
+    persister = MockEntityPersister.new @em, @em.class_metadata UnmappedPropertyEntity
+    @uow.set_entity_persister UnmappedPropertyEntity, persister
+
+    entity = UnmappedPropertyEntity.new
+    entity.id = 1
+    entity.name = "George"
+    entity.greeted = true
+
+    @uow.persist entity
+    @uow.compute_changesets
+
+    @uow.entity_changeset(entity).keys.should eq ["id", "name"]
+  end
+
+  def test_recomputed_change_set_excludes_unmapped_instance_variables : Nil
+    entity = UnmappedPropertyEntity.new
+    entity.id = 1
+    entity.name = "George"
+    @uow.register_managed entity, {"id" => 1}, {"id" => 1, "name" => "George"}
+
+    entity.name = "Jim"
+    entity.greeted = true
+    @uow.recompute_single_entity_change_set @em.class_metadata(UnmappedPropertyEntity), entity
+
+    @uow.entity_changeset(entity).keys.should eq ["name"]
   end
 
   def test_no_undefined_index_notice_on_schedule_for_update_without_changes : Nil
@@ -1589,8 +1640,17 @@ struct UnitOfWorkTest < ASPEC::TestCase
     user.username = "fred"
     @uow.@entity_states[user] = AORM::UnitOfWork::EntityState::Detached
 
-    expect_raises(Exception, /detached/) do
+    expect_raises(Exception, "Detached entity ForumUser cannot be persisted") do
       @uow.persist user
+    end
+  end
+
+  def test_remove_raises_for_detached_entity : Nil
+    user = ForumUser.new
+    pointerof(user.@id).value = 1
+
+    expect_raises(Exception, "Detached entity ForumUser cannot be removed") do
+      @uow.remove user
     end
   end
 

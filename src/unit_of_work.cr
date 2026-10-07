@@ -37,9 +37,8 @@
 # em = AORM::EntityManager.new connection, dispatcher
 # ```
 #
-# TODO: There is no public way to compute or recompute an entity's change set yet.
 # Inserts and updates are written from the change sets computed before `AORM::Events::OnFlushEventArgs` is dispatched.
-# Entities an OnFlush listener persists, and changes it makes to entities that aren't already scheduled for update, aren't written as expected by that flush.
+# A listener of that event that persists an entity computes its change set with `#compute_change_set`, and one that changes a managed entity recomputes it with `#recompute_single_entity_change_set`.
 #
 # WARNING: Directly calling methods on the unit of work that change its state is not supported.
 # Use the `AORM::EntityManager` API instead.
@@ -586,7 +585,7 @@ class Athena::ORM::UnitOfWork
       # TODO: Handle change tracking
 
       @entity_states[entity] = :managed
-    in .detached? then raise "detached entity cannot be persisted"
+    in .detached? then raise "Detached entity #{entity.class} cannot be persisted"
     end
 
     self.cascade_persist entity, visited
@@ -600,6 +599,9 @@ class Athena::ORM::UnitOfWork
   end
 
   private def remove(entity : AORM::Entity, visited : Set(AORM::Entity)) : Nil
+    # Remove a proxy's target instead, loading it first if needed, since its lifecycle callbacks and cascades need the entity itself.
+    entity = entity.inner.as(AORM::Entity) if entity.is_a?(AORM::Proxy)
+
     return unless visited.add? entity
 
     # Cascade first, because schedule_for_delete() removes the entity from the identity map, which
@@ -614,7 +616,7 @@ class Athena::ORM::UnitOfWork
       @listeners_invoker.invoke class_metadata, entity, class_metadata.create_pre_remove_event entity.as(AORM::Entity), @em
 
       self.schedule_for_delete entity
-    in .detached? then raise "Cannot removed detached entity" # TODO: Make this an actual exception
+    in .detached? then raise "Detached entity #{entity.class} cannot be removed" # TODO: Make this an actual exception
     end
   end
 
@@ -663,6 +665,16 @@ class Athena::ORM::UnitOfWork
   end
 
   private def do_detach(entity : AORM::Entity, visited : Set(AORM::Entity), no_cascade : Bool = false) : Nil
+    if entity.is_a?(AORM::Proxy)
+      if inner = entity.inner?
+        # Detach a loaded proxy's target instead.
+        entity = inner.as(AORM::Entity)
+      else
+        # An unloaded proxy is detached as is, without loading it, since none of its target's associations were loaded through it.
+        no_cascade = true
+      end
+    end
+
     return unless visited.add? entity
 
     case self.entity_state(entity, :detached)
@@ -1000,7 +1012,8 @@ class Athena::ORM::UnitOfWork
       return EntityState::New
     end
 
-    raise NotImplementedError.new "Unhandleable state"
+    # The identifier is generated on insert, so the entity having one means it was inserted already.
+    EntityState::Detached
   end
 
   # Returns the identifier of *entity*, keyed by field name.
@@ -1165,12 +1178,20 @@ class Athena::ORM::UnitOfWork
       # TODO: Handle change tracking policies
 
       entity_hash.each_value do |entity|
+        # Ignore unloaded proxies; their target hasn't been loaded, so it can't have changed.
+        next if self.uninitialized_object? entity
+
         # Only MANAGED entities that are NOT SCHEDULED FOR INSERTION OR DELETION are processed here.
         if !@entity_insertions.includes?(entity) && !@entity_deletions.includes?(entity) && @entity_states.has_key?(entity)
           self.compute_change_set class_metadata, entity
         end
       end
     end
+  end
+
+  # Returns `true` if *entity* is a proxy whose target hasn't been loaded yet.
+  private def uninitialized_object?(entity : AORM::Entity) : Bool
+    entity.is_a?(AORM::Proxy) && !entity.loaded?
   end
 
   private def compute_scheduled_inserts_change_sets : Nil
@@ -1181,8 +1202,17 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  # ameba:disable Metrics/CyclomaticComplexity
-  private def compute_change_set(class_metadata : AORM::Mapping::ClassInterface, entity : AORM::Entity) : Nil
+  # Computes the change set of the managed *entity*, comparing its current state with the data it was loaded or last flushed with.
+  # The change set of an entity being inserted holds every field its `INSERT` writes.
+  #
+  # Change sets are computed at the start of a flush, before `AORM::Events::OnFlushEventArgs` is dispatched.
+  # So a listener of that event that persists an entity also has to compute its change set:
+  #
+  # ```
+  # em.persist phone
+  # em.unit_of_work.compute_change_set em.class_metadata(Phone), phone
+  # ```
+  def compute_change_set(class_metadata : AORM::Mapping::ClassInterface, entity : AORM::Entity) : Nil # ameba:disable Metrics/CyclomaticComplexity
     # TODO: Handle readonly objects
 
     unless class_metadata.inheritance_type.none?
@@ -1194,6 +1224,9 @@ class Athena::ORM::UnitOfWork
     actual_data = Hash(String, Mapping::Value).new
 
     class_metadata.field_info.each do |name, _prop|
+      # Instance variables that aren't mapped aren't persisted.
+      next unless class_metadata.field_mappings.has_key?(name) || class_metadata.association_mappings.has_key?(name)
+
       if (assoc = class_metadata.association_mappings[name]?) && assoc.is_a?(Mapping::ToMany)
         # Promote a user-assigned ArrayCollection (or a PersistentCollection owned by another entity) into a PersistentCollection owned by this entity.
         next if class_metadata.get_field_value(entity, name).nil?
@@ -1362,7 +1395,19 @@ class Athena::ORM::UnitOfWork
     end
   end
 
-  private def recompute_single_entity_change_set(class_metadata : AORM::Mapping::ClassInterface, entity : AORM::Entity) : Nil
+  # Recomputes the change set of the managed *entity*, independently of the change sets computed at the start of a flush.
+  # The changes it finds are added to the entity's change set, and schedule it to be updated if it isn't already.
+  # Raises if *entity* isn't managed.
+  #
+  # Change sets are computed before `AORM::Events::OnFlushEventArgs` is dispatched, so a listener of that event that changes the fields of a managed entity recomputes its change set:
+  #
+  # ```
+  # user.name = "George"
+  # em.unit_of_work.recompute_single_entity_change_set em.class_metadata(User), user
+  # ```
+  #
+  # Changes to the entity's collections aren't recomputed.
+  def recompute_single_entity_change_set(class_metadata : AORM::Mapping::ClassInterface, entity : AORM::Entity) : Nil
     raise "Entity is not managed" unless @entity_states[entity]? == EntityState::Managed
 
     unless class_metadata.inheritance_type.none?
@@ -1372,6 +1417,8 @@ class Athena::ORM::UnitOfWork
     actual_data = Hash(String, Mapping::Value).new
 
     class_metadata.field_info.each do |name, _prop|
+      # Instance variables that aren't mapped aren't persisted.
+      next unless class_metadata.field_mappings.has_key?(name) || class_metadata.association_mappings.has_key?(name)
       next if (assoc = class_metadata.association_mappings[name]?) && assoc.is_a?(Mapping::ToMany)
 
       # TODO: Skip version field
@@ -1412,6 +1459,11 @@ class Athena::ORM::UnitOfWork
   # :nodoc:
   def schedule_orphan_removal(entity : AORM::Entity) : Nil
     @orphan_removals.add entity
+  end
+
+  # :nodoc:
+  def cancel_orphan_removal(entity : AORM::Entity) : Nil
+    @orphan_removals.delete entity
   end
 
   # :nodoc:

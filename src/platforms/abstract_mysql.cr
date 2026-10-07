@@ -58,6 +58,11 @@ abstract class Athena::ORM::Platforms::AbstractMySQL < Athena::ORM::Platforms::P
   end
 
   # :inherit:
+  def date_time_type_declaration_sql(column : Schema::Column) : String
+    "DATETIME"
+  end
+
+  # :inherit:
   def blob_type_declaration_sql(column : Schema::Column) : String
     if length = column.length
       return "TINYBLOB" if length <= 255

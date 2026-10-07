@@ -29,7 +29,8 @@ abstract class Athena::ORM::Mapping::ToOneOwningSide < Athena::ORM::Mapping::Own
         JoinColumn.new(
           name: d.name || naming_strategy.join_column_name(instance.field_name, entity_class),
           referenced_column_name: d.referenced_column_name || naming_strategy.reference_column_name,
-          nullable: d.nullable
+          nullable: d.nullable,
+          on_delete: d.on_delete
         )
       })
     elsif instance.join_columns.empty?

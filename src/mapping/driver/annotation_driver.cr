@@ -13,7 +13,8 @@ module Athena::ORM::Mapping::Driver
   record JoinColumnDef,
     name : String?,
     referenced_column_name : String?,
-    nullable : Bool? = nil
+    nullable : Bool? = nil,
+    on_delete : String? = nil
 
   record ColumnMapping,
     field_name : String,
@@ -149,7 +150,8 @@ module Athena::ORM::Mapping::Driver
               join_col_defs << JoinColumnDef.new(
                 name: {{jc_ann[:name]}},
                 referenced_column_name: {{jc_ann[:referenced_column_name]}},
-                nullable: {{jc_ann[:nullable]}}
+                nullable: {{jc_ann[:nullable]}},
+                on_delete: {{jc_ann[:on_delete]}}
               )
             {% end %}
             mapping = mapping.copy_with(join_column_defs: join_col_defs)
@@ -200,7 +202,8 @@ module Athena::ORM::Mapping::Driver
               join_col_defs << JoinColumnDef.new(
                 name: {{jc_ann[:name]}},
                 referenced_column_name: {{jc_ann[:referenced_column_name]}},
-                nullable: {{jc_ann[:nullable]}}
+                nullable: {{jc_ann[:nullable]}},
+                on_delete: {{jc_ann[:on_delete]}}
               )
             {% end %}
             mapping = mapping.copy_with(join_column_defs: join_col_defs)
@@ -243,7 +246,8 @@ module Athena::ORM::Mapping::Driver
             {% for jc_ann in join_col_anns %}
               join_col_defs << JoinColumnDef.new(
                 name: {{jc_ann[:name]}},
-                referenced_column_name: {{jc_ann[:referenced_column_name]}}
+                referenced_column_name: {{jc_ann[:referenced_column_name]}},
+                on_delete: {{jc_ann[:on_delete]}}
               )
             {% end %}
             mapping = mapping.copy_with(join_column_defs: join_col_defs)
@@ -256,7 +260,8 @@ module Athena::ORM::Mapping::Driver
             {% for ijc_ann in inv_join_col_anns %}
               inv_join_col_defs << JoinColumnDef.new(
                 name: {{ijc_ann[:name]}},
-                referenced_column_name: {{ijc_ann[:referenced_column_name]}}
+                referenced_column_name: {{ijc_ann[:referenced_column_name]}},
+                on_delete: {{ijc_ann[:on_delete]}}
               )
             {% end %}
             mapping = mapping.copy_with(inverse_join_column_defs: inv_join_col_defs)

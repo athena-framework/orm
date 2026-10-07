@@ -22,9 +22,8 @@ class Athena::ORM::Mapping::JoinColumn
   # :nodoc:
   property field_name : String?
 
-  # The `ON DELETE` action of the foreign key constraint.
-  #
-  # TODO: Not set from the mapping yet, and has no effect.
+  # The `ON DELETE` action of the foreign key constraint, as set by the *on_delete* argument of `AORMA::JoinColumn` or `AORMA::InverseJoinColumn`.
+  # Default many-to-many join columns are `"CASCADE"`, see `AORM::Mapping::Association#on_delete_cascade?`.
   property on_delete : String?
 
   # A custom SQL column definition.

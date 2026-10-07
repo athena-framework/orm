@@ -118,11 +118,9 @@ abstract class Athena::ORM::Platforms::Platform
 
   # SQL Declarations
 
-  # Returns the SQL declaring *column* as a string column, e.g. `VARCHAR(255)`.
+  # Returns the SQL declaring *column* as a string column, e.g. `VARCHAR(255)`, or `CHAR(2)` for a fixed-length column.
   #
-  # Raises if *column* has no length.
-  #
-  # TODO: Fixed-length (`CHAR`) columns aren't supported yet, and raise.
+  # Raises if a variable-length *column* has no length, on platforms that require one.
   def string_type_declaration_sql(column : Schema::Column) : String
     length = column.length
 
@@ -130,14 +128,12 @@ abstract class Athena::ORM::Platforms::Platform
       return self.varchar_type_declaration_sql length
     end
 
-    raise "TODO: Char type SQL"
+    self.char_type_declaration_sql length
   end
 
   # Returns the SQL declaring *column* as a UUID column.
   #
   # Platforms without a native UUID type declare a 36 character fixed-length string column.
-  #
-  # TODO: Fixed-length string columns aren't supported yet, so this raises on platforms without a native UUID type.
   def guid_type_declaration_sql(column : Schema::Column) : String
     column.length = 36
     column.fixed = true
@@ -155,6 +151,9 @@ abstract class Athena::ORM::Platforms::Platform
   abstract def big_int_type_declaration_sql(column : Schema::Column) : String
   # Returns the SQL declaring *column* as a binary large object column.
   abstract def blob_type_declaration_sql(column : Schema::Column) : String
+
+  # Returns the SQL declaring *column* as a date and time column without a time zone.
+  abstract def date_time_type_declaration_sql(column : Schema::Column) : String
 
   # Returns the SQL declaring *column* as a double precision floating point column.
   def float_declaration_sql(column : Schema::Column) : String
@@ -203,6 +202,10 @@ abstract class Athena::ORM::Platforms::Platform
     raise "Length required" unless length
 
     "VARCHAR(#{length})"
+  end
+
+  private def char_type_declaration_sql(length : Int32?) : String
+    length ? "CHAR(#{length})" : "CHAR"
   end
 
   # Limits / Constants

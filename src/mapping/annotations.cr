@@ -24,8 +24,8 @@ module Athena::ORM::Mapping::Annotations
     unique : Bool = false,
     nullable : Bool? = nil,
     column_definition : String? = nil,
-    field_name : String? = nil
-  # on_delete : Any
+    field_name : String? = nil,
+    on_delete : String? = nil
   # options : Hash(String, String)
 
   protected record InverseJoinColumn,
@@ -35,8 +35,8 @@ module Athena::ORM::Mapping::Annotations
     unique : Bool = false,
     nullable : Bool = false,
     column_definition : String? = nil,
-    field_name : String? = nil
-  # on_delete : Any
+    field_name : String? = nil,
+    on_delete : String? = nil
   # options : Hash(String, String)
 
   protected record ID

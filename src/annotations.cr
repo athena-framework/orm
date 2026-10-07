@@ -356,8 +356,7 @@ module Athena::ORM::Annotations
   # **Type:** `String?` **Default:** `nil`
   #
   # The name of the schema the table is in.
-  #
-  # TODO: Not supported yet; it's ignored.
+  # It may also be given as part of *name*, e.g. `"myschema.posts"`.
   annotation Table; end
 
   # Marks a class as an entity, whose instances are persisted by the ORM.
@@ -561,8 +560,6 @@ module Athena::ORM::Annotations
   # Whether entities removed from the collection are removed from the database.
   # It also implies the `"remove"` cascade.
   #
-  # TODO: Removing an entity from the collection doesn't remove it yet; only the implied `"remove"` cascade has an effect.
-  #
   # ---
   #
   # ### target_entity
@@ -672,8 +669,9 @@ module Athena::ORM::Annotations
   # The collection is loaded the first time it's used.
   # Adding or removing elements inserts or deletes the corresponding join table rows when flushing.
   #
-  # TODO: Removing an entity doesn't delete its join table rows yet.
-  # Declare the join table's foreign keys with `ON DELETE CASCADE` so that the database deletes them.
+  # NOTE: When an entity is removed, its join table rows are deleted along with it, unless a join column of the owning side is declared `ON DELETE CASCADE`.
+  # That's the case for default join columns, i.e. when `AORMA::JoinColumn` or `AORMA::InverseJoinColumn` is missing, and for those given `on_delete: "CASCADE"`.
+  # The database is then expected to delete the rows itself.
   #
   # ## Bidirectional
   #
@@ -740,8 +738,6 @@ module Athena::ORM::Annotations
   # **Type:** `Bool` **Default:** `false`
   #
   # Whether entities removed from the collection are removed from the database.
-  #
-  # TODO: Not supported yet; removing an entity from the collection only deletes its join table row.
   #
   # ---
   #
@@ -890,6 +886,17 @@ module Athena::ORM::Annotations
   #
   # ---
   #
+  # ### on_delete
+  #
+  # **Type:** `String?` **Default:** `nil`
+  #
+  # The `ON DELETE` action of the foreign key constraint, e.g. `"CASCADE"` or `"SET NULL"`.
+  # On a `AORMA::ManyToMany` association, `"CASCADE"` tells the ORM that the database deletes the join table rows of a removed entity, so it doesn't delete them itself.
+  #
+  # TODO: Otherwise only used to generate a schema, which isn't supported yet.
+  #
+  # ---
+  #
   # ### column_definition
   #
   # **Type:** `String?` **Default:** `nil`
@@ -930,6 +937,14 @@ module Athena::ORM::Annotations
   # **Type:** `String?` **Default:** `"id"`
   #
   # The name of the target entity's column the join table column references.
+  #
+  # ---
+  #
+  # ### on_delete
+  #
+  # **Type:** `String?` **Default:** `nil`
+  #
+  # The `ON DELETE` action of the foreign key constraint, the same as on `AORMA::JoinColumn`.
   #
   # ---
   #

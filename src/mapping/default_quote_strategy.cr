@@ -42,22 +42,24 @@ struct Athena::ORM::Mapping::DefaultQuoteStrategy
 
   # Returns the table name of *class_metadata*, quoted if needed.
   def table_name(class_metadata : Mapping::ClassInterface, platform : Platforms::Platform) : String
-    table_name = class_metadata.table.name.not_nil!
+    table = class_metadata.table
+    table_name = table.name.not_nil!
 
-    # TODO: Handle schema
+    if schema = table.schema.presence
+      return table.quoted ? "#{platform.quote_single_identifier schema}.#{platform.quote_single_identifier table_name}" : "#{schema}.#{table_name}"
+    end
 
-    class_metadata.table.quoted ? platform.quote_single_identifier(table_name) : table_name
+    table.quoted ? platform.quote_single_identifier(table_name) : table_name
   end
 
   # Returns the join table name of *association*.
   def join_table_name(association : Mapping::ManyToManyOwningSide, class_metadata : Mapping::ClassInterface, platform : Platforms::Platform) : String
-    # TODO: Handle schema
     join_table = association.join_table.not_nil!
 
     schema = ""
 
     if sch = join_table.schema.presence
-      schema = sch
+      schema = "#{sch}."
     end
 
     table_name = join_table.name

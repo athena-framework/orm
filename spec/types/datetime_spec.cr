@@ -9,6 +9,11 @@ struct DatetimeTypeTest < ASPEC::TestCase
     @type = AORM::Types::Datetime.new
   end
 
+  def test_sql_declaration_is_the_platforms_date_time_declaration : Nil
+    column = AORM::Schema::Column.new "c", @type
+    @type.sql_declaration(column, AORM::Platforms::Postgres.new).should eq "TIMESTAMP(0) WITHOUT TIME ZONE"
+  end
+
   # Columns store UTC wall-clock time, so a time in any other location must be shifted before binding.
   def test_converts_non_utc_time_to_utc_db_value : Nil
     time = Time.local 2016, 1, 1, 15, 58, 59, location: Time::Location.fixed(-5 * 3600)

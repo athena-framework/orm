@@ -209,7 +209,7 @@ struct MappingClassTest < ASPEC::TestCase
     metadata.identifier_values(entity).should be_empty
   end
 
-  def test_identifier_values_for_composite_returns_nil_filled : Nil
+  def test_identifier_values_for_composite_returns_each_value : Nil
     metadata = AORM::Mapping::Class(CompositePkFixture).new
     metadata.map_field AORM::Mapping::Driver::ColumnMapping.new(field_name: "id_a", id: true)
     metadata.map_field AORM::Mapping::Driver::ColumnMapping.new(field_name: "id_b", id: true)
@@ -218,9 +218,19 @@ struct MappingClassTest < ASPEC::TestCase
     entity.id_a = 1_i64
     entity.id_b = 2_i64
 
-    values = metadata.identifier_values(entity)
-    values.keys.to_set.should eq Set{"id_a", "id_b"}
-    values.values.all?(Nil).should be_true
+    metadata.identifier_values(entity).should eq({"id_a" => 1_i64, "id_b" => 2_i64})
+  end
+
+  # Like a single identifier without a value, composite identifier fields without a value are left out.
+  def test_identifier_values_for_composite_omits_fields_without_a_value : Nil
+    metadata = AORM::Mapping::Class(CompositePkFixture).new
+    metadata.map_field AORM::Mapping::Driver::ColumnMapping.new(field_name: "id_a", id: true)
+    metadata.map_field AORM::Mapping::Driver::ColumnMapping.new(field_name: "id_b", id: true)
+
+    entity = CompositePkFixture.new
+    entity.id_a = 1_i64
+
+    metadata.identifier_values(entity).should eq({"id_a" => 1_i64})
   end
 
   def test_set_identifier_values_writes_ivars : Nil

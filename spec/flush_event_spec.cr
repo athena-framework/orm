@@ -6,8 +6,16 @@ private class RecordingEventDispatcher
 
   getter events : Array(ACTR::EventDispatcher::Event) = [] of ACTR::EventDispatcher::Event
 
+  # Called with each `OnFlushEventArgs`, acting as a listener.
+  property on_flush : Proc(AORM::Events::OnFlushEventArgs, Nil)? = nil
+
   def dispatch(event : ACTR::EventDispatcher::Event) : ACTR::EventDispatcher::Event
     @events << event
+
+    if event.is_a?(AORM::Events::OnFlushEventArgs) && (on_flush = @on_flush)
+      on_flush.call event
+    end
+
     event
   end
 
@@ -137,5 +145,56 @@ struct FlushEventTest < ASPEC::TestCase
     # populated — listeners can iterate them and inject extra work.
     em = on_flush.as(AORM::Events::OnFlushEventArgs).entity_manager
     em.should be @em
+  end
+
+  # Change sets are computed before OnFlush is dispatched, so a listener that persists an entity computes its change set itself.
+  def test_on_flush_listener_persists_an_entity_by_computing_its_change_set : Nil
+    persister = MockEntityPersister.new @em, @em.class_metadata FlushEventTestEntity
+    @uow.set_entity_persister FlushEventTestEntity, persister
+
+    added = FlushEventTestEntity.new
+    added.id = 2
+    added.value = "added on flush"
+
+    @dispatcher.on_flush = ->(event : AORM::Events::OnFlushEventArgs) do
+      em = event.entity_manager
+      em.persist added
+      em.unit_of_work.compute_change_set em.class_metadata(FlushEventTestEntity), added
+      nil
+    end
+
+    entity = FlushEventTestEntity.new
+    entity.id = 1
+    @uow.persist entity
+    @uow.commit
+
+    persister.inserts.should eq [entity, added]
+    persister.insert_data.last["flush_event_test_entity"]["value"].value.should eq "added on flush"
+  end
+
+  # A listener that changes a managed entity recomputes its change set, which schedules the entity for update.
+  def test_on_flush_listener_updates_an_entity_by_recomputing_its_change_set : Nil
+    persister = MockEntityPersister.new @em, @em.class_metadata FlushEventTestEntity
+    @uow.set_entity_persister FlushEventTestEntity, persister
+
+    managed = FlushEventTestEntity.new
+    managed.id = 1
+    managed.value = "original"
+    @uow.register_managed managed, {"id" => 1}, {"id" => 1, "value" => "original"}
+
+    @dispatcher.on_flush = ->(event : AORM::Events::OnFlushEventArgs) do
+      managed.value = "changed on flush"
+      event.entity_manager.unit_of_work.recompute_single_entity_change_set event.entity_manager.class_metadata(FlushEventTestEntity), managed
+      nil
+    end
+
+    # Something else to flush, since a flush with nothing to write ends after dispatching OnFlush.
+    other = FlushEventTestEntity.new
+    other.id = 2
+    @uow.persist other
+    @uow.commit
+
+    persister.updates.should eq [managed]
+    persister.update_data.last["flush_event_test_entity"]["value"].value.should eq "changed on flush"
   end
 end

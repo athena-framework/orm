@@ -47,6 +47,11 @@ class Athena::ORM::Platforms::Postgres < Athena::ORM::Platforms::Platform
     "BYTEA"
   end
 
+  # :inherit:
+  def date_time_type_declaration_sql(column : Schema::Column) : String
+    "TIMESTAMP(0) WITHOUT TIME ZONE"
+  end
+
   protected def binary_type_declaration_sql_snippet(length : Int32?) : String
     "BYTEA"
   end
@@ -55,14 +60,9 @@ class Athena::ORM::Platforms::Postgres < Athena::ORM::Platforms::Platform
     "BYTEA"
   end
 
-  private def varchar_type_declaration_sql(column : Schema::Column) : String
-    sql = "VARCHAR"
-
-    if length = column.length
-      sql = "#{sql}(#{length})"
-    end
-
-    sql
+  # A length is optional for `VARCHAR` columns on Postgres.
+  private def varchar_type_declaration_sql(length : Int32?) : String
+    length ? "VARCHAR(#{length})" : "VARCHAR"
   end
 
   private def common_integer_type_declaration_sql(column : Schema::Column) : String

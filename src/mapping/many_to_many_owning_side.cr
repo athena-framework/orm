@@ -7,11 +7,17 @@ require "./join_table"
 #
 # Without `AORMA::JoinTable`, `AORMA::JoinColumn`, and `AORMA::InverseJoinColumn` annotations, the join table is named `<source>_<target>` after the underscored class names, e.g. `user_group`.
 # Its columns are named `<class>_id` after the underscored class names, e.g. `user_id` and `group_id`, referencing the `id` columns of the source and target tables.
+# For a self-referencing association, they're named `<class>_source` and `<class>_target` instead, e.g. `user_source` and `user_target`.
 # Join table columns are never nullable.
+#
+# Default join columns are declared `ON DELETE CASCADE`, as are those given `on_delete: "CASCADE"`, see `#on_delete_cascade?`.
+# The database is then expected to delete the join table rows of a removed entity, rather than the ORM.
 class Athena::ORM::Mapping::ManyToManyOwningSide < Athena::ORM::Mapping::OwningSide
   include Athena::ORM::Mapping::ManyToMany
 
   # :nodoc:
+  #
+  # ameba:disable Metrics/CyclomaticComplexity
   def self.new(
     mapping : Driver::ColumnMapping,
     naming_strategy : NamingStrategyInterface,
@@ -20,37 +26,53 @@ class Athena::ORM::Mapping::ManyToManyOwningSide < Athena::ORM::Mapping::OwningS
   ) : self
     instance = new mapping
 
-    # Build join table if not provided
-    if instance.join_table.nil?
+    # The owning side must have a join table, which explicit join columns create without a name.
+    join_table = instance.join_table
+
+    if join_table.nil? || join_table.name.empty?
       join_table_name = naming_strategy.join_table_name(
         source_class.name.split("::").last,
         target_class.name.split("::").last,
         instance.field_name
       )
-      instance.join_table = JoinTable.new(name: join_table_name)
+
+      if join_table
+        join_table.name = join_table_name
+      else
+        instance.join_table = join_table = JoinTable.new(name: join_table_name)
+      end
     end
 
-    join_table = instance.join_table.not_nil!
+    # Both default join columns of a self-referencing association would be named after the same entity, so they're named for each side instead.
+    # Compared by type id, since comparing two arbitrary entity classes with `==` compiles to a branch for every pair of entity classes.
+    self_referencing_without_join_columns = source_class.crystal_type_id == target_class.crystal_type_id &&
+                                            join_table.join_columns.empty? && join_table.inverse_join_columns.empty?
 
     # Build join columns if not provided
     if join_table.join_columns.empty?
       join_table.join_columns << JoinColumn.new(
-        name: naming_strategy.join_key_column_name(source_class.name.split("::").last, nil),
-        referenced_column_name: naming_strategy.reference_column_name
+        name: naming_strategy.join_key_column_name(source_class.name.split("::").last, self_referencing_without_join_columns ? "source" : nil),
+        referenced_column_name: naming_strategy.reference_column_name,
+        on_delete: "CASCADE"
       )
     end
 
     # Build inverse join columns if not provided
     if join_table.inverse_join_columns.empty?
       join_table.inverse_join_columns << JoinColumn.new(
-        name: naming_strategy.join_key_column_name(target_class.name.split("::").last, nil),
-        referenced_column_name: naming_strategy.reference_column_name
+        name: naming_strategy.join_key_column_name(target_class.name.split("::").last, self_referencing_without_join_columns ? "target" : nil),
+        referenced_column_name: naming_strategy.reference_column_name,
+        on_delete: "CASCADE"
       )
     end
 
     # Process join columns
     join_table.join_columns.each do |jc|
       jc.nullable = false
+
+      if jc.name.empty?
+        jc.name = naming_strategy.join_key_column_name(source_class.name.split("::").last, jc.referenced_column_name)
+      end
 
       if jc.name.starts_with?('`')
         jc.name = jc.name.strip('`')
@@ -60,6 +82,10 @@ class Athena::ORM::Mapping::ManyToManyOwningSide < Athena::ORM::Mapping::OwningS
       if jc.referenced_column_name.starts_with?('`')
         jc.referenced_column_name = jc.referenced_column_name.strip('`')
         jc.quoted = true
+      end
+
+      if jc.on_delete.try(&.downcase) == "cascade"
+        instance.on_delete_cascade = true
       end
 
       instance.relation_to_source_key_columns[jc.name] = jc.referenced_column_name
@@ -70,6 +96,10 @@ class Athena::ORM::Mapping::ManyToManyOwningSide < Athena::ORM::Mapping::OwningS
     join_table.inverse_join_columns.each do |jc|
       jc.nullable = false
 
+      if jc.name.empty?
+        jc.name = naming_strategy.join_key_column_name(target_class.name.split("::").last, jc.referenced_column_name)
+      end
+
       if jc.name.starts_with?('`')
         jc.name = jc.name.strip('`')
         jc.quoted = true
@@ -78,6 +108,10 @@ class Athena::ORM::Mapping::ManyToManyOwningSide < Athena::ORM::Mapping::OwningS
       if jc.referenced_column_name.starts_with?('`')
         jc.referenced_column_name = jc.referenced_column_name.strip('`')
         jc.quoted = true
+      end
+
+      if jc.on_delete.try(&.downcase) == "cascade"
+        instance.on_delete_cascade = true
       end
 
       instance.relation_to_target_key_columns[jc.name] = jc.referenced_column_name
@@ -106,8 +140,9 @@ class Athena::ORM::Mapping::ManyToManyOwningSide < Athena::ORM::Mapping::OwningS
     if jt = mapping.join_table
       if name = jt["name"]?
         instance.join_table = JoinTable.new(
-          name: name,
-          schema: jt["schema"]?
+          name: name.strip('`'),
+          schema: jt["schema"]?,
+          quoted: name.starts_with?('`')
         )
       end
     end
@@ -118,7 +153,8 @@ class Athena::ORM::Mapping::ManyToManyOwningSide < Athena::ORM::Mapping::OwningS
       join_col_defs.each do |jcd|
         join_table.join_columns << JoinColumn.new(
           name: jcd.name || "",
-          referenced_column_name: jcd.referenced_column_name || "id"
+          referenced_column_name: jcd.referenced_column_name || "id",
+          on_delete: jcd.on_delete
         )
       end
     end
@@ -129,7 +165,8 @@ class Athena::ORM::Mapping::ManyToManyOwningSide < Athena::ORM::Mapping::OwningS
       inv_join_col_defs.each do |jcd|
         join_table.inverse_join_columns << JoinColumn.new(
           name: jcd.name || "",
-          referenced_column_name: jcd.referenced_column_name || "id"
+          referenced_column_name: jcd.referenced_column_name || "id",
+          on_delete: jcd.on_delete
         )
       end
     end

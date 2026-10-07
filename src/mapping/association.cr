@@ -46,9 +46,11 @@ abstract class Athena::ORM::Mapping::Association
 
   # Whether a target entity that's no longer referenced through this association is removed on flush.
   # Enabling it also cascades `remove` operations.
-  #
-  # TODO: Only replacing or unsetting the target of a to-one association removes it; entities removed from a collection aren't removed yet.
   property? orphan_removal : Bool
+
+  # Whether the database deletes the join table rows of a removed entity on its own, because the association's join columns are declared `ON DELETE CASCADE`.
+  # Default many-to-many join columns are, as are those given `on_delete: "CASCADE"`.
+  property? on_delete_cascade : Bool = false
 
   # Whether the association should be unique.
   property? unique : Bool?

@@ -3,6 +3,21 @@ require "../spec_helper"
 struct SQLitePlatformDeclarationTest < ASPEC::TestCase
   @platform : AORM::Platforms::SQLite = AORM::Platforms::SQLite.new
 
+  # A length is optional for `VARCHAR` columns on SQLite.
+  def test_string_declarations : Nil
+    @platform.string_type_declaration_sql(column).should eq "VARCHAR"
+    @platform.string_type_declaration_sql(column length: 16).should eq "VARCHAR(16)"
+    @platform.string_type_declaration_sql(column length: 16, fixed: true).should eq "CHAR(16)"
+  end
+
+  def test_guid_declaration_is_a_fixed_length_string : Nil
+    @platform.guid_type_declaration_sql(column).should eq "CHAR(36)"
+  end
+
+  def test_date_time_declaration : Nil
+    @platform.date_time_type_declaration_sql(column).should eq "DATETIME"
+  end
+
   def test_numeric_declarations : Nil
     @platform.small_int_type_declaration_sql(column).should eq "SMALLINT"
     @platform.float_declaration_sql(column).should eq "DOUBLE PRECISION"
@@ -26,9 +41,10 @@ struct SQLitePlatformDeclarationTest < ASPEC::TestCase
     @platform.binary_type_declaration_sql(column length: 16).should eq "BLOB"
   end
 
-  private def column(*, length : Int32? = nil, auto_increment : Bool = false) : AORM::Schema::Column
+  private def column(*, length : Int32? = nil, fixed : Bool = false, auto_increment : Bool = false) : AORM::Schema::Column
     AORM::Schema::Column.new("c", AORM::Types::Type.get_type("string")).tap do |c|
       c.length = length
+      c.fixed = fixed
       c.auto_increment = auto_increment
     end
   end

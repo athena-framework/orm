@@ -122,12 +122,14 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
   # Sets the element at the given index with dirty tracking.
   def []=(index : Int, value : T) : T
     mark_dirty
+    self.cancel_orphan_removal value
     @collection[index] = value
   end
 
   # Adds an element to the collection with dirty tracking.
   def <<(element : T) : self
     mark_dirty
+    self.cancel_orphan_removal element
     @collection << element
     self
   end
@@ -137,7 +139,9 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     initialize_collection
     if @collection.includes?(element)
       mark_dirty
-      @collection.delete(element)
+      removed = @collection.delete(element)
+      self.schedule_orphan_removal element
+      removed
     end
   end
 
@@ -147,6 +151,7 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     unless @collection.empty?
       mark_dirty
     end
+    @collection.each { |element| self.schedule_orphan_removal element }
     @collection.clear
   end
 
@@ -162,6 +167,7 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
     if @collection.includes?(element)
       mark_dirty
       @collection.delete(element)
+      self.schedule_orphan_removal element
       true
     else
       false
@@ -288,6 +294,25 @@ class Athena::ORM::PersistentCollection(T) < Athena::ORM::AbstractLazyCollection
   # Unwraps the collection to an ArrayCollection for use outside ORM context.
   def unwrap : Collection(T)
     @collection
+  end
+
+  # Whether elements removed from this collection are removed from the database too, as configured by the *orphan_removal* option of its association.
+  private def orphan_removal? : Bool
+    !!((association = @association) && association.is_a?(Mapping::ToMany) && @owner && association.orphan_removal?)
+  end
+
+  # Elements arrive typed as their concrete class, and are upcast so the unit of work methods are compiled once rather than once per entity class.
+  private def schedule_orphan_removal(element : T) : Nil
+    {% if T <= AORM::Entity %}
+      @em.try &.unit_of_work.schedule_orphan_removal(element.as(AORM::Entity)) if self.orphan_removal?
+    {% end %}
+  end
+
+  # An element added back to the collection is no longer an orphan.
+  private def cancel_orphan_removal(element : T) : Nil
+    {% if T <= AORM::Entity %}
+      @em.try &.unit_of_work.cancel_orphan_removal(element.as(AORM::Entity))
+    {% end %}
   end
 
   protected def do_initialize : Nil

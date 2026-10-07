@@ -273,6 +273,9 @@ class Athena::ORM::Persisters::Entity::Basic
       # TODO: Handle versioning
       # TODO: Handle embedded classes
 
+      # Instance variables that aren't mapped aren't persisted.
+      next unless @class_metadata.field_mappings.has_key?(name) || @class_metadata.association_mappings.has_key?(name)
+
       if assoc = @class_metadata.association_mappings[name]?
         if assoc.is_a?(Mapping::ToOneOwningSide)
           assoc.join_columns.each do |join_column|
@@ -389,7 +392,12 @@ class Athena::ORM::Persisters::Entity::Basic
 
     self.delete_join_table_records identifier, types
 
-    values, value_types, conditions = self.delete_condition_sql id, types
+    !self.delete_rows(table_name, id, types).zero?
+  end
+
+  # Deletes the rows of *table_name* matching *criteria*, binding each value as the type at the same position in *types*, and returns the number of rows deleted.
+  private def delete_rows(table_name : String, criteria : Hash(String, Mapping::Value), types : Array(String)) : Int64
+    values, value_types, conditions = self.delete_condition_sql criteria, types
 
     sql = String.build do |io|
       io << "DELETE FROM " << table_name
@@ -400,7 +408,7 @@ class Athena::ORM::Persisters::Entity::Basic
       end
     end
 
-    !@connection.execute_statement(sql, values, value_types).zero?
+    @connection.execute_statement sql, values, value_types
   end
 
   # *types* holds the type of each criterion, in the same order as *criteria*.
@@ -434,8 +442,33 @@ class Athena::ORM::Persisters::Entity::Basic
     {values, value_types, conditions}
   end
 
-  protected def delete_join_table_records(identifier : Hash, types : Array(String)) : Nil
-    # TODO: Handle associations
+  # Deletes the join table rows of the entity with *identifier*, for each many-to-many association whose join columns don't delete them on their own.
+  protected def delete_join_table_records(identifier : Hash(String, Mapping::Value), types : Array(String)) : Nil
+    @class_metadata.association_mappings.each_value do |mapping|
+      next if !mapping.is_a?(Mapping::ManyToMany) || mapping.on_delete_cascade?
+
+      # Compared by type id, since comparing two arbitrary entity classes with `==` compiles to a branch for every pair of entity classes.
+      self_referential = mapping.target_entity.crystal_type_id == mapping.source_entity.crystal_type_id
+      owning_side = mapping.is_a?(Mapping::OwningSide)
+      class_metadata = owning_side ? @class_metadata : @em.class_metadata(mapping.target_entity)
+
+      association = @em.metadata_factory.owning_side(mapping).as Mapping::ManyToManyOwningSide
+      join_table = association.join_table.not_nil!
+
+      join_columns = owning_side ? join_table.join_columns : join_table.inverse_join_columns
+      keys = join_columns.map { |join_column| @quote_strategy.join_column_name join_column, class_metadata, @platform }
+      join_table_name = @quote_strategy.join_table_name association, @class_metadata, @platform
+
+      self.delete_rows join_table_name, Hash.zip(keys, identifier.values), types
+
+      # A self-referencing association can also hold the entity in its other join columns.
+      if self_referential
+        other_columns = owning_side ? join_table.inverse_join_columns : join_table.join_columns
+        other_keys = other_columns.map { |join_column| @quote_strategy.join_column_name join_column, class_metadata, @platform }
+
+        self.delete_rows join_table_name, Hash.zip(other_keys, identifier.values), types
+      end
+    end
   end
 
   protected def class_identifier_types(class_metadata : Mapping::ClassInterface) : Array(String)
@@ -802,7 +835,7 @@ class Athena::ORM::Persisters::Entity::Basic
     # TODO: Handle enum type columns
 
     type = Types::Type.get_type fm.type
-    sql = type.to_db_sql sql, @platform
+    sql = type.from_db_sql sql, @platform
 
     "#{sql} AS #{column_alias}"
   end

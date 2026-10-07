@@ -10,14 +10,13 @@ abstract class Athena::ORM::Mapping::ToOneInverseSide < Athena::ORM::Mapping::In
 
     instance = new mapping
 
-    if instance.id
-      raise "illegal inverse identifier association"
+    if instance.id?
+      raise "An inverse association is not allowed to be identifier in '#{name}##{instance.field_name}'."
     end
 
-    if instance.orphan_removal
-      # TODO: Handle cascade remove
-
-      instance = instance.copy_with unique: nil
+    if instance.orphan_removal?
+      instance.cascade << "remove" unless instance.cascade_remove?
+      instance.unique = nil
     end
 
     instance

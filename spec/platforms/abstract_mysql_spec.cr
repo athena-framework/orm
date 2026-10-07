@@ -33,6 +33,24 @@ end
 struct MySQLPlatformDeclarationTest < ASPEC::TestCase
   @platform : AORM::Platforms::MySQL = AORM::Platforms::MySQL.new
 
+  def test_string_declarations : Nil
+    @platform.string_type_declaration_sql(column length: 16).should eq "VARCHAR(16)"
+    @platform.string_type_declaration_sql(column fixed: true).should eq "CHAR"
+    @platform.string_type_declaration_sql(column length: 16, fixed: true).should eq "CHAR(16)"
+  end
+
+  def test_varchar_declaration_requires_a_length : Nil
+    expect_raises(Exception, "Length required") { @platform.string_type_declaration_sql column }
+  end
+
+  def test_guid_declaration_is_a_fixed_length_string : Nil
+    @platform.guid_type_declaration_sql(column).should eq "CHAR(36)"
+  end
+
+  def test_date_time_declaration : Nil
+    @platform.date_time_type_declaration_sql(column).should eq "DATETIME"
+  end
+
   def test_integer_declarations : Nil
     @platform.integer_type_declaration_sql(column).should eq "INTEGER"
     @platform.integer_type_declaration_sql(column auto_increment: true).should eq "INTEGER AUTO_INCREMENT"

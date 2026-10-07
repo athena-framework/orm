@@ -17,7 +17,9 @@
 # ```
 #
 # It's emitted on every flush, even when there is nothing to write.
+# In that case the flush ends once the event is dispatched, without writing anything a listener persists or changes.
 # Only the event dispatcher receives it; there is no lifecycle callback for it.
 #
-# TODO: Change sets can't be recomputed through the public API yet, so changes made to entities, or new entities persisted, in an `OnFlush` listener aren't guaranteed to be written.
+# Change sets are computed before the event is dispatched.
+# A listener that persists an entity also computes its change set via `AORM::UnitOfWork#compute_change_set`, and one that changes a managed entity recomputes it via `AORM::UnitOfWork#recompute_single_entity_change_set`.
 class Athena::ORM::Events::OnFlushEventArgs < Athena::ORM::Events::ManagerEventArgs; end

@@ -7,7 +7,7 @@ require "./type"
 struct Athena::ORM::Types::Datetime < Athena::ORM::Types::Type
   # :inherit:
   def sql_declaration(column : Schema::Column, platform : AORM::Platforms::Platform) : ::String
-    platform.string_type_declaration_sql column
+    platform.date_time_type_declaration_sql column
   end
 
   # :inherit:

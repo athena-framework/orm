@@ -133,6 +133,83 @@ class OneToOneInverseFixture < AORM::Entity
   property owner : DriverAssocTarget? = nil
 end
 
+# Join columns without a join table name, and a join column without a name, get the default names.
+@[AORMA::Entity]
+class ManyToManyJoinColumnsOnlyFixture < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  property id : Int64? = nil
+
+  @[AORMA::ManyToMany]
+  @[AORMA::JoinColumn(name: "owner_id")]
+  @[AORMA::InverseJoinColumn(referenced_column_name: "id")]
+  property targets : AORM::Collection(DriverAssocTarget) = AORM::ArrayCollection(DriverAssocTarget).new
+end
+
+@[AORMA::Entity]
+class OnDeleteFixture < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  property id : Int64? = nil
+
+  @[AORMA::ManyToOne]
+  @[AORMA::JoinColumn(name: "target_id", on_delete: "SET NULL")]
+  property target : DriverAssocTarget? = nil
+
+  @[AORMA::ManyToMany]
+  @[AORMA::JoinTable(name: "on_delete_owner_targets")]
+  @[AORMA::JoinColumn(name: "owner_id", on_delete: "CASCADE")]
+  @[AORMA::InverseJoinColumn(name: "target_id")]
+  property owner_cascading : AORM::Collection(DriverAssocTarget) = AORM::ArrayCollection(DriverAssocTarget).new
+
+  @[AORMA::ManyToMany]
+  @[AORMA::JoinTable(name: "on_delete_target_targets")]
+  @[AORMA::JoinColumn(name: "owner_id")]
+  @[AORMA::InverseJoinColumn(name: "target_id", on_delete: "cascade")]
+  property target_cascading : AORM::Collection(DriverAssocTarget) = AORM::ArrayCollection(DriverAssocTarget).new
+end
+
+@[AORMA::Entity]
+class SelfReferencingManyToManyFixture < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  property id : Int64? = nil
+
+  @[AORMA::ManyToMany]
+  property friends : AORM::Collection(SelfReferencingManyToManyFixture) = AORM::ArrayCollection(SelfReferencingManyToManyFixture).new
+end
+
+@[AORMA::Entity]
+class OneToOneInverseProxyFixture < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  property id : Int64? = nil
+
+  @[AORMA::OneToOne(mapped_by: "target")]
+  property owner : AORM::Proxy(DriverAssocTarget)? = nil
+end
+
+@[AORMA::Entity]
+class OneToOneInverseIdentifierFixture < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  property id : Int64? = nil
+
+  @[AORMA::ID]
+  @[AORMA::OneToOne(mapped_by: "target")]
+  property owner : DriverAssocTarget? = nil
+end
+
+@[AORMA::Entity]
+class OneToOneInverseOrphanRemovalFixture < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  property id : Int64? = nil
+
+  @[AORMA::OneToOne(mapped_by: "target", orphan_removal: true)]
+  property owner : DriverAssocTarget? = nil
+end
+
 @[AORMA::Entity]
 class ManyToOneFixture < AORM::Entity
   @[AORMA::Column]
@@ -405,6 +482,78 @@ struct AnnotationDriverTest < ASPEC::TestCase
     assoc = metadata.association_mappings["parent"].as(AORM::Mapping::ManyToOneOwningSide)
     assoc.target_entity.should eq DriverAssocTarget
     assoc.inversed_by.should eq "items"
+  end
+
+  # The inverse side never holds the target's identifier, so it can't be loaded lazily from it.
+  def test_one_to_one_inverse_side_rejects_proxy_typing : Nil
+    expect_raises(Exception, "AORM::Proxy(T) is only valid on owning-side ToOne fields; field 'owner' on 'OneToOneInverseProxyFixture' is the inverse side") do
+      load OneToOneInverseProxyFixture
+    end
+  end
+
+  def test_one_to_one_inverse_side_cannot_be_part_of_the_identifier : Nil
+    expect_raises(Exception, "An inverse association is not allowed to be identifier in 'OneToOneInverseIdentifierFixture#owner'.") do
+      load OneToOneInverseIdentifierFixture
+    end
+  end
+
+  def test_one_to_one_inverse_side_orphan_removal_cascades_remove : Nil
+    metadata = load OneToOneInverseOrphanRemovalFixture
+    assoc = metadata.association_mappings["owner"].as(AORM::Mapping::OneToOneInverseSide)
+    assoc.orphan_removal?.should be_true
+    assoc.cascade_remove?.should be_true
+  end
+
+  def test_many_to_many_join_columns_without_names_get_defaults : Nil
+    metadata = load ManyToManyJoinColumnsOnlyFixture
+    join_table = metadata.association_mappings["targets"].as(AORM::Mapping::ManyToManyOwningSide).join_table.not_nil!
+
+    join_table.name.should eq "many_to_many_join_columns_only_fixture_driver_assoc_target"
+    join_table.join_columns.map(&.name).should eq ["owner_id"]
+    join_table.inverse_join_columns.map(&.name).should eq ["driver_assoc_target_id"]
+  end
+
+  # Default join columns are `ON DELETE CASCADE`, which the persister relies on to delete a removed entity's join table rows.
+  def test_many_to_many_default_join_columns_cascade_on_delete : Nil
+    assoc = load(SelfReferencingManyToManyFixture).association_mappings["friends"].as(AORM::Mapping::ManyToManyOwningSide)
+    join_table = assoc.join_table.not_nil!
+
+    assoc.on_delete_cascade?.should be_true
+    (join_table.join_columns + join_table.inverse_join_columns).map(&.on_delete).should eq ["CASCADE", "CASCADE"]
+  end
+
+  def test_many_to_many_explicit_join_columns_dont_cascade_on_delete : Nil
+    load(ManyToManyOwningFixture).association_mappings["targets"].as(AORM::Mapping::ManyToManyOwningSide).on_delete_cascade?.should be_false
+  end
+
+  def test_to_one_join_column_on_delete : Nil
+    assoc = load(OnDeleteFixture).association_mappings["target"].as(AORM::Mapping::ManyToOneOwningSide)
+
+    assoc.join_columns.map(&.on_delete).should eq ["SET NULL"]
+  end
+
+  # Either join column cascading on delete means the database deletes a removed entity's join table rows.
+  def test_many_to_many_join_column_on_delete_cascade : Nil
+    metadata = load OnDeleteFixture
+
+    owner_cascading = metadata.association_mappings["owner_cascading"].as(AORM::Mapping::ManyToManyOwningSide)
+    owner_cascading.join_table.not_nil!.join_columns.map(&.on_delete).should eq ["CASCADE"]
+    owner_cascading.on_delete_cascade?.should be_true
+
+    metadata.association_mappings["target_cascading"].as(AORM::Mapping::ManyToManyOwningSide).on_delete_cascade?.should be_true
+  end
+
+  # Both default join columns would be named after the same entity, so they're suffixed `_source` and `_target` instead.
+  def test_self_referencing_many_to_many_default_join_columns : Nil
+    metadata = load SelfReferencingManyToManyFixture
+    assoc = metadata.association_mappings["friends"].as(AORM::Mapping::ManyToManyOwningSide)
+    join_table = assoc.join_table.not_nil!
+
+    join_table.name.should eq "self_referencing_many_to_many_fixture_self_referencing_many_to_many_fixture"
+    join_table.join_columns.map(&.name).should eq ["self_referencing_many_to_many_fixture_source"]
+    join_table.inverse_join_columns.map(&.name).should eq ["self_referencing_many_to_many_fixture_target"]
+    assoc.relation_to_source_key_columns.should eq({"self_referencing_many_to_many_fixture_source" => "id"})
+    assoc.relation_to_target_key_columns.should eq({"self_referencing_many_to_many_fixture_target" => "id"})
   end
 
   def test_one_to_many_inverse_dispatch : Nil

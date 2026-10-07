@@ -37,7 +37,7 @@
 # Stale proxy references stay functional, delegating to the loaded entity.
 #
 # NOTE: Owning-side ToOne only.
-# Fields mapped with `mapped_by` must be typed as the plain `Target?`; they're always loaded along with their owner.
+# Fields mapped with `mapped_by` are always loaded along with their owner, and typing one as a proxy raises when the entity's metadata is built.
 #
 # TODO: Fields typed as a plain `Target?` load each missing target with its own query once the owner's query has finished, rather than batching them.
 class Athena::ORM::Proxy(T) < Athena::ORM::Entity

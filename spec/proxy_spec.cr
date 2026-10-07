@@ -30,6 +30,20 @@ class ProxyOwner < AORM::Entity
   property avatar : AORM::Proxy(ProxyAvatar)?
 end
 
+# Owner whose `Proxy(T)?`-typed ToOne cascades `remove` and `detach`.
+@[AORMA::Entity]
+@[AORMA::Table(name: "proxy_cascade_users")]
+class ProxyCascadeOwner < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property! id : Int32
+
+  @[AORMA::OneToOne(cascade: ["remove", "detach"])]
+  @[AORMA::JoinColumn(name: "avatar_id")]
+  property avatar : AORM::Proxy(ProxyAvatar)?
+end
+
 struct ProxyTest < ASPEC::TestCase
   def test_wrap_returns_loaded_proxy : Nil
     avatar = ProxyAvatar.allocate
@@ -186,6 +200,96 @@ struct ProxyHydrationTest < ASPEC::TestCase
 
     # Identity map invariant holds: the canonical record is still the raw entity, not the proxy façade.
     @uow.get_by_id_hash("99", ProxyAvatar).should be existing
+  end
+
+  # An unloaded proxy is the target's record in the identity map until it loads.
+  # Computing change sets skips it, rather than reading the target's fields through it, and doesn't load it.
+  def test_compute_changesets_skips_unloaded_proxy : Nil
+    avatar_persister = MockEntityPersister.new @em, @em.class_metadata ProxyAvatar
+    @uow.set_entity_persister ProxyAvatar, avatar_persister
+
+    data = Hash(String, AORM::Mapping::Value).new
+    data["id"] = AORM::Mapping::SingleValue.new(1)
+    data["name"] = AORM::Mapping::SingleValue.new("alice")
+    data["avatar_id"] = AORM::Mapping::SingleValue.new(99)
+
+    owner = @uow.create_entity(ProxyOwner, data).as ProxyOwner
+    proxy = owner.avatar.as AORM::Proxy(ProxyAvatar)
+
+    @uow.compute_changesets
+
+    proxy.loaded?.should be_false
+    avatar_persister.load_calls.should be_empty
+    @uow.scheduled_entity_updates.should be_empty
+  end
+
+  # Finding the target of an unloaded proxy loads it through the proxy, so the owner's proxy and `find` share the loaded entity.
+  def test_find_loads_unloaded_proxy_in_identity_map : Nil
+    canned = ProxyAvatar.allocate
+    pointerof(canned.@id).value = 99
+
+    avatar_persister = MockEntityPersister.new @em, @em.class_metadata ProxyAvatar
+    avatar_persister.mock_load_result = canned
+    @uow.set_entity_persister ProxyAvatar, avatar_persister
+
+    data = Hash(String, AORM::Mapping::Value).new
+    data["id"] = AORM::Mapping::SingleValue.new(1)
+    data["name"] = AORM::Mapping::SingleValue.new("alice")
+    data["avatar_id"] = AORM::Mapping::SingleValue.new(99)
+
+    owner = @uow.create_entity(ProxyOwner, data).as ProxyOwner
+    proxy = owner.avatar.as AORM::Proxy(ProxyAvatar)
+
+    @em.find(ProxyAvatar, 99).should be canned
+    proxy.loaded?.should be_true
+    proxy.inner.should be canned
+    avatar_persister.load_calls.size.should eq 1
+  end
+
+  # Removing the target needs the entity itself, for its lifecycle callbacks and cascades, so an unloaded proxy is loaded first.
+  def test_cascade_remove_removes_the_loaded_proxy_target : Nil
+    owner, proxy, _ = self.cascade_owner_with_avatar_proxy
+
+    @uow.remove owner
+
+    proxy.loaded?.should be_true
+    @uow.is_scheduled_for_delete?(proxy.inner).should be_true
+    @uow.is_scheduled_for_delete?(owner).should be_true
+  end
+
+  # None of an unloaded proxy's target has been loaded through it, so there's nothing to cascade to, and it's detached without loading it.
+  def test_cascade_detach_detaches_an_unloaded_proxy_without_loading_it : Nil
+    owner, proxy, avatar_persister = self.cascade_owner_with_avatar_proxy
+
+    @uow.detach owner
+
+    proxy.loaded?.should be_false
+    avatar_persister.load_calls.should be_empty
+    @uow.get_by_id_hash("99", ProxyAvatar).should be_nil
+  end
+
+  def test_cascade_detach_detaches_the_target_of_a_loaded_proxy : Nil
+    owner, proxy, _ = self.cascade_owner_with_avatar_proxy
+    avatar = proxy.inner
+
+    @uow.detach owner
+
+    @uow.is_in_identity_map(avatar).should be_false
+    @uow.entity_state(avatar, :new).should eq AORM::UnitOfWork::EntityState::New
+  end
+
+  private def cascade_owner_with_avatar_proxy : {ProxyCascadeOwner, AORM::Proxy(ProxyAvatar), MockEntityPersister}
+    avatar_persister = MockEntityPersister.new @em, @em.class_metadata ProxyAvatar
+    avatar_persister.mock_load_data = {"id" => 99, "filename" => "a.png"} of String => DB::Any
+    @uow.set_entity_persister ProxyAvatar, avatar_persister
+
+    data = Hash(String, AORM::Mapping::Value).new
+    data["id"] = AORM::Mapping::SingleValue.new(1)
+    data["avatar_id"] = AORM::Mapping::SingleValue.new(99)
+
+    owner = @uow.create_entity(ProxyCascadeOwner, data).as ProxyCascadeOwner
+
+    {owner, owner.avatar.as(AORM::Proxy(ProxyAvatar)), avatar_persister}
   end
 
   # Loading the proxy: removes the proxy from the identity map and registers the loaded target under the same key.

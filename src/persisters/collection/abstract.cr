@@ -25,6 +25,6 @@ abstract class Athena::ORM::Persisters::Collection::Abstract
 
     # If Entity is scheduled for inclusion, it is not in this collection.
     # We can assure that because it would have return true before on array check
-    !(state.managed? && @uow.scheduled_for_insert? entity)
+    !(state.managed? && @uow.is_scheduled_for_insert? entity)
   end
 end

@@ -37,6 +37,75 @@ class CompositeAutoItem < AORM::Entity
   property! label : String
 end
 
+# Self-referencing many-to-many with explicit join columns, so removing an entity deletes its join table rows from both sides.
+@[AORMA::Entity]
+@[AORMA::Table(name: "customtype_parents")]
+class JoinRowsParent < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id : Int32? = nil
+
+  @[AORMA::ManyToMany(mapped_by: "my_friends")]
+  property friends_with_me : AORM::Collection(JoinRowsParent) = AORM::ArrayCollection(JoinRowsParent).new
+
+  @[AORMA::ManyToMany(inversed_by: "friends_with_me")]
+  @[AORMA::JoinTable(name: "customtype_parent_friends")]
+  @[AORMA::JoinColumn(name: "customtypeparent_id", referenced_column_name: "id")]
+  @[AORMA::InverseJoinColumn(name: "friend_customtypeparent_id", referenced_column_name: "id")]
+  property my_friends : AORM::Collection(JoinRowsParent) = AORM::ArrayCollection(JoinRowsParent).new
+end
+
+@[AORMA::Entity]
+@[AORMA::Table(name: "default_join_rows_tags")]
+class DefaultJoinRowsTag < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id : Int32? = nil
+end
+
+# Many-to-many with default join columns, which are `ON DELETE CASCADE`.
+@[AORMA::Entity]
+@[AORMA::Table(name: "default_join_rows_owners")]
+class DefaultJoinRowsOwner < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id : Int32? = nil
+
+  @[AORMA::ManyToMany]
+  property tags : AORM::Collection(DefaultJoinRowsTag) = AORM::ArrayCollection(DefaultJoinRowsTag).new
+end
+
+@[AORMA::Entity]
+@[AORMA::Table(name: "unmapped_property_items")]
+class UnmappedPropertyItem < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id : Int32? = nil
+
+  @[AORMA::Column]
+  property name : String = ""
+
+  # Not mapped to a column.
+  property? greeted : Bool = false
+end
+
+# Column whose type converts values in SQL.
+@[AORMA::Entity]
+@[AORMA::Table(name: "sql_converted_items")]
+class SqlConvertedItem < AORM::Entity
+  @[AORMA::Column]
+  @[AORMA::ID]
+  @[AORMA::GeneratedValue(strategy: :none)]
+  property id : Int32? = nil
+
+  @[AORMA::Column(type: "upper_case_string")]
+  property! name : String
+end
+
 # Identifier whose column name differs from its field name.
 @[AORMA::Entity]
 @[AORMA::Table(name: "renamed_pk_items")]
@@ -449,6 +518,24 @@ struct BasicPersisterTest < ASPEC::TestCase
     sql.should match(/username = \?/)
   end
 
+  def test_insert_column_list_excludes_unmapped_instance_variables : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(UnmappedPropertyItem)
+
+    persister.insert_column_list.should eq ["id", "name"]
+  end
+
+  # Selected columns are converted from their database representation, and bound values to it.
+  def test_select_sql_converts_columns_and_parameters_through_their_type : Nil
+    em = MockEntityManager.new(MockConnection.new)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(SqlConvertedItem)
+
+    sql = persister.select_sql({"name" => "fred".as(DB::Any)})
+
+    sql.should match(/LOWER\(t\d+\.name\) AS /)
+    sql.should match(/name = UPPER\(\?\)/)
+  end
+
   # ORDER BY arg flows into order_by_sql, which uses the table alias the persister already chose.
   def test_select_sql_appends_order_by_when_present : Nil
     persister = build_persister
@@ -644,6 +731,44 @@ struct BasicPersisterTest < ASPEC::TestCase
     persister.delete(item).should be_true
 
     connection.built_statements.last.should eq "DELETE FROM renamed_pk_items WHERE item_pk = ?"
+  end
+
+  # The inverse side's rows are deleted through the owning side's inverse join columns, and a self-referencing association's rows through its other join columns too.
+  def test_delete_removes_many_to_many_join_table_rows : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(JoinRowsParent)
+
+    friend = JoinRowsParent.new
+    friend.id = 2
+    parent = JoinRowsParent.new
+    parent.id = 1
+    parent.my_friends << friend
+
+    em.unit_of_work.register_managed parent, {"id" => 1}, {"id" => 1}
+    em.unit_of_work.register_managed friend, {"id" => 2}, {"id" => 2}
+
+    persister.delete parent
+
+    connection.executed_statements[0, 2].should eq [
+      {"DELETE FROM customtype_parent_friends WHERE friend_customtypeparent_id = ?", [1]},
+      {"DELETE FROM customtype_parent_friends WHERE customtypeparent_id = ?", [1]},
+    ]
+  end
+
+  # Default join columns are `ON DELETE CASCADE`, so the database deletes the rows instead.
+  def test_delete_leaves_join_table_rows_of_default_join_columns_to_the_database : Nil
+    connection = MockConnection.new
+    em = MockEntityManager.new(connection)
+    persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(DefaultJoinRowsOwner)
+
+    owner = DefaultJoinRowsOwner.new
+    owner.id = 1
+    em.unit_of_work.register_managed owner, {"id" => 1}, {"id" => 1}
+
+    persister.delete owner
+
+    connection.executed_statements.should eq [{"DELETE FROM default_join_rows_owners WHERE id = ?", [1]}]
   end
 
   def test_execute_inserts_binds_values_converted_through_their_mapped_types : Nil

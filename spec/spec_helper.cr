@@ -29,6 +29,10 @@ class MockPlatform < AORM::Platforms::Platform
     "BLOB"
   end
 
+  def date_time_type_declaration_sql(column : AORM::Schema::Column) : String
+    "DATETIME"
+  end
+
   def integer_type_declaration_sql(column : AORM::Schema::Column) : String
     "INTEGER"
   end
@@ -113,6 +117,10 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
   getter inserts : Array(AORM::Entity) = [] of AORM::Entity
   getter updates : Array(AORM::Entity) = [] of AORM::Entity
   getter deletes : Array(AORM::Entity) = [] of AORM::Entity
+
+  # The data each insert and update would write, captured when the unit of work hands the entity over.
+  getter insert_data : Array(Hash(String, Hash(String, AORM::Mapping::Value))) = [] of Hash(String, Hash(String, AORM::Mapping::Value))
+  getter update_data : Array(Hash(String, Hash(String, AORM::Mapping::Value))) = [] of Hash(String, Hash(String, AORM::Mapping::Value))
   setter mock_id_generator : AORM::Mapping::GeneratedValueStrategy? = nil
   getter? exists_called : Bool = false
   property mock_exists_result : Bool = false
@@ -122,6 +130,7 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
 
   def add_insert(entity : AORM::Entity) : Nil
     @inserts << entity
+    @insert_data << self.prepare_insert_data entity
 
     if !@mock_id_generator.try(&.identity?) && !@class_metadata.identifier_identity?
       return
@@ -143,6 +152,7 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
 
   def update(entity : AORM::Entity) : Nil
     @updates << entity
+    @update_data << self.prepare_update_data entity
   end
 
   def exists(entity : AORM::Entity, extra_conditions = nil) : Bool
@@ -190,6 +200,9 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
   # for already-managed entities. Used for `UoW#refresh` specs.
   setter mock_refresh_data : Hash(String, DB::Any)? = nil
 
+  # Test fixture: when set, `load` hydrates this data through `uow.create_entity`, registering the entity as managed like a real load does.
+  setter mock_load_data : Hash(String, DB::Any)? = nil
+
   def load(
     criteria : Hash(String, _),
     entity : AORM::Entity? = nil,
@@ -206,6 +219,10 @@ class MockEntityPersister < AORM::Persisters::Entity::Basic
     if (data = @mock_refresh_data) && hints.refresh? && entity
       @em.unit_of_work.create_entity entity.class, data, hints
       return entity
+    end
+
+    if data = @mock_load_data
+      return @em.unit_of_work.create_entity @class_metadata.entity_class, data
     end
 
     @mock_load_result
@@ -342,6 +359,10 @@ class NoReturningPlatform < AORM::Platforms::Platform
 
   def blob_type_declaration_sql(column : AORM::Schema::Column) : String
     "BLOB"
+  end
+
+  def date_time_type_declaration_sql(column : AORM::Schema::Column) : String
+    "DATETIME"
   end
 
   def integer_type_declaration_sql(column : AORM::Schema::Column) : String

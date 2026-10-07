@@ -37,6 +37,16 @@ class Athena::ORM::Platforms::SQLite < Athena::ORM::Platforms::Platform
     "BLOB"
   end
 
+  # :inherit:
+  def date_time_type_declaration_sql(column : Schema::Column) : String
+    "DATETIME"
+  end
+
+  # A length is optional for `VARCHAR` columns on SQLite.
+  private def varchar_type_declaration_sql(length : Int32?) : String
+    length ? "VARCHAR(#{length})" : "VARCHAR"
+  end
+
   protected def binary_type_declaration_sql_snippet(length : Int32?) : String
     "BLOB"
   end

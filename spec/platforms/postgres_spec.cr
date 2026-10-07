@@ -80,17 +80,34 @@ struct PostgresPlatformDeclarationTest < ASPEC::TestCase
     expect_raises(Exception, "Scale required") { @platform.decimal_type_declaration_sql column precision: 10 }
   end
 
+  # A length is optional for `VARCHAR` columns on Postgres.
+  def test_string_declarations : Nil
+    @platform.string_type_declaration_sql(column).should eq "VARCHAR"
+    @platform.string_type_declaration_sql(column length: 16).should eq "VARCHAR(16)"
+    @platform.string_type_declaration_sql(column fixed: true).should eq "CHAR"
+    @platform.string_type_declaration_sql(column length: 16, fixed: true).should eq "CHAR(16)"
+  end
+
+  def test_guid_declaration_is_native : Nil
+    @platform.guid_type_declaration_sql(column).should eq "UUID"
+  end
+
+  def test_date_time_declaration : Nil
+    @platform.date_time_type_declaration_sql(column).should eq "TIMESTAMP(0) WITHOUT TIME ZONE"
+  end
+
   def test_binary_declarations_are_bytea : Nil
     @platform.blob_type_declaration_sql(column).should eq "BYTEA"
     @platform.binary_type_declaration_sql(column length: 16).should eq "BYTEA"
   end
 
-  private def column(*, length : Int32? = nil, precision : Int32? = nil, scale : Int32? = nil, auto_increment : Bool = false) : AORM::Schema::Column
+  private def column(*, length : Int32? = nil, precision : Int32? = nil, scale : Int32? = nil, fixed : Bool = false, auto_increment : Bool = false) : AORM::Schema::Column
     AORM::Schema::Column.new("c", AORM::Types::Type.get_type("string")).tap do |c|
       c.auto_increment = auto_increment
       c.length = length
       c.precision = precision
       c.scale = scale
+      c.fixed = fixed
     end
   end
 end

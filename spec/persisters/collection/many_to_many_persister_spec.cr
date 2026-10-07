@@ -26,6 +26,10 @@ private class TestableManyToManyPersister < AORM::Persisters::Collection::ManyTo
   def public_get_insert_row_sql_params(collection, element, mapping)
     self.get_insert_row_sql_params collection, element, mapping
   end
+
+  def public_valid_entity_state?(entity)
+    self.valid_entity_state? entity
+  end
 end
 
 struct ManyToManyPersisterTest < ASPEC::TestCase
@@ -169,6 +173,25 @@ struct ManyToManyPersisterTest < ASPEC::TestCase
     collection.set_owner owner, mapping
 
     {owner, element, collection}
+  end
+
+  # ===== Entity state =====
+
+  def test_managed_entity_is_in_a_valid_state : Nil
+    build_persister.public_valid_entity_state?(managed_group(1)).should be_true
+  end
+
+  def test_new_entity_is_not_in_a_valid_state : Nil
+    build_persister.public_valid_entity_state?(CmsGroup.new).should be_false
+  end
+
+  # An entity scheduled for insertion can't be in a collection that's already in the database.
+  def test_entity_scheduled_for_insertion_is_not_in_a_valid_state : Nil
+    group = CmsGroup.new
+    group.name = "new"
+    @uow.persist group
+
+    build_persister.public_valid_entity_state?(group).should be_false
   end
 
   private def build_persister : TestableManyToManyPersister

@@ -595,9 +595,8 @@ class Athena::ORM::Mapping::Class(T)
   # :nodoc:
   def identifier_values(entity : T) : Hash
     if @is_identifier_composite
-      return @identifier.to_h do |k|
-        {k, nil}
-      end
+      # Fields without a value are left out, as a single identifier without one is.
+      return @identifier.to_h { |field| {field, self.get_field_value(entity, field)} }.compact
     end
 
     id = @identifier.first
@@ -823,7 +822,7 @@ class Athena::ORM::Mapping::Class(T)
         @entity_class,
         @table,
         self.inheritance_type.single_table?
-      ) : OneToOneInverseSide.new mapping
+      ) : OneToOneInverseSide.new mapping, @entity_class.name
     when "many_to_many"
       mapping.is_owning_side ? ManyToManyOwningSide.new(
         mapping,
@@ -862,7 +861,11 @@ class Athena::ORM::Mapping::Class(T)
   # :nodoc:
   def primary_table=(table : Driver::TableMapping) : Nil
     if name = table.name
-      # TODO: Handle myschema.mytable
+      # A name like `myschema.mytable` holds the schema too.
+      if name.includes? '.'
+        schema, name = name.split '.', 2
+        @table = @table.copy_with schema: schema
+      end
 
       if name.starts_with?('`')
         @table = @table.copy_with name: name.strip('`'), quoted: true

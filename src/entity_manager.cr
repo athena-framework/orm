@@ -174,6 +174,10 @@ class Athena::ORM::EntityManager
     uow = self.unit_of_work
 
     uow.try_get_by_id(id, entity_class) do |entity|
+      # An unloaded proxy stands in for the entity in the identity map, but isn't an instance of its class.
+      # Loading it through the proxy keeps the proxy and the identity map pointing at the same entity.
+      entity = entity.inner.as(AORM::Entity) if entity.is_a?(AORM::Proxy)
+
       # Compared by type id, since comparing two arbitrary entity classes with `!=` compiles to a branch for every pair of entity classes.
       return nil if entity.class.crystal_type_id != entity_class.crystal_type_id
 
@@ -246,8 +250,6 @@ class Athena::ORM::EntityManager
   # :inherit:
   def clear : Nil
     self.unit_of_work.clear
-
-    # TODO: Handle eventing (onClear)
   end
 
   # Returns the mapping metadata of *entity_class*.
