@@ -18,6 +18,8 @@ require "./types/*"
 require "./utility/*"
 
 require "./annotations"
+require "./driver"
+require "./driver_manager"
 require "./connection"
 require "./default_repository_factory"
 require "./entity"
@@ -29,8 +31,6 @@ require "./listeners_invoker"
 require "./native_query"
 require "./persister_helper"
 require "./unit_of_work"
-
-require "./ext/db"
 
 # Convenience alias to make referencing `Athena::ORM` types easier.
 alias AORM = Athena::ORM

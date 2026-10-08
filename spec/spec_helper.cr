@@ -283,11 +283,12 @@ class MockStatement < DB::Statement
     connection.as(MockConnection).next_result_set || MockResultSet.new(self)
   end
 
+  # Only an `INSERT` generates an identifier, as with a real database.
   def perform_exec(args : Enumerable) : DB::ExecResult
     self.record_execution args
     ::DB::ExecResult.new(
       rows_affected: 1,
-      last_insert_id: 1_i64
+      last_insert_id: command.lstrip.upcase.starts_with?("INSERT") ? connection.as(MockConnection).next_insert_id : 0_i64
     )
   end
 
@@ -299,7 +300,12 @@ class MockStatement < DB::Statement
 end
 
 class MockConnection < DB::Connection
-  @last_insert_ids : Array(AORM::Mapping::Value) = [] of AORM::Mapping::Value
+  # The driver shard the connection claims to be from, which determines its `AORM::Driver`.
+  property driver_name : String = "sqlite3"
+
+  property server_name : String? = nil
+
+  @insert_ids = Deque(Int64).new
 
   getter built_statements : Array(String) = [] of String
 
@@ -318,8 +324,11 @@ class MockConnection < DB::Connection
     @queued_results.shift?.try { |rows| FakeResultSet.new rows }
   end
 
-  def self.new
-    new DB::Connection::Options.new
+  def self.new(driver_name : String = "sqlite3", server_name : String? = nil)
+    connection = new DB::Connection::Options.new
+    connection.driver_name = driver_name
+    connection.server_name = server_name
+    connection
   end
 
   def build_prepared_statement(query) : DB::Statement
@@ -332,59 +341,14 @@ class MockConnection < DB::Connection
     MockStatement.new self, query
   end
 
-  # Athena::ORM Extensions
-  getter database_platform : AORM::Platforms::Platform do
-    AORM::Platforms::SQLite.new
+  # Queues the identifiers the next executed `INSERT` statements report, in order.
+  def push_ids(*ids : Int) : Nil
+    ids.each { |id| @insert_ids << id.to_i64 }
   end
 
-  def push_ids(type : T.class, *ids) : Nil forall T
-    ids.each do |id|
-      @last_insert_ids << AORM::Mapping::ColumnValue.new "id", id
-    end
-  end
-
-  def last_insert_id
-    @last_insert_ids.shift.value
-  end
-end
-
-# Variant whose `database_platform` returns a non-RETURNING-supporting platform.
-# Drives the LASTVAL fallback path (`IdentityGenerator` / `BigIntegerIdentityGenerator`).
-class MockMariaConnection < MockConnection
-  getter database_platform : AORM::Platforms::Platform do
-    NoReturningPlatform.new
-  end
-end
-
-# Standalone platform for tests that need `supports_returning? == false` without
-# pulling in MariaDB-specific declaration SQL. Inherits Platform's defaults.
-class NoReturningPlatform < AORM::Platforms::Platform
-  def boolean_type_declaration_sql(column : AORM::Schema::Column) : String
-    "BOOLEAN"
-  end
-
-  def small_int_type_declaration_sql(column : AORM::Schema::Column) : String
-    "SMALLINT"
-  end
-
-  def blob_type_declaration_sql(column : AORM::Schema::Column) : String
-    "BLOB"
-  end
-
-  def date_time_type_declaration_sql(column : AORM::Schema::Column) : String
-    "DATETIME"
-  end
-
-  def integer_type_declaration_sql(column : AORM::Schema::Column) : String
-    "INTEGER"
-  end
-
-  def big_int_type_declaration_sql(column : AORM::Schema::Column) : String
-    "BIGINT"
-  end
-
-  private def common_integer_type_declaration_sql(column : AORM::Schema::Column) : String
-    ""
+  # The identifier the next executed `INSERT` reports, `0` (none generated) when none is queued.
+  def next_insert_id : Int64
+    @insert_ids.shift? || 0_i64
   end
 end
 

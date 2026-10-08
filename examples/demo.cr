@@ -393,7 +393,7 @@ DATABASES.each do |name, config|
 
       # ---------------------------------------------------------------------
       # `persist` registers the entity with the UoW; nothing hits the DB until `flush`.
-      # After flush, identity-strategy id columns are populated on the in-memory entity from the row the DB just inserted (`RETURNING`, or `LAST_INSERT_ID()` on MySQL).
+      # After flush, identity-strategy id columns are populated on the in-memory entity from the row the DB just inserted (`RETURNING`, or the id MySQL reports for the INSERT).
       step 1, "persist + flush + post-insert ID (scalar entity)" do
         alice = User.new
         alice.username = "alice"

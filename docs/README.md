@@ -37,7 +37,7 @@ require "pg"
 | MariaDB    | [crystal-lang/crystal-mysql](https://github.com/crystal-lang/crystal-mysql) | [AORM::Platforms::Maria](/ORM/Platforms/Maria/)  |
 | SQLite     | [crystal-lang/crystal-sqlite3](https://github.com/crystal-lang/crystal-sqlite3) | [AORM::Platforms::SQLite](/ORM/Platforms/SQLite/) |
 
-The platform is picked automatically based on the connection.
+The platform is picked automatically from the connection's driver shard, and for MySQL and MariaDB from the server it reports, see [AORM::DriverManager](/ORM/DriverManager/).
 
 ## Usage
 

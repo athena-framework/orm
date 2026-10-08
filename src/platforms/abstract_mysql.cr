@@ -2,19 +2,10 @@ require "./platform"
 
 # Base platform for MySQL-like platforms.
 #
-# Connections from the `mysql` driver shard use `AORM::Platforms::Maria` or `AORM::Platforms::MySQL`, depending on whether the server's version string, as returned by `SELECT VERSION()`, mentions MariaDB.
-# The platform is detected once per connection.
+# Connections from the `mysql` driver shard use `AORM::Platforms::Maria` or `AORM::Platforms::MySQL`, depending on whether the driver reports the server as MariaDB (`DB::Connection#server_name`).
 #
 # Identifiers are quoted with backticks.
 abstract class Athena::ORM::Platforms::AbstractMySQL < Athena::ORM::Platforms::Platform
-  # :nodoc:
-  #
-  # Returns the platform for the server that reported *server_version*, e.g. the result of `SELECT VERSION()`.
-  # MariaDB includes `MariaDB` in its version string; anything else is MySQL.
-  def self.for_server_version(server_version : String) : AbstractMySQL
-    server_version.downcase.includes?("mariadb") ? Maria.new : MySQL.new
-  end
-
   # :inherit:
   #
   # MySQL and MariaDB wrap identifiers in backticks instead, with any embedded backticks doubled.

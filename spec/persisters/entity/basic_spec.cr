@@ -695,7 +695,7 @@ struct BasicPersisterTest < ASPEC::TestCase
   end
 
   def test_execute_inserts_emits_plain_insert_on_non_returning_platform : Nil
-    connection = MockMariaConnection.new
+    connection = MockConnection.new driver_name: "mysql", server_name: "MySQL"
     em = MockEntityManager.new(connection)
     persister = AORM::Persisters::Entity::Basic.new em, em.class_metadata(ForumUser)
 
@@ -706,7 +706,7 @@ struct BasicPersisterTest < ASPEC::TestCase
     user.username = "fred"
     user.avatar = avatar
 
-    connection.push_ids Int32, 42
+    connection.push_ids 42
 
     em.unit_of_work.persist user
     persister.add_insert user

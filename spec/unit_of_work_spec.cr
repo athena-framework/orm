@@ -411,7 +411,7 @@ struct UnitOfWorkTest < ASPEC::TestCase
 
   def initialize
     @connection = MockConnection.new
-    @connection.push_ids Int32, 1, 2, 3, 4, 5, 6
+    @connection.push_ids 1, 2, 3, 4, 5, 6
     @em = MockEntityManager.new @connection
     @uow = MockUnitOfWork.new @em
     @em.uow_mock = @uow
