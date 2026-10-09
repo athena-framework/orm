@@ -2,7 +2,7 @@ name: athena-orm
 
 version: 0.1.0
 
-crystal: '~> 1.21'
+crystal: ~> 1.21
 
 license: MIT
 
@@ -17,25 +17,9 @@ authors:
   - George Dietrich <dev@dietrich.pub>
 
 dependencies:
-  db:
-    github: crystal-lang/crystal-db
-    version: ~> 0.15.0
   athena-contracts:
     github: athena-framework/contracts
     version: ~> 0.1.0
-
-development_dependencies:
-  ameba:
-    github: crystal-ameba/ameba
-  pg:
-    github: will/crystal-pg
-    commit: 66f6b2bb44d46f5f37a76a5aa7e64465c51d1115
-  mysql:
-    github: crystal-lang/crystal-mysql
-    commit: 54134e6f75f7bee9081385e251c41aef4b7eb298
-  sqlite3:
-    github: crystal-lang/crystal-sqlite3
-    commit: 36a9f0654b9a1ed236da393aa5a97134f45d65e4
-  athena-spec:
-    github: athena-framework/spec
-    version: ~> 0.4.0
+  db:
+    github: crystal-lang/crystal-db
+    version: ~> 0.15.0

@@ -19,6 +19,7 @@ dependencies:
     version: ~> 0.1.0
   pg: # Or the driver of your database, see below.
     github: will/crystal-pg
+    # version: ~> 0.31.0 Be sure to use the latest version!
 ```
 
 Then require both, in any order:
